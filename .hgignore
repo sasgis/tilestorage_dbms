@@ -1,0 +1,10 @@
+syntax: glob
+*.dcu
+__history/*
+*.dsk
+*.orig
+*.dproj.local
+*.identcache
+*.~*
+*.bak
+*.groupproj.local
