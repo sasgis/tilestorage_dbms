@@ -38,6 +38,11 @@ type
       const ASelectBufferIn: PETS_SELECT_TILE_IN
     ): Byte;
 
+    function DBMS_GetTileRectInfo(
+      const ACallbackPointer: Pointer;
+      const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
+    ): Byte;
+
   end;
 
   TStub_DBMS_Provider = packed record

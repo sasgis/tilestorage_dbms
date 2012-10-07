@@ -31,6 +31,9 @@ type
     // sync object for work with guides
     FGuidesSync: IReadWriteSync;
 
+    // flag
+    FCompleted: Boolean;
+
     // callbacks
     FHostCallbacks: TDBMS_INFOCLASS_Callbacks;
     
@@ -118,6 +121,22 @@ type
     ): WideString;
 
   private
+    function CreateBaseTemplateTables: Byte;
+    
+    function AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
+
+    function AutoCreateServiceVersion(
+      const AExclusively: Boolean;
+      const AInsertBuffer: PETS_INSERT_TILE_IN;
+      const AReqVersionPtr: PVersionAA;
+      out ARequestedVersionFound: Boolean
+    ): Byte;
+
+    function GetMaxNextVersionInts(const ANewVersionPtr: PVersionAA; const AKeepVerNumber: Boolean): Boolean;
+    function MakePtrVersionInDB(const ANewVersionPtr: PVersionAA): Boolean;
+    function MakeEmptyVersionInDB(const AIdVersion: SmallInt): Boolean;
+    function VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;
+
     // check if tile is in common tiles
     function CheckTileInCommonTiles(
       const ATileBuffer: Pointer;
@@ -183,7 +202,11 @@ type
     // get others
     function GetSQL_SelectVersions: WideString;
     function GetSQL_SelectContentTypes: WideString;
-    function GetSQL_SelectService: WideString;
+    function GetSQL_SelectService_Current: WideString;
+    function GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): WideString;
+
+    function GetSQL_InsertIntoService(out ASQLTextResult: WideString): Byte;
+    
   private
     function DBMS_Complete(const AFlags: LongWord): Byte;
 
@@ -214,6 +237,11 @@ type
     function DBMS_EnumTileVersions(
       const ACallbackPointer: Pointer;
       const ASelectBufferIn: PETS_SELECT_TILE_IN
+    ): Byte;
+
+    function DBMS_GetTileRectInfo(
+      const ACallbackPointer: Pointer;
+      const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
     ): Byte;
 
 
@@ -299,19 +327,150 @@ begin
       end;
     end;
   end;
+end;
 
-(*
-create table v_%SERVICE% (
-   id_ver               smallint                       not null,
-   ver_value            varchar(50)                    not null,
-   ver_date             datetime                       not null,
-   ver_number           int                            default 0 not null,
-   ver_comment          varchar(255)                   null,
-   constraint PK_V_%SERVICE% primary key (id_ver)
-)
-lock datarows
-go
-*)
+function TDBMS_Provider.AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
+var
+  VDataset: TDBMS_Dataset;
+  VSQLText: WideString;
+begin
+  if (not AExclusively) then begin
+    Result := ETS_RESULT_NEED_EXCLUSIVE;
+    Exit;
+  end;
+
+  Result := GetSQL_InsertIntoService(VSQLText);
+  if (Result<>ETS_RESULT_OK) then
+    Exit;
+
+  VDataset := FConnection.MakePoolDataset;
+  try
+    // execute INSERT statement
+    try
+      VDataset.SQL.Text := VSQLText;
+      VDataset.ExecSQL(TRUE);
+      Result := ETS_RESULT_OK;
+    except
+      // failed
+      Result := ETS_RESULT_INVALID_STRUCTURE;
+    end;
+  finally
+    FConnection.KillPoolDataset(VDataset);
+  end;
+end;
+
+function TDBMS_Provider.AutoCreateServiceVersion(
+  const AExclusively: Boolean;
+  const AInsertBuffer: PETS_INSERT_TILE_IN;
+  const AReqVersionPtr: PVersionAA;
+  out ARequestedVersionFound: Boolean
+): Byte;
+var
+  VVerIsInt: Boolean;
+  VKeepVerNumber: Boolean;
+begin
+  // only exclusively
+  if (not AExclusively) then begin
+    Result := ETS_RESULT_NEED_EXCLUSIVE;
+    Exit;
+  end;
+
+  // get requested version value
+  if (nil=AInsertBuffer^.szVersionIn) then begin
+    AReqVersionPtr^.ver_value := '';
+  end else if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    AReqVersionPtr^.ver_value := AnsiString(PAnsiChar(AInsertBuffer^.szVersionIn));
+  end else begin
+    AReqVersionPtr^.ver_value := WideString(PWideChar(AInsertBuffer^.szVersionIn));
+  end;
+
+  // check if empty version
+  if (0=Length(AReqVersionPtr^.ver_value)) then begin
+    // TODO: try to use 0 as id_ver
+    if (not VersionExistsInDBWithIdVer(0)) then begin
+      MakeEmptyVersionInDB(0);
+      ReadVersionsFromDB;
+      ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(0, AReqVersionPtr);
+      if ARequestedVersionFound then begin
+        Result := ETS_RESULT_OK;
+        Exit;
+      end;
+    end;
+
+    // TODO: failed - use min(min-1,-1) as id_ver
+    (*
+    if (not VersionExistsInDBWithIdVer(-1)) then begin
+      MakeEmptyVersionInDB(-1);
+      ReadVersionsFromDB;
+      ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(-1, AReqVersionPtr);
+      if ARequestedVersionFound then begin
+        Result := ETS_RESULT_OK;
+        Exit;
+      end;
+    end;
+    *)
+
+    // TODO: make correct loop
+    ARequestedVersionFound := FALSE;
+    Result := ETS_RESULT_UNKNOWN_VERSION;
+    Exit;
+  end;
+
+  AReqVersionPtr^.ver_date := NowUTC;
+  VVerIsInt := TryStrToInt(AReqVersionPtr^.ver_value, AReqVersionPtr^.ver_number);
+  // flag to keep ver_number=ver_value even if incrementing id_ver
+  VKeepVerNumber := FALSE;
+
+  // TODO:  make it more correctly!!!
+  // use Versions flags
+
+  // check ver_comp
+  case FDBMS_Service_Info.id_ver_comp of
+    TILE_VERSION_COMPARE_ID, TILE_VERSION_COMPARE_NUMBER: begin
+      // id_ver=ver_value OR ver_number=ver_value
+      VKeepVerNumber := TRUE;
+      if VVerIsInt then begin
+        // check if allow to treat ver_value as SmallInt
+        if (AReqVersionPtr^.ver_number<$8000) and (AReqVersionPtr^.ver_number>=0) then begin
+          // allow treat ver_value as SmallInt
+          AReqVersionPtr^.id_ver := AReqVersionPtr^.ver_number;
+        end else begin
+          // cannot treat ver_value as SmallInt
+          // TODO: get max+1 for id_ver and reset TILE_VERSION_COMPARE_ID to TILE_VERSION_COMPARE_NUMBER
+          GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+        end;
+      end else begin
+        // ver_value is not INT
+        // TODO: get max+1 for id_ver and max+1 for ver_number
+        // and reset TILE_VERSION_COMPARE_ID or TILE_VERSION_COMPARE_NUMBER to TILE_VERSION_COMPARE_DATE
+        GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+      end;
+    end;
+    TILE_VERSION_COMPARE_VALUE, TILE_VERSION_COMPARE_DATE: begin
+      // TODO: get max+1 for id_ver and max+1 for ver_number
+      GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+    end;
+    else {TILE_VERSION_COMPARE_NONE:} begin
+      // TODO: get max+1 for id_ver and max+1 for ver_number
+      GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+    end;
+  end;
+
+  repeat
+    if MakePtrVersionInDB(AReqVersionPtr) then begin
+      ReadVersionsFromDB;
+      ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(AReqVersionPtr^.id_ver, AReqVersionPtr);
+      if ARequestedVersionFound then begin
+        Result := ETS_RESULT_OK;
+        Exit;
+      end;
+    end;
+
+    // TODO: make correct loop
+    ARequestedVersionFound := FALSE;
+    Result := ETS_RESULT_UNKNOWN_VERSION;
+    Exit;
+  until FALSE;
 end;
 
 function TDBMS_Provider.CheckTileInCommonTiles(
@@ -331,6 +490,8 @@ constructor TDBMS_Provider.Create(
   const AHostPointer: Pointer
 );
 begin
+  FCompleted := FALSE;
+  
   // initialization
   FStatusBuffer := AStatusBuffer;
   FInitFlags := AFlags;
@@ -350,11 +511,25 @@ begin
   InternalProv_Cleanup;
 end;
 
+function TDBMS_Provider.CreateBaseTemplateTables: Byte;
+var
+  VSQLTemplates: TDBMS_SQLTemplates_File;
+  VDataset: TDBMS_Dataset;
+begin
+  VSQLTemplates := TDBMS_SQLTemplates_File.Create;
+  VDataset := FConnection.MakePoolDataset;
+  try
+    Result := VSQLTemplates.ExecuteAllSQLs(VDataset);
+  finally
+    FConnection.KillPoolDataset(VDataset);
+    VSQLTemplates.Free;
+  end;
+end;
+
 function TDBMS_Provider.CreateTableByTemplate(
   const ATemplateName, ATableName: WideString
 ): Byte;
 var
-  VSQLTemplates: TDBMS_SQLTemplates_File;
   VDataset, VExecSQL: TDBMS_Dataset;
   VSQLText: WideString;
   Vignore_errors: AnsiChar;
@@ -362,15 +537,7 @@ var
 begin
   if (not TableExists(c_Template_Tablename)) then begin
     // create template table
-    VSQLTemplates := TDBMS_SQLTemplates_File.Create;
-    VDataset := FConnection.MakePoolDataset;
-    try
-      VSQLTemplates.ExecuteAllSQLs(VDataset);
-    finally
-      FConnection.KillPoolDataset(VDataset);
-      VSQLTemplates.Free;
-    end;
-
+    CreateBaseTemplateTables;
     // not created
     if (not TableExists(c_Template_Tablename)) then begin
       // OMG WTF
@@ -401,7 +568,7 @@ begin
 
     VDataset.First;
     while (not VDataset.Eof) do begin
-      // TODO: get SQL text and replace tablename
+      // get SQL text and replace tablename
       Vignore_errors := VDataset.GetAnsiCharFlag('ignore_errors', ETS_UCT_YES);
       if (not VDataset.FieldByName('object_sql').IsNull) then
       try
@@ -440,7 +607,7 @@ end;
 
 function TDBMS_Provider.DBMS_Complete(const AFlags: LongWord): Byte;
 begin
-  // TODO: provider is completely initiaized
+  FCompleted := TRUE;
   Result := ETS_RESULT_OK;
 end;
 
@@ -612,6 +779,131 @@ begin
   finally
     DoEndWork(VExclusive);
   end;
+end;
+
+function TDBMS_Provider.DBMS_GetTileRectInfo(
+  const ACallbackPointer: Pointer;
+  const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
+): Byte;
+(*
+var
+  VExclusive, VVersionFound: Boolean;
+  VDataset: TDBMS_Dataset;
+  VEnumOut: TETS_GET_TILE_RECT_OUT;
+  VETS_VERSION_W: TETS_VERSION_W;
+  VETS_VERSION_A: TETS_VERSION_A;
+  VVersionAA: TVersionAA;
+  VSQLText: WideString;
+  VVersionValueW, VVersionCommentW: WideString;
+  *)
+begin
+  Result := ETS_RESULT_NOT_IMPLEMENTED;
+(*
+  VExclusive := ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+
+  DoBeginWork(VExclusive);
+  try
+    // connect (if not connected)
+    Result := InternalProv_Connect(VExclusive);
+
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    // if connected - SELECT id_ver from DB
+    VDataset := FConnection.MakePoolDataset;
+    try
+      // fill full sql text and open
+      Result := GetSQL_GetTileRectInfo(ATileRectInfoIn, VExclusive, VSQLText);
+      if (ETS_RESULT_OK<>Result) then
+        Exit;
+
+      FillChar(VEnumOut, SizeOf(VEnumOut), 0);
+      
+      if ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
+        // Ansi record
+        FillChar(VETS_VERSION_A, SizeOf(VETS_VERSION_A), 0);
+        VEnumOut.ResponseValue := @VETS_VERSION_A;
+      end else begin
+        // Wide record
+        FillChar(VETS_VERSION_W, SizeOf(VETS_VERSION_W), 0);
+        VEnumOut.ResponseValue := @VETS_VERSION_W;
+      end;
+
+      // open sql
+      try
+        VDataset.OpenSQL(VSQLText);
+      except
+        // failed to select - no table - no versions
+      end;
+
+      // get values
+      if (not VDataset.Active) then begin
+        // table not found
+        Result := ETS_RESULT_INVALID_STRUCTURE;
+      end else if VDataset.IsEmpty then begin
+        // nothing
+        Result := ETS_RESULT_OK;
+      end else begin
+        // enum all items
+        VEnumOut.ResponseCount := VDataset.RecordCount;
+        VDataset.First;
+        while (not VDataset.Eof) do begin
+          // find selected version
+          VVersionFound := FVersionList.FindItemByIdVerInternal(VDataset.FieldByName('id_ver').AsInteger, @VVersionAA);
+
+          if (not VVersionFound) then begin
+            // try to refresh versions
+            ReadVersionsFromDB;
+            VVersionFound := FVersionList.FindItemByIdVerInternal(VDataset.FieldByName('id_ver').AsInteger, @VVersionAA);
+          end;
+
+          if (not VVersionFound) then begin
+            // OMG WTF
+            VVersionAA.id_ver := VDataset.FieldByName('id_ver').AsInteger;
+            VVersionAA.ver_value := '';
+            VVersionAA.ver_comment := '';
+          end;
+
+          // make params for callback
+          if ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
+            // Ansi record
+            VETS_VERSION_A.id_ver := VVersionAA.id_ver;
+            VETS_VERSION_A.ver_value := PAnsiChar(VVersionAA.ver_value);
+            VETS_VERSION_A.ver_comment := PAnsiChar(VVersionAA.ver_comment);
+          end else begin
+            // Wide record
+            VETS_VERSION_W.id_ver := VVersionAA.id_ver;
+            VVersionValueW := VVersionAA.ver_value;
+            VETS_VERSION_W.ver_value := PWideChar(VVersionValueW);
+            VVersionCommentW := VVersionAA.ver_comment;
+            VETS_VERSION_W.ver_comment := PWideChar(VVersionCommentW);
+          end;
+
+          // call host's callback
+          Result := TETS_GetTileRectInfo_Callback(FHostCallbacks[ETS_INFOCLASS_GetTileRectInfo_Callback])(
+            FHostPointer,
+            ACallbackPointer,
+            ATileRectInfoIn,
+            @VEnumOut
+          );
+
+          if (Result<>ETS_RESULT_OK) then
+            break;
+
+          // next record
+          Inc(VEnumOut.ResponseIndex);
+          VDataset.Next;
+        end;
+
+      end;
+      
+    finally
+      FConnection.KillPoolDataset(VDataset);
+    end;
+  finally
+    DoEndWork(VExclusive);
+  end;
+*)
 end;
 
 function TDBMS_Provider.DBMS_InsertTile(
@@ -972,6 +1264,48 @@ begin
   end;
 end;
 
+function TDBMS_Provider.GetMaxNextVersionInts(
+  const ANewVersionPtr: PVersionAA;
+  const AKeepVerNumber: Boolean
+): Boolean;
+var
+  VDataset: TDBMS_Dataset;
+  VSQLText: WideString;
+begin
+  VDataset := FConnection.MakePoolDataset;
+  try
+    try
+      VSQLText := 'select max(id_ver) as id_ver';
+      if (not AKeepVerNumber) then begin
+        // get new value for ver_number too
+        VSQLText := VSQLText + ', max(ver_number) as ver_number';
+      end;
+      VSQLText := VSQLText + ' from v_' + InternalGetServiceNameByDB;
+      VDataset.OpenSQL(VSQLText);
+      // apply values
+      if VDataset.IsEmpty or VDataset.FieldByName('id_ver').IsNull then
+        ANewVersionPtr^.id_ver := 0
+      else
+        ANewVersionPtr^.id_ver := VDataset.FieldByName('id_ver').AsInteger;
+      Inc(ANewVersionPtr^.id_ver);
+      // may be ver_number too
+      if (not AKeepVerNumber) then begin
+        if VDataset.IsEmpty or VDataset.FieldByName('ver_number').IsNull then
+          ANewVersionPtr^.ver_number := 0
+        else
+          ANewVersionPtr^.ver_number := VDataset.FieldByName('ver_number').AsInteger;
+        Inc(ANewVersionPtr^.ver_number);
+      end;
+      // done
+      Result := TRUE;
+    except
+      Result := FALSE;
+    end;
+  finally
+    FConnection.KillPoolDataset(VDataset);
+  end;
+end;
+
 function TDBMS_Provider.GetSQL_DeleteTile(
   const ADeleteBuffer: PETS_DELETE_TILE_IN;
   out ADeleteSQLResult: WideString
@@ -1057,6 +1391,78 @@ begin
   Result := ETS_RESULT_OK;
 end;
 
+function TDBMS_Provider.GetSQL_InsertIntoService(
+  out ASQLTextResult: WideString
+): Byte;
+var
+  VDataset: TDBMS_Dataset;
+  VNewIdService: SmallInt;
+  VNewIdContentType: SmallInt;
+  VNewServiceCode: AnsiString;
+  VSQLText: WideString;
+begin
+  // id_service = max(id_service)+1
+  // service_code = Trunc(Name,20)
+  VNewServiceCode := InternalGetServiceNameByHost;
+
+  if (0=Length(VNewServiceCode)) then begin
+    // no service code
+    Result := ETS_RESULT_INVALID_SERVICE_CODE;
+    Exit;
+  end;
+
+  if Length(VNewServiceCode)>20 then
+    SetLength(VNewServiceCode, 20);
+
+  VDataset := FConnection.MakePoolDataset;
+  try
+    // check if VNewServiceCode exists
+    VSQLText := GetSQL_SelectService_ByCode(VNewServiceCode);
+    try
+      VDataset.OpenSQL(VSQLText);
+    except
+      // failed
+      Result := ETS_RESULT_INVALID_STRUCTURE;
+      Exit;
+    end;
+
+    if (not VDataset.IsEmpty) then begin
+      // already exists
+      Result := ETS_RESULT_INVALID_SERVICE_CODE;
+      Exit;
+    end;
+
+    // get primary contenttype
+    if not FContentTypeList.FindItemByAnsiValueInternal(FPrimaryContentType, VNewIdContentType) then begin
+      // failed
+      Result := ETS_RESULT_UNKNOWN_CONTENTTYPE;
+      Exit;
+    end;
+
+    // get max identity
+    try
+      VDataset.OpenSQL('select max(id_service) as id_service from t_service');
+    except
+      // failed
+      Result := ETS_RESULT_INVALID_STRUCTURE;
+      Exit;
+    end;
+
+    // get next id_service
+    VNewIdService := VDataset.FieldByName('id_service').AsInteger + 1;
+
+    // execute INSERT command
+    ASQLTextResult := 'insert into t_service(id_service,service_code,service_name,id_contenttype) values (' +
+                            IntToStr(VNewIdService) + ',' +
+                            WideStrToDB(VNewServiceCode) + ',' +
+                            WideStrToDB(InternalGetServiceNameByHost) + ',' +
+                            IntToStr(VNewIdContentType) + ')';
+    Result := ETS_RESULT_OK;
+  finally
+    FConnection.KillPoolDataset(VDataset);
+  end;
+end;
+
 function TDBMS_Provider.GetSQL_InsertTile(
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean;
@@ -1087,7 +1493,14 @@ begin
 
   if (not VRequestedVersionFound) then begin
     // no such version - try to create new version here
-    // TODO: fill new version params based on service params
+    Result := AutoCreateServiceVersion(
+      AExclusively,
+      AInsertBuffer,
+      @VReqVersion,
+      VRequestedVersionFound);
+    // check result
+    if (Result<>ETS_RESULT_OK) then
+      Exit;
   end;
 
   if (not VRequestedVersionFound) then begin
@@ -1180,7 +1593,12 @@ begin
   Result := 'select * from c_contenttype';
 end;
 
-function TDBMS_Provider.GetSQL_SelectService: WideString;
+function TDBMS_Provider.GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): WideString;
+begin
+  Result := 'select * from t_service where service_code='+WideStrToDB(AServiceCode);
+end;
+
+function TDBMS_Provider.GetSQL_SelectService_Current: WideString;
 begin
   Result := 'select * from t_service where service_name='+WideStrToDB(InternalGetServiceNameByHost);
 end;
@@ -1515,6 +1933,11 @@ end;
 
 function TDBMS_Provider.InternalProv_Connect(const AExclusively: Boolean): Byte;
 begin
+  if (not FCompleted) then begin
+    Result := ETS_RESULT_INCOMPLETE;
+    Exit;
+  end;
+
   // safe create connection object
   if (nil=FConnection) then begin
     // check exclusive mode
@@ -1558,24 +1981,65 @@ begin
   FillChar(FDBMS_Service_Info, SizeOf(FDBMS_Service_Info), 0);
   VDataset := FConnection.MakePoolDataset;
   try
-    VDataset.OpenSQL(GetSQL_SelectService);
+    // select service info
+    try
+      VDataset.OpenSQL(GetSQL_SelectService_Current);
+    except
+      // no table
+    end;
+
+    if (not VDataset.Active) then begin
+      // failed to open
+      CreateBaseTemplateTables;
+      // reopen
+      try
+        VDataset.Active := TRUE;
+      except
+      end;
+    end;
+
+    if (not VDataset.Active) then begin
+      InternalProv_ClearServiceInfo;
+      Result := ETS_RESULT_INVALID_STRUCTURE;
+      Exit;
+    end;
+
+    // check if service exists
     if VDataset.IsEmpty then begin
+      // autocreate service record
+      Result := AutoCreateServiceRecord(AExclusively);
+
+      // check result
+      if (Result<>ETS_RESULT_OK) then begin
+        InternalProv_ClearServiceInfo;
+        Exit;
+      end;
+
+      // reopen
+      try
+        VDataset.Active := TRUE;
+      except
+      end;
+    end;
+
+    // check again
+    if (not VDataset.Active) or VDataset.IsEmpty then begin
       // no service
       InternalProv_ClearServiceInfo;
-      // TODO: autocreate service record
       Result := ETS_RESULT_UNKNOWN_SERVICE;
-    end else begin
-      // found
-      FDBMS_Service_Code := VDataset.FieldByName('service_code').AsString;
-      FDBMS_Service_Info.id_service := VDataset.FieldByName('id_service').AsInteger;
-      FDBMS_Service_Info.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
-      FDBMS_Service_Info.id_ver_comp := VDataset.GetAnsiCharFlag('id_ver_comp', TILE_VERSION_COMPARE_NONE);
-      FDBMS_Service_Info.id_div_mode := VDataset.GetAnsiCharFlag('id_div_mode', TILE_DIV_ERROR);
-      FDBMS_Service_Info.work_mode := VDataset.GetAnsiCharFlag('work_mode', ETS_SWM_DEFAULT);
-      FDBMS_Service_Info.use_common_tiles := VDataset.GetAnsiCharFlag('use_common_tiles', ETS_UCT_NO);
-      FDBMS_Service_OK := TRUE;
-      Result := ETS_RESULT_OK;
+      Exit;
     end;
+
+    // found
+    FDBMS_Service_Code := VDataset.FieldByName('service_code').AsString;
+    FDBMS_Service_Info.id_service := VDataset.FieldByName('id_service').AsInteger;
+    FDBMS_Service_Info.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
+    FDBMS_Service_Info.id_ver_comp := VDataset.GetAnsiCharFlag('id_ver_comp', TILE_VERSION_COMPARE_NONE);
+    FDBMS_Service_Info.id_div_mode := VDataset.GetAnsiCharFlag('id_div_mode', TILE_DIV_ERROR);
+    FDBMS_Service_Info.work_mode := VDataset.GetAnsiCharFlag('work_mode', ETS_SWM_DEFAULT);
+    FDBMS_Service_Info.use_common_tiles := VDataset.GetAnsiCharFlag('use_common_tiles', ETS_UCT_NO);
+    FDBMS_Service_OK := TRUE;
+    Result := ETS_RESULT_OK;
   finally
     FConnection.KillPoolDataset(VDataset);
   end;
@@ -1628,12 +2092,47 @@ begin
   end;
 end;
 
+function TDBMS_Provider.MakeEmptyVersionInDB(const AIdVersion: SmallInt): Boolean;
+var
+  VNewVersion: TVersionAA;
+begin
+  VNewVersion.id_ver := AIdVersion;
+  VNewVersion.ver_value :='';
+  VNewVersion.ver_date := NowUTC;
+  VNewVersion.ver_number := AIdVersion;
+  VNewVersion.ver_comment := '';
+  Result := MakePtrVersionInDB(@VNewVersion);
+end;
+
+function TDBMS_Provider.MakePtrVersionInDB(const ANewVersionPtr: PVersionAA): Boolean;
+var
+  VDataset: TDBMS_Dataset;
+begin
+  VDataset := FConnection.MakePoolDataset;
+  try
+    VDataset.SQL.Text := 'insert into v_' + InternalGetServiceNameByDB +
+              '(id_ver,ver_value,ver_date,ver_number) values (' +
+              IntToStr(ANewVersionPtr^.id_ver) + ',' +
+              WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
+              WideStrToDB(FormatDateTime(c_VersionDateTileToDBFormat, ANewVersionPtr^.ver_date)) + ',' +
+              IntToStr(ANewVersionPtr^.ver_number) + ')';
+    try
+      VDataset.ExecSQL(TRUE);
+      Result := TRUE;
+    except
+      Result := FALSE;
+    end;
+  finally
+    FConnection.KillPoolDataset(VDataset);
+  end;
+end;
+
 procedure TDBMS_Provider.ReadVersionsFromDB;
 var
   VDataset: TDBMS_Dataset;
   VNewItem: TVersionAA;
 begin
-  FVersionList.SetCapacity(0);
+  FVersionList.Clear;
   VDataset := FConnection.MakePoolDataset;
   try
     VDataset.OpenSQL(GetSQL_SelectVersions);
@@ -1668,6 +2167,23 @@ begin
     try
       VDataset.OpenSQL('select 1 from ' + ATableName + ' where 0=1');
       Result := TRUE;
+    except
+      Result := FALSE;
+    end;
+  finally
+    FConnection.KillPoolDataset(VDataset);
+  end;
+end;
+
+function TDBMS_Provider.VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;
+var
+  VDataset: TDBMS_Dataset;
+begin
+  VDataset := FConnection.MakePoolDataset;
+  try
+    try
+      VDataset.OpenSQL('select id_ver from v_' + InternalGetServiceNameByDB + ' where id_ver=' + IntToStr(AIdVersion));
+      Result := (not VDataset.IsEmpty) and (not VDataset.FieldByName('id_ver').IsNull);
     except
       Result := FALSE;
     end;

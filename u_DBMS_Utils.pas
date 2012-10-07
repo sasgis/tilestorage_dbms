@@ -3,12 +3,15 @@ unit u_DBMS_Utils;
 interface
 
 uses
+  Windows,
   SysUtils;
 
 function AnsiStrToDB(const S: AnsiString): AnsiString;
 function WideStrToDB(const S: WideString): WideString;
 
 function GetModuleFileNameWithoutExt: String;
+
+function NowUTC: TDateTime;
 
 implementation
 
@@ -31,6 +34,13 @@ function GetModuleFileNameWithoutExt: String;
 begin
   Result := GetModuleName(HInstance);
   Result := ExtractFileName(Result);
+end;
+
+function NowUTC: TDateTime;
+var st: TSystemTime;
+begin
+  GetSystemTime(st);
+  Result := SystemTimeToDateTime(st);
 end;
 
 end.

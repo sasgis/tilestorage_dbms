@@ -278,6 +278,37 @@ begin
   end;
 end;
 
+function ETS_GetTileRectInfo(
+  const AProvider_Handle: PETS_Provider_Handle;
+  const ACallbackPointer: Pointer;
+  const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
+): Byte; stdcall; export;
+begin
+  try
+    if (nil=AProvider_Handle) then begin
+      Result := ETS_RESULT_INVALID_PROVIDER_PTR;
+      Exit;
+    end;
+
+    if (nil=ACallbackPointer) then begin
+      Result := ETS_RESULT_INVALID_CALLBACK_PTR;
+      Exit;
+    end;
+
+    if (nil=ATileRectInfoIn) then begin
+      Result := ETS_RESULT_INVALID_INPUT_BUFFER;
+      Exit;
+    end;
+
+    Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_GetTileRectInfo(
+      ACallbackPointer,
+      ATileRectInfoIn
+    );
+  except
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
+  end;
+end;
+
 exports
   ETS_Initialize,
   ETS_Uninitialize,
@@ -288,7 +319,8 @@ exports
   ETS_InsertTile,
   ETS_InsertTNE,
   ETS_DeleteTile,
-  ETS_EnumTileVersions;
+  ETS_EnumTileVersions,
+  ETS_GetTileRectInfo;
 
 begin
   IsMultiThread := TRUE;

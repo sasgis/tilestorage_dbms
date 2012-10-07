@@ -6,6 +6,7 @@ uses
   SysUtils,
   Classes,
   SqlExpr,
+  t_ETS_Tiles,
   t_DBMS_Template,
   u_DBMS_Connect;
 
@@ -48,7 +49,7 @@ type
     destructor Destroy; override;
     
     // execute all sql commands
-    procedure ExecuteAllSQLs(const ADataset: TSQLQuery);
+    function ExecuteAllSQLs(const ADataset: TSQLQuery): Byte;
   end;
 
 implementation
@@ -160,10 +161,12 @@ begin
   end;
 end;
 
-procedure TDBMS_SQLTemplates_File.ExecuteAllSQLs(const ADataset: TSQLQuery);
+function TDBMS_SQLTemplates_File.ExecuteAllSQLs(const ADataset: TSQLQuery): Byte;
 var
   VErrors: TStrings;
 begin
+  Result := ETS_RESULT_OK;
+  
   VErrors := TStringList.Create;
   try
     ExecSQLFromStrings(FSQL, ADataset, VErrors, '');
