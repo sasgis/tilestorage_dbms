@@ -71,9 +71,9 @@ const
 
   // datetime function name
   c_SQL_DateTime_FunctionName: array [TEngineType] of String = (
-  'GETDATE()',
-  'GETDATE()',
-  'GETDATE()',
+  'GETDATE()',         // MSSQL
+  'GETDATE()',         // ASE
+  'GETDATE()',         // ASA
   'SYSDATE',           // Oracle
   'CURRENT DATETIME',  // Informix
   'CURRENT TIMESTAMP', // DB2
@@ -86,9 +86,9 @@ const
 
   // type to store both date and time
   c_SQL_DateTime_FieldName: array [TEngineType] of String = (
-  'DATETIME',
-  'DATETIME',
-  'DATETIME',
+  'DATETIME',  // MSSQL
+  'DATETIME',  // ASE
+  'DATETIME',  // ASA
   'DATE',      // Oracle
   'DATETIME',  // Informix
   'TIMESTAMP', // DB2
@@ -101,58 +101,73 @@ const
 
   // type to store LongInt (4 bytes with sign)
   c_SQL_INT4_FieldName: array [TEngineType] of String = (
-  'INT',
-  'INT',
-  'INT',
+  'INT',    // MSSQL
+  'INT',    // ASE
+  'INT',    // ASA
   'NUMBER', // Oracle NUMBER(p)
-  'INT',
-  'INT',
-  'INT',
-  'INT', // PostgreSQL
-  'INT', // Mimer
-  'INT', // Firebird
+  'INT',    // Informix
+  'INT',    // DB2
+  'INT',    // MySQL
+  'INT',    // PostgreSQL
+  'INT',    // Mimer
+  'INT',    // Firebird
   ''
   );
 
   // type to store MediumInt (3 bytes with sign)
   c_SQL_INT3_FieldName: array [TEngineType] of String = (
-  '',
-  '',
-  '',
-  '',
-  '',
-  '',
+  '',          // MSSQL
+  '',          // ASE
+  '',          // ASA
+  '',          // Oracle
+  '',          // Informix
+  '',          // DB2
   'MEDIUMINT', // MySQL
-  '', // PostgreSQL
-  '', // Mimer
-  '', // Firebird
+  '',          // PostgreSQL
+  '',          // Mimer
+  '',          // Firebird
   ''
   );
 
   // type to store SmallInt (2 bytes with sign)
   c_SQL_INT2_FieldName: array [TEngineType] of String = (
-  'SMALLINT',
-  'SMALLINT',
-  'SMALLINT',
-  'NUMBER', // Oracle NUMBER(p)
-  'SMALLINT',
-  'SMALLINT',
-  'SMALLINT',
+  'SMALLINT', // MSSQL
+  'SMALLINT', // ASE
+  'SMALLINT', // ASA
+  'NUMBER',   // Oracle NUMBER(p)
+  'SMALLINT', // Informix
+  'SMALLINT', // DB2
+  'SMALLINT', // MySQL
   'SMALLINT', // PostgreSQL
   'SMALLINT', // Mimer
   'SMALLINT', // Firebird
   ''
   );
 
+  // type to store TinyInt (1 byte with sign)
+  c_SQL_INT1_FieldName: array [TEngineType] of String = (
+  '',         // MSSQL
+  '',         // ASE
+  '',         // ASA
+  '',         // Oracle NUMBER(p)
+  '',         // Informix
+  '',         // DB2
+  '',         // MySQL
+  '',         // PostgreSQL
+  '',         // Mimer
+  '',         // Firebird
+  ''
+  );
+
   // use int fields with size in brackets
   c_SQL_INT_With_Size: array [TEngineType] of Boolean = (
-  FALSE,
-  FALSE,
-  FALSE,
-  TRUE,   // Oracle NUMBER(p)
-  FALSE,
-  FALSE,
-  FALSE,
+  FALSE,   // MSSQL
+  FALSE,   // ASE
+  FALSE,   // ASA
+  TRUE,    // Oracle NUMBER(p)
+  FALSE,   // Informix
+  FALSE,   // DB2
+  FALSE,   // MySQL
   FALSE,   // PostgreSQL
   FALSE,   // Mimer
   FALSE,   // Firebird
@@ -161,13 +176,13 @@ const
 
   // Forced tablename if FROM clause is mandatory
   c_SQL_FROM: array [TEngineType] of String = (
-  '',
-  '',
-  '',
+  '',              // MSSQL
+  '',              // ASE
+  '',              // ASA
   'DUAL',          // Oracle
-  '',
-  '',
-  '',
+  '',              // Informix
+  '',              // DB2
+  '',              // MySQL
   '',              // PostgreSQL
   'SYSTEM.ONEROW', // Mimer
   'rdb$database',  // Firebird
