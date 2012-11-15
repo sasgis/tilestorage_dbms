@@ -9,7 +9,7 @@ uses
 function AnsiStrToDB(const S: AnsiString): AnsiString;
 function WideStrToDB(const S: WideString): WideString;
 
-function GetModuleFileNameWithoutExt: String;
+function GetModuleFileNameWithoutExt(const ATailAfterDot: String): String;
 
 function NowUTC: TDateTime;
 
@@ -30,10 +30,13 @@ begin
   Result := '''' + Result + '''';
 end;
 
-function GetModuleFileNameWithoutExt: String;
+function GetModuleFileNameWithoutExt(const ATailAfterDot: String): String;
 begin
   Result := GetModuleName(HInstance);
   Result := ExtractFileName(Result);
+  if (0<Length(ATailAfterDot)) then begin
+    Result := Result + '.' + ATailAfterDot;
+  end;
 end;
 
 function NowUTC: TDateTime;

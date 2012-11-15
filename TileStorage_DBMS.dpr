@@ -17,7 +17,8 @@ uses
   t_DBMS_service in 't_DBMS_service.pas',
   u_DBMS_Utils in 'u_DBMS_Utils.pas',
   t_DBMS_Template in 't_DBMS_Template.pas',
-  u_DBMS_Template in 'u_DBMS_Template.pas';
+  u_DBMS_Template in 'u_DBMS_Template.pas',
+  t_SQL_types in 't_SQL_types.pas';
 
 {$R *.res}
 

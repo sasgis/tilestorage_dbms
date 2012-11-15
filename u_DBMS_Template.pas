@@ -15,6 +15,7 @@ type
   private
     FSQL: TStringList;
     FAux: TStringList;
+    FUniqueEngineType: String;
   private
     function LineIsEmptyOrComment(const ASQLLine: String): Boolean;
 
@@ -45,10 +46,10 @@ type
       const E: Exception
     );
   public
-    constructor Create;
+    constructor Create(const AUniqueEngineType: String);
     destructor Destroy; override;
     
-    // execute all sql commands
+    // выполнение всех имеющихся команд SQL из скрипта
     function ExecuteAllSQLs(const ADataset: TSQLQuery): Byte;
   end;
 
@@ -71,13 +72,17 @@ begin
   AErrors.Add(E.Message);
 end;
 
-constructor TDBMS_SQLTemplates_File.Create;
+constructor TDBMS_SQLTemplates_File.Create(const AUniqueEngineType: String);
 var
   VFileName: String;
 begin
+  inherited Create;
+  
+  FUniqueEngineType := AUniqueEngineType;
+  
   // templated sql text
   FAux := TStringList.Create;
-  VFileName := GetModuleFileNameWithoutExt + '.aux';
+  VFileName := GetModuleFileNameWithoutExt(AUniqueEngineType) + '.aux';
   if FileExists(VFileName) then
   try
     FAux.LoadFromFile(VFileName);
@@ -86,7 +91,7 @@ begin
   
   // plan sql text
   FSQL := TStringList.Create;
-  VFileName := GetModuleFileNameWithoutExt + '.sql';
+  VFileName := GetModuleFileNameWithoutExt(AUniqueEngineType) + '.sql';
   if FileExists(VFileName) then
   try
     FSQL.LoadFromFile(VFileName);
@@ -169,16 +174,17 @@ begin
   
   VErrors := TStringList.Create;
   try
+    // первая часть - простые таблицы и прочее
     ExecSQLFromStrings(FSQL, ADataset, VErrors, '');
 
-    // second part - TEMPLATED SQL TEXT
+    // вторая часть - шаблонные таблицы
     ExecuteAuxSQL(VErrors, ADataset, c_Templated_Versions);
     ExecuteAuxSQL(VErrors, ADataset, c_Templated_CommonTiles);
     ExecuteAuxSQL(VErrors, ADataset, c_Templated_RealTiles);
   finally
     if VErrors.Count>0 then
     try
-      VErrors.SaveToFile(GetModuleFileNameWithoutExt+'.out');
+      VErrors.SaveToFile(GetModuleFileNameWithoutExt(FUniqueEngineType)+'.out');
     except
     end;
 

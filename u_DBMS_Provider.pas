@@ -7,6 +7,7 @@ uses
   SysUtils,
   Classes,
   DB,
+  t_SQL_types,
   t_ETS_Tiles,
   t_ETS_Path,
   t_ETS_Provider,
@@ -80,7 +81,9 @@ type
     procedure InternalProv_Disconnect;
     procedure InternalProv_ClearGuides;
 
+    // возвращает имя сервиса, используемое в БД (внутреннее)
     function InternalGetServiceNameByDB: WideString;
+    // возвращает имя сервиса, используемое в хосте (внешнее)
     function InternalGetServiceNameByHost: WideString;
 
     // get version from cache (if not found - read from server)
@@ -121,8 +124,9 @@ type
     ): WideString;
 
   private
-    function CreateBaseTemplateTables: Byte;
+    function CreateAllBaseTablesFromScript: Byte;
     
+    // автоматическое создание записи о текущем сервисе (регистрация сервиса в БД)
     function AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
 
     function AutoCreateServiceVersion(
@@ -170,39 +174,48 @@ type
       const ACutOnVersion: Boolean
     );
 
-    // get SQL text for SELECT (tile or tne)
+    // формирование текста SQL для получения (SELECT) тайла или маркера TNE
     function GetSQL_SelectTile(
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
       const AExclusively: Boolean;
       out ASQLTextResult: WideString
     ): Byte;
 
-    // get SQL text for INSERT or UPDATE tile
-    function GetSQL_InsertTile(
+    // формирование текста SQL для вставки (INSERT) и обновления (UPDATE) тайла или маркера TNE
+    // в тексте SQL возможны только параметры :tile_body, остальное подставляется сразу
+    function GetSQL_InsertUpdateTile(
       const AInsertBuffer: PETS_INSERT_TILE_IN;
       const AForceTNE: Boolean;
       const AExclusively: Boolean;
-      out AInsertSQLResult, AUpdateSQLResult, ATableName: WideString
+      out AInsertSQLResult, AUpdateSQLResult, ATableName: WideString;
+      out ANeedTileBodyParam: Boolean
     ): Byte;
 
-    // get SQL text for DELETE (tile or tne)
+    // формирование текста SQL для удаления (DELETE) тайла или маркера TNE
     function GetSQL_DeleteTile(
       const ADeleteBuffer: PETS_DELETE_TILE_IN;
       out ADeleteSQLResult: WideString
     ): Byte;
 
-    // get SQL text for SELECT (versions)
+    // формирование текста SQL для получения (SELECT) списка существующих версий тайла (XYZ)
     function GetSQL_EnumTileVersions(
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
       const AExclusively: Boolean;
       out ASQLTextResult: WideString
     ): Byte;
 
-    
-    // get others
+
+    // формирует SQL для получения списка версий для текущего сервиса
     function GetSQL_SelectVersions: WideString;
+
+    // формирует SQL для получения списка типов тайлов
     function GetSQL_SelectContentTypes: WideString;
-    function GetSQL_SelectService_Current: WideString;
+
+    // формирует SQL для чтения параметров сервиса по его внешнему коду
+    // этот уникальный внешний код передаётся при инициализации с хоста
+    function GetSQL_SelectService_ByHost: WideString;
+
+    // формирует SQL для чтения параметров сервиса по его внутреннему коду (код в БД)
     function GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): WideString;
 
     function GetSQL_InsertIntoService(out ASQLTextResult: WideString): Byte;
@@ -309,7 +322,7 @@ begin
     TILE_VERSION_COMPARE_DATE: begin
       // order by ver_value
       if (AVerInfoPtr<>nil) then
-        _AddWithFieldValue('ver_date', WideStrToDB(FormatDateTime('c_DateToDBFormat',AVerInfoPtr^.ver_date)))
+        _AddWithFieldValue('ver_date', WideStrToDB(FormatDateTime(c_VersionDateTileToDBFormat,AVerInfoPtr^.ver_date)))
       else
         _AddWithoutFieldValue('ver_date');
     end;
@@ -334,24 +347,26 @@ var
   VDataset: TDBMS_Dataset;
   VSQLText: WideString;
 begin
+  // регистрация картосервиса в БД выполняется только в эксклюзивном режиме
   if (not AExclusively) then begin
     Result := ETS_RESULT_NEED_EXCLUSIVE;
     Exit;
   end;
 
+  // сформируем текст SQL для создания записи
   Result := GetSQL_InsertIntoService(VSQLText);
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
   VDataset := FConnection.MakePoolDataset;
   try
-    // execute INSERT statement
+    // исполняем INSERT (вставляем запись о сервисе)
     try
       VDataset.SQL.Text := VSQLText;
       VDataset.ExecSQL(TRUE);
       Result := ETS_RESULT_OK;
     except
-      // failed
+      // обломались
       Result := ETS_RESULT_INVALID_STRUCTURE;
     end;
   finally
@@ -511,14 +526,26 @@ begin
   InternalProv_Cleanup;
 end;
 
-function TDBMS_Provider.CreateBaseTemplateTables: Byte;
+function TDBMS_Provider.CreateAllBaseTablesFromScript: Byte;
 var
+  VUniqueEngineType: String;
   VSQLTemplates: TDBMS_SQLTemplates_File;
   VDataset: TDBMS_Dataset;
 begin
-  VSQLTemplates := TDBMS_SQLTemplates_File.Create;
-  VDataset := FConnection.MakePoolDataset;
+  // получим уникальный код типа СУБД
+  VUniqueEngineType := c_SQL_Engine_Name[FConnection.GetEngineType(cetm_Check)];
+  // если пусто - значит неизвестный типа СУБД, и ловить тут нечего
+  if (0=Length(VUniqueEngineType)) then begin
+    Result := ETS_RESULT_UNKNOWN_DBMS;
+    Exit;
+  end;
+
+  // создадим объект для генерации структуры для конкретного типа БД
+  VDataset := nil;
+  VSQLTemplates := TDBMS_SQLTemplates_File.Create(VUniqueEngineType);
   try
+    // исполним всё что есть
+    VDataset := FConnection.MakePoolDataset;
     Result := VSQLTemplates.ExecuteAllSQLs(VDataset);
   finally
     FConnection.KillPoolDataset(VDataset);
@@ -535,24 +562,25 @@ var
   Vignore_errors: AnsiChar;
   VStream: TStream;
 begin
+  // а вдруг нет базовой таблицы с шаблонами
   if (not TableExists(c_Template_Tablename)) then begin
-    // create template table
-    CreateBaseTemplateTables;
-    // not created
+    // создадим базовые таблицы
+    CreateAllBaseTablesFromScript;
+    // а вдруг обломались?
     if (not TableExists(c_Template_Tablename)) then begin
-      // OMG WTF
+      // полный отстой и нам тут делать нечего
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
     end;
   end;
 
-  // if created - done
+  // если запрошенная таблица уже есть - валим
   if (TableExists(ATableName)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
 
-  // get all SQLs from table with templates
+  // вытащим все запросы SQL для CREATE (операция "C") для запрошенного шаблона
   VDataset := FConnection.MakePoolDataset;
   VExecSQL := FConnection.MakePoolDataset;
   try
@@ -562,13 +590,14 @@ begin
     VDataset.OpenSQL(VSQLText);
 
     if VDataset.IsEmpty then begin
-      Result := ETS_RESULT_INVALID_STRUCTURE;
+      // ничего не прочиталось - значит нет шаблона
+      Result := ETS_RESULT_UNKNOWN_TEMPLATE;
       Exit;
     end;
 
     VDataset.First;
     while (not VDataset.Eof) do begin
-      // get SQL text and replace tablename
+      // тащим текст SQL для исполнения в порядке очерёдности
       Vignore_errors := VDataset.GetAnsiCharFlag('ignore_errors', ETS_UCT_YES);
       if (not VDataset.FieldByName('object_sql').IsNull) then
       try
@@ -576,9 +605,12 @@ begin
         try
           VExecSQL.SQL.LoadFromStream(VStream);
           VSQLText := VExecSQL.SQL.Text;
+          // а тут надо подменить имя таблицы
+          // TODO: также необходимо подставить нуные типы полей для оптимального хранения XY
           VSQLText := StringReplace(VSQLText, ATemplateName, ATableName, [rfReplaceAll,rfIgnoreCase]);
+          // готово
           VExecSQL.SQL.Text := VSQLText;
-          // execute SQL command
+          // исполняем (напрямую)
           VExecSQL.ExecSQL(TRUE);
         finally
           FreeAndNil(VStream);
@@ -587,11 +619,11 @@ begin
         if (Vignore_errors=ETS_UCT_NO) then
           raise;
       end;
-      // next SQL command
+      // - Следующий!
       VDataset.Next;
     end;
 
-    // check if created
+    // проверяем что табла успешно создалась
     if (TableExists(ATableName)) then begin
       Result := ETS_RESULT_OK;
       Exit;
@@ -601,7 +633,7 @@ begin
     FConnection.KillPoolDataset(VDataset);
   end;
 
-  // failed
+  // облом
   Result := ETS_RESULT_INVALID_STRUCTURE;
 end;
 
@@ -916,6 +948,7 @@ var
   VInsertSQL, VUpdateSQL, VTableName: WideString;
   VParam: TParam;
   VNeedUpdate: Boolean;
+  VNeedTileBodyParam: Boolean;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -932,48 +965,50 @@ begin
     try
       VNeedUpdate := FALSE;
       
-      // make INSERT and UPDATE statements
-      Result := GetSQL_InsertTile(
+      // получим выражения INSERT и UPDATE
+      Result := GetSQL_InsertUpdateTile(
         AInsertBuffer,
         AForceTNE,
         VExclusive,
         VInsertSQL,
         VUpdateSQL,
-        VTableName
+        VTableName,
+        VNeedTileBodyParam
       );
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
-      // execute INSERT statement
+      // выполним INSERT
       try
         VDataset.SQL.Text := VInsertSQL;
-        if (not AForceTNE) then begin
-          // parse params (buffer as blob)
+        if VNeedTileBodyParam then begin
+          // добавим параметр (как BLOB)
           VParam := VDataset.Params.FindParam('tile_body');
           if (VParam<>nil) then begin
             VParam.SetBlobData(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
           end;
         end;
-        // exec (do not prepare statement for TNE)
-        VDataset.ExecSQL(AForceTNE);
-        // done (successfully INSERTed)
+        // исполняем INSERT (если нет VNeedTileBodyParam - то напрямую без "подготовки")
+        VDataset.ExecSQL(not VNeedTileBodyParam);
+        // готово (вставлено!)
         Result := ETS_RESULT_OK;
       except
+        // обломались со вставкой новой записи
         on E: Exception do begin
-          // check table exists
+          // проверяем, может не было таблицы
           if (not TableExists(VTableName)) then begin
-            // execute create table statement
+            // пробуем создать таблицу по шаблону
             CreateTableByTemplate(c_Templated_RealTiles, VTableName);
-            // check if failed to create
+            // проверяем существование таблицы
             if (not TableExists(VTableName)) then begin
-              Result := ETS_RESULT_INVALID_STRUCTURE;
+              // не удалось даже создать - валим
+              Result := ETS_RESULT_UNKNOWN_TILE_TABLE;
               Exit;
             end;
           end;
-          // repeat INSERT statement
+          // повторяем INSERT
           try
-            // (do not prepare statement for TNE)
-            VDataset.ExecSQL(AForceTNE);
+            VDataset.ExecSQL(not VNeedTileBodyParam);
             Result := ETS_RESULT_OK;
           except
             VNeedUpdate := TRUE;
@@ -981,23 +1016,24 @@ begin
         end;
       end;
 
-      // if need to execute UPDATE statement
       if VNeedUpdate then begin
+        // пробуем выполнить UPDATE
         VDataset.SQL.Text := VUpdateSQL;
-        if (not AForceTNE) then begin
-          // parse params (buffer as blob)
+        if VNeedTileBodyParam then begin
+          // добавим параметр (как BLOB)
           VParam := VDataset.Params.FindParam('tile_body');
           if (VParam<>nil) then begin
             VParam.SetBlobData(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
           end;
         end;
-        // exec
+        // исполняем UPDATE
         try
-          // (do not prepare statement for TNE)
-          VDataset.ExecSQL(AForceTNE);
-          // done (successfully INSERTed)
+          // (если нет VNeedTileBodyParam - то напрямую без "подготовки")
+          VDataset.ExecSQL(not VNeedTileBodyParam);
+          // готово (обновлено!)
           Result := ETS_RESULT_OK;
         except
+          // общая ошибка структуры, тут уже автоматически не разобраться
           Result := ETS_RESULT_INVALID_STRUCTURE;
         end;
       end;
@@ -1315,31 +1351,33 @@ var
   VRequestedVersionFound: Boolean;
   VReqVersion: TVersionAA;
 begin
-  // get version identifier
+  // определяем запрошенную версию
   if ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
     VRequestedVersionFound := FVersionList.FindItemByAnsiValue(
       PAnsiChar(ADeleteBuffer^.szVersionIn),
       @VReqVersion
     );
   end else begin
+    // как Wide
     VRequestedVersionFound := FVersionList.FindItemByWideValue(
       PWideChar(ADeleteBuffer^.szVersionIn),
       @VReqVersion
     );
   end;
 
-  // check if no version
+  // если не смогли определить версию - вернём ошибку
   if (not VRequestedVersionFound) then begin
     Result := ETS_RESULT_UNKNOWN_VERSION;
     Exit;
   end;
 
-  // parse tile coordinates
+  // заполняем VSQLTile
   Result := InternalCalcSQLTile(ADeleteBuffer^.XYZ, @VSQLTile);
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
-  // make DELETE statement
+  // забацаем DELETE
   ADeleteSQLResult := 'delete from ' + VSQLTile.TileTableName +
                       ' where x=' + IntToStr(VSQLTile.XYLowerToID.X) +
                         ' and y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
@@ -1354,16 +1392,19 @@ function TDBMS_Provider.GetSQL_EnumTileVersions(
 var
   VSQLTile: TSQLTile;
   VSQLParts: TSQLParts;
-  //VReqVersion: TVersionAA;
 begin
   // %DIV%%ZOOM%%HEAD%_%SERVICE% - table with tiles
   // u_%SERVICE% - table with common tiles
 
-  InternalCalcSQLTile(
+  // заполняем VSQLTile по переданным значениям
+  Result := InternalCalcSQLTile(
     ASelectBufferIn^.XYZ,
     @VSQLTile
   );
+  if (Result<>ETS_RESULT_OK) then
+    Exit;
 
+  (*
   // check if table exists
   if AExclusively then begin
     if not TableExists(VSQLTile.TileTableName) then begin
@@ -1373,22 +1414,24 @@ begin
         Exit;
     end;
   end;
+  *)
 
-  // make SELECT clause
+  // забацаем SELECT
   VSQLParts.SelectSQL := 'select v.id_ver';
   VSQLParts.FromSQL := VSQLTile.TileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
 
-  // make FROM, WHERE and ORDER BY
+  // добавим FROM, WHERE и ORDER BY
   AddVersionOrderBy(@VSQLParts, nil, FALSE);
 
-  // make full SQL
-  ASQLTextResult := VSQLParts.SelectSQL + ' from ' + VSQLParts.FromSQL +
-                                ' where v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
-                                  ' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y) + VSQLParts.WhereSQL + VSQLParts.OrderBySQL;
-
-  Result := ETS_RESULT_OK;
+  // соберём всё вместе
+  ASQLTextResult := VSQLParts.SelectSQL +
+                  ' from ' + VSQLParts.FromSQL +
+                 ' where v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
+                   ' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
+                    VSQLParts.WhereSQL +
+                    VSQLParts.OrderBySQL;
 end;
 
 function TDBMS_Provider.GetSQL_InsertIntoService(
@@ -1406,52 +1449,56 @@ begin
   VNewServiceCode := InternalGetServiceNameByHost;
 
   if (0=Length(VNewServiceCode)) then begin
-    // no service code
+    // нет уникального идентификатора сервиса
     Result := ETS_RESULT_INVALID_SERVICE_CODE;
     Exit;
   end;
 
+  // длина внутреннего уникального кода сервиса ограничена 20 символами
   if Length(VNewServiceCode)>20 then
     SetLength(VNewServiceCode, 20);
 
   VDataset := FConnection.MakePoolDataset;
   try
-    // check if VNewServiceCode exists
+    // а может такой внутренний код сервиса уже есть
     VSQLText := GetSQL_SelectService_ByCode(VNewServiceCode);
     try
       VDataset.OpenSQL(VSQLText);
     except
-      // failed
+      // если обломались на простом запросе, значит беда со структурой БД
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
     end;
 
     if (not VDataset.IsEmpty) then begin
-      // already exists
+      // такой сервис уже зарегистрирован в БД (очевидно, с другим внешним уникальным кодом)
       Result := ETS_RESULT_INVALID_SERVICE_CODE;
       Exit;
     end;
 
-    // get primary contenttype
+    // получим первичный тип тайла
     if not FContentTypeList.FindItemByAnsiValueInternal(FPrimaryContentType, VNewIdContentType) then begin
-      // failed
+      // обломались
       Result := ETS_RESULT_UNKNOWN_CONTENTTYPE;
       Exit;
     end;
 
-    // get max identity
+    // получим новый номер идентификатора
+    // TODO: сделать в цикле и обработать облом
     try
       VDataset.OpenSQL('select max(id_service) as id_service from t_service');
     except
-      // failed
+      // опять обломались на простом запросе
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
     end;
 
-    // get next id_service
+    // следующий идентификатор
     VNewIdService := VDataset.FieldByName('id_service').AsInteger + 1;
 
-    // execute INSERT command
+    // выполняем команду INSERT
+    // прочие поля (id_ver_comp, id_div_mode, work_mode, use_common_tiles) залетают из DEFAULT-ных значений
+    // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
     ASQLTextResult := 'insert into t_service(id_service,service_code,service_name,id_contenttype) values (' +
                             IntToStr(VNewIdService) + ',' +
                             WideStrToDB(VNewServiceCode) + ',' +
@@ -1463,11 +1510,12 @@ begin
   end;
 end;
 
-function TDBMS_Provider.GetSQL_InsertTile(
+function TDBMS_Provider.GetSQL_InsertUpdateTile(
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean;
   const AExclusively: Boolean;
-  out AInsertSQLResult, AUpdateSQLResult, ATableName: WideString
+  out AInsertSQLResult, AUpdateSQLResult, ATableName: WideString;
+  out ANeedTileBodyParam: Boolean
 ): Byte;
 var
   VSQLTile: TSQLTile;
@@ -1478,13 +1526,15 @@ var
   VNewTileSize: LongInt;
   VNewTileBody: WideString;
 begin
-  // get version identifier
+  // смотрим что за версию подсунули
   if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
     VRequestedVersionFound := FVersionList.FindItemByAnsiValue(
       PAnsiChar(AInsertBuffer^.szVersionIn),
       @VReqVersion
     );
   end else begin
+    // как Wide
     VRequestedVersionFound := FVersionList.FindItemByWideValue(
       PWideChar(AInsertBuffer^.szVersionIn),
       @VReqVersion
@@ -1492,13 +1542,13 @@ begin
   end;
 
   if (not VRequestedVersionFound) then begin
-    // no such version - try to create new version here
+    // если такой версии нет - пробуем создать её автоматически
     Result := AutoCreateServiceVersion(
       AExclusively,
       AInsertBuffer,
       @VReqVersion,
       VRequestedVersionFound);
-    // check result
+    // проверяем результат создания новой версии
     if (Result<>ETS_RESULT_OK) then
       Exit;
   end;
@@ -1508,13 +1558,15 @@ begin
     Exit;
   end;
   
-  // get contenttype identifier
+  // смотрим что за тип тайла подсунули
   if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_CONTENTTYPE_IN) <> 0) then begin
+    // как Ansi
     VRequestedContentTypeFound := FContentTypeList.FindItemByAnsiContentTypeText(
       PAnsiChar(AInsertBuffer^.szVersionIn),
       VIdContentType
     );
   end else begin
+    // как Wide
     VRequestedContentTypeFound := FContentTypeList.FindItemByWideContentTypeText(
       PWideChar(AInsertBuffer^.szVersionIn),
       VIdContentType
@@ -1522,7 +1574,9 @@ begin
   end;
 
   if (not VRequestedContentTypeFound) and AForceTNE then begin
-    // if no such contenttype for tne - use primary value
+    // если нет такого типа тайла - используем первичный
+    // TODO: опасно, но глюканёт только если будет более одного неизвестного типа тайла
+    // а вообще новые значения ContentType добавляются только руками
     VRequestedContentTypeFound := FContentTypeList.FindItemByAnsiValueInternal(FPrimaryContentType, VIdContentType);
   end;
 
@@ -1531,45 +1585,51 @@ begin
     Exit;
   end;
 
-  // parse tile coordinates
+  // заполняем VSQLTile
   Result := InternalCalcSQLTile(AInsertBuffer^.XYZ, @VSQLTile);
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
-  // keep tablename
+  // отдельно вернём имя таблицы для тайлов (для обработки ошибок)
   ATableName := VSQLTile.TileTableName;
 
   if AForceTNE then begin
-    // do not check common tiles for TNE
+    // при вставке маркера TNE не проверяем вхождение тайла в часто используемые
     VUseCommonTiles := FALSE;
     VNewTileSize := 0;
   end else begin
-    // check if tile is in common tiles
+    // проверяем что тайл в списке часто используемых тайлов
     VUseCommonTiles := CheckTileInCommonTiles(
       AInsertBuffer^.ptTileBuffer,
       AInsertBuffer^.dwTileSize,
-      VNewTileSize
+      VNewTileSize // если так и есть - сюда залетит ссылка не него
     );
   end;
 
   if AForceTNE then begin
-    // TNE - no tile body at all (neither field name nor field value)
-    AUpdateSQLResult := '';
+    // маркер TNE - нет тела тайла (поля не указываем вообще)
+    // ВНИМАНИЕ! здесь если был TILE и залетает TNE - будет tile_size=0, а тело тайла останется!
+    // сделано как реализация раздельного хранения тайла и маркера TNE с приоритетом TNE
+    // TODO: сделать хранимый признак на уровне сервиса
+    AUpdateSQLResult := ''; // ', tile_body=null';
     AInsertSQLResult := '';
     VNewTileBody := '';
+    ANeedTileBodyParam := FALSE;
   end else if VUseCommonTiles then begin
-    // set link to common tile record
+    // часто используемый тайл - сохраним ссылку на него
     AUpdateSQLResult := ', tile_body=null';
     AInsertSQLResult := ',tile_body';
     VNewTileBody := ',null';
+    ANeedTileBodyParam := FALSE;
   end else begin
-    // set as is (neither common tile nor TNE)
+    // обычный тайл (не маркер TNE и не часто используемый)
     AUpdateSQLResult := ', tile_body=:tile_body';
     AInsertSQLResult := ',tile_body';
     VNewTileBody := ',:tile_body';
+    ANeedTileBodyParam := TRUE;
   end;
 
-  // make INSERT statement
+  // соберём выражение INSERT
   AInsertSQLResult := 'insert into ' + ATableName + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') values (' +
                       IntToStr(VSQLTile.XYLowerToID.X) + ',' +
                       IntToStr(VSQLTile.XYLowerToID.Y) + ',' +
@@ -1578,7 +1638,7 @@ begin
                       WideStrToDB(FormatDateTime(c_UTCLoadDateTimeToDBFormat,AInsertBuffer^.dtLoadedUTC)) + ',' +
                       IntToStr(VNewTileSize) + VNewTileBody + ')';
 
-  // make UPDATE statement
+  // соберём выражение UPDATE
   AUpdateSQLResult := 'update ' + ATableName + ' set id_contenttype=' + IntToStr(VIdContentType) +
                            ', load_date=' + WideStrToDB(FormatDateTime(c_UTCLoadDateTimeToDBFormat,AInsertBuffer^.dtLoadedUTC)) +
                            ', tile_size=' + IntToStr(VNewTileSize) +
@@ -1598,7 +1658,7 @@ begin
   Result := 'select * from t_service where service_code='+WideStrToDB(AServiceCode);
 end;
 
-function TDBMS_Provider.GetSQL_SelectService_Current: WideString;
+function TDBMS_Provider.GetSQL_SelectService_ByHost: WideString;
 begin
   Result := 'select * from t_service where service_name='+WideStrToDB(InternalGetServiceNameByHost);
 end;
@@ -1616,92 +1676,108 @@ begin
   // %DIV%%ZOOM%%HEAD%_%SERVICE% - table with tiles
   // u_%SERVICE% - table with common tiles
 
-  InternalCalcSQLTile(
+  // заполняем VSQLTile по переданным значениям
+  Result := InternalCalcSQLTile(
     ASelectBufferIn^.XYZ,
     @VSQLTile
   );
+  if (Result<>ETS_RESULT_OK) then
+    Exit;
 
-  // check if table exists
+  (*
+  // если таблицы ещё нет - НЕ пробуем её создать, а вернём ошибку (всё равно тайла нет)
+  // только в эксклюзивном режиме
   if AExclusively then begin
     if not TableExists(VSQLTile.TileTableName) then begin
+      Result := ETS_RESULT_UNKNOWN_TILE_TABLE;
+      Exit;
+      {
       Result := CreateTableByTemplate(c_Templated_RealTiles, VSQLTile.TileTableName);
-      // check if failed
+      // проверка результата создания новой таблицы
       if (Result<>ETS_RESULT_OK) then
         Exit;
+      }
     end;
   end;
+  *)
 
+  // заготовки
   VSQLParts.SelectSQL := 'select v.id_ver,v.id_contenttype,v.load_date,';
   VSQLParts.FromSQL := VSQLTile.TileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
 
-  // make SELECT clause
+  // забацаем SELECT
 
-  // check if allow to use common tiles
+  // надо ли учитывать часто используемые тайлы
   if (ETS_UCT_NO=FDBMS_Service_Info.use_common_tiles) then begin
-    // no common tiles
+    // нет
     VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'v.tile_size,v.tile_body';
   end else begin
-    // with common tiles
+    // да
     VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'isnull(k.common_size,v.tile_size) as tile_size,isnull(k.common_body,v.tile_body) as tile_body';
     VSQLParts.FromSQL := VSQLParts.FromSQL + ' left outer join  u_' + InternalGetServiceNameByDB + ' k on v.tile_size<0 and v.tile_size=-k.id_common_tile and v.id_contenttype=k.id_common_type';
   end;
 
-  // make FROM, WHERE and ORDER BY
+  // забацаем FROM, WHERE и ORDER BY
 
-  // get version identifier
+  // определим запрошенную версию
   if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
     VSQLParts.RequestedVersionFound := FVersionList.FindItemByAnsiValue(
       PAnsiChar(ASelectBufferIn^.szVersionIn),
       @VReqVersion
     );
   end else begin
+    // как Wide
     VSQLParts.RequestedVersionFound := FVersionList.FindItemByWideValue(
       PWideChar(ASelectBufferIn^.szVersionIn),
       @VReqVersion
     );
   end;
 
-  if (VSQLParts.RequestedVersionFound) then begin
-    // version found
-    if (VReqVersion.id_ver=FVersionList.EmptyVersionIdVer) then begin
-      // request with empty version
-      if ((FStatusBuffer^.tile_load_mode and ETS_TLM_LAST_VERSION) <> 0) then begin
-        // allow last version
-        AddVersionOrderBy(@VSQLParts, @VReqVersion, FALSE);
-      end else begin
-        // use only empty version (without order by)
-        VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver=' + IntToStr(VReqVersion.id_ver);
-      end;
-    end else begin
-      // non-empty version
-      if ((FStatusBuffer^.tile_load_mode and ETS_TLM_PREV_VERSION) <> 0) then begin
-        // allow prev version
-        AddVersionOrderBy(@VSQLParts, @VReqVersion, TRUE);
-        if ((FStatusBuffer^.tile_load_mode and ETS_TLM_WITHOUT_VERSION) = 0) then begin
-          // but no empty version!
-          VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver!=' + IntToStr(FVersionList.EmptyVersionIdVer);
-        end;
-      end else if ((FStatusBuffer^.tile_load_mode and ETS_TLM_WITHOUT_VERSION) <> 0) then begin
-        // allow requested version or empty version only
-        VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver in (' + IntToStr(VReqVersion.id_ver) + ',' + IntToStr(FVersionList.EmptyVersionIdVer) + ')';
-      end else begin
-        // allow requested version only
-        VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver=' + IntToStr(VReqVersion.id_ver);
-      end;
-    end;
-  end else begin
-    // unknown version - force no tile
-    VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and 0=1';
+  // если не смогли определить версию - вернём ошибку
+  // всё равно ничего хорошего в этом случае из БД не вытащить
+  if (not VSQLParts.RequestedVersionFound) then begin
+    Result := ETS_RESULT_UNKNOWN_VERSION;
+    Exit;
   end;
 
-  // make full SQL
-  ASQLTextResult := VSQLParts.SelectSQL + ' from ' + VSQLParts.FromSQL +
-                                ' where v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
-                                  ' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y) + VSQLParts.WhereSQL + VSQLParts.OrderBySQL;
+  // если версия была найдена (в том числе зарезервированный идентификатор для пустой версии!)
+  if (VReqVersion.id_ver=FVersionList.EmptyVersionIdVer) then begin
+    // запрос без версии
+    if ((FStatusBuffer^.tile_load_mode and ETS_TLM_LAST_VERSION) <> 0) then begin
+      // берём последнюю версию (добавляем в OrderBySQL кусок)
+      AddVersionOrderBy(@VSQLParts, @VReqVersion, FALSE);
+    end else begin
+      // берём только пустую версию (так как она одна - обойдёмся без ORDER BY)
+      VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver=' + IntToStr(VReqVersion.id_ver);
+    end;
+  end else begin
+    // запрос с непустой версией
+    if ((FStatusBuffer^.tile_load_mode and ETS_TLM_PREV_VERSION) <> 0) then begin
+      // разрешена предыдущая версия
+      AddVersionOrderBy(@VSQLParts, @VReqVersion, TRUE);
+      if ((FStatusBuffer^.tile_load_mode and ETS_TLM_WITHOUT_VERSION) = 0) then begin
+        // но не разрешено без версии!
+        VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver!=' + IntToStr(FVersionList.EmptyVersionIdVer);
+      end;
+    end else if ((FStatusBuffer^.tile_load_mode and ETS_TLM_WITHOUT_VERSION) <> 0) then begin
+      // разрешено вернуть только запрошенную версию или совсем без версии
+      VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver in (' + IntToStr(VReqVersion.id_ver) + ',' + IntToStr(FVersionList.EmptyVersionIdVer) + ')';
+    end else begin
+      // разрешено вернуть только запрошенную версию
+      VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver=' + IntToStr(VReqVersion.id_ver);
+    end;
+  end;
 
-  Result := ETS_RESULT_OK;
+  // собираем всё вместе
+  ASQLTextResult := VSQLParts.SelectSQL +
+                  ' from ' + VSQLParts.FromSQL +
+                 ' where v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
+                   ' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
+                    VSQLParts.WhereSQL +
+                    VSQLParts.OrderBySQL;
 end;
 
 function TDBMS_Provider.GetSQL_SelectVersions: WideString;
@@ -1784,26 +1860,27 @@ function TDBMS_Provider.InternalCalcSQLTile(
   const ASQLTile: PSQLTile
 ): Byte;
 begin
-  // base table prefix
+  // сохраняем зум (от 1 до 24)
   ASQLTile^.Zoom := AXYZ^.z;
+  // строим начало имени таблицы для тайлов
   ASQLTile^.TileTableName := FDBMS_Service_Info.id_div_mode + ASQLTile^.ZoomToTableNameChar;
 
-  // check div_mode
+  // определяем маску зума
   case FDBMS_Service_Info.id_div_mode of
     TILE_DIV_1024..TILE_DIV_32768: begin
-      // divide into tables
+      // делимся по таблицам
       ASQLTile^.XYMaskWidth := 10 + Ord(FDBMS_Service_Info.id_div_mode) - Ord(TILE_DIV_1024);
     end;
     else {TILE_DIV_NONE} begin
-      // all-in-one
+      // не делимся по таблицам
       ASQLTile^.XYMaskWidth := 0;
     end;
   end;
 
-  // divide XY
+  // делим XY на "верхнюю" и "нижнюю" части
   InternalDivideXY(AXYZ^.xy, ASQLTile);
 
-  // add upper part of XY and SERVICE name
+  // добавляем "верхнюю" часть XY и внутреннее имя сервиса к имени таблицы
   ASQLTile^.TileTableName := ASQLTile^.TileTableName + ASQLTile^.GetXYUpperInfix + '_' + InternalGetServiceNameByDB;
 
   Result := ETS_RESULT_OK;
@@ -1981,56 +2058,60 @@ begin
   FillChar(FDBMS_Service_Info, SizeOf(FDBMS_Service_Info), 0);
   VDataset := FConnection.MakePoolDataset;
   try
-    // select service info
+    // тащим инфу о текущем сервисе
+    // исходя из указанного при инициализации внешнего уникального кода сервиса
     try
-      VDataset.OpenSQL(GetSQL_SelectService_Current);
+      VDataset.OpenSQL(GetSQL_SelectService_ByHost);
     except
-      // no table
+      // обломались при открытии датасета - значит нет таблицы
     end;
 
     if (not VDataset.Active) then begin
-      // failed to open
-      CreateBaseTemplateTables;
-      // reopen
+      // не открылось - создаём базовые таблицы из скрипта
+      CreateAllBaseTablesFromScript;
+      // переоткрываемся
       try
         VDataset.Active := TRUE;
       except
       end;
     end;
 
+    // а вдруг полный отстой, и нам так и не удалось открыться
     if (not VDataset.Active) then begin
+      // с прискорбием валим
       InternalProv_ClearServiceInfo;
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
     end;
 
-    // check if service exists
+    // проверка, а есть ли сервис
     if VDataset.IsEmpty then begin
-      // autocreate service record
+      // а сервиса-то такого нет
+      // однако попробуем создать его
       Result := AutoCreateServiceRecord(AExclusively);
 
-      // check result
+      // проверка чего насоздавали
       if (Result<>ETS_RESULT_OK) then begin
         InternalProv_ClearServiceInfo;
         Exit;
       end;
 
-      // reopen
+      // и снова пробуем переоткрыться
       try
         VDataset.Active := TRUE;
       except
       end;
     end;
 
-    // check again
+    // последняя проверка
     if (not VDataset.Active) or VDataset.IsEmpty then begin
-      // no service
+      // так и нет сервиса
       InternalProv_ClearServiceInfo;
       Result := ETS_RESULT_UNKNOWN_SERVICE;
       Exit;
     end;
 
-    // found
+    // запрошенный сервис нашёлся
     FDBMS_Service_Code := VDataset.FieldByName('service_code').AsString;
     FDBMS_Service_Info.id_service := VDataset.FieldByName('id_service').AsInteger;
     FDBMS_Service_Info.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
@@ -2053,41 +2134,44 @@ function TDBMS_Provider.InternalProv_SetStorageIdentifier(
 var
   VGlobalStorageIdentifier, VServiceName: WideString;
 begin
+  // проверим буфер
   if (nil = AInfoData) or (AInfoSize < Sizeof(AInfoData^)) then begin
     Result := ETS_RESULT_INVALID_BUFFER_SIZE;
     Exit;
   end;
 
+  // идентификатор не может быть пустым
   if (nil = AInfoData^.szGlobalStorageIdentifier) then begin
     Result := ETS_RESULT_POINTER1_NIL;
     Exit;
   end;
 
+  // идентификатор не может быть пустым
   if (nil = AInfoData^.szServiceName) then begin
     Result := ETS_RESULT_POINTER2_NIL;
     Exit;
   end;
 
-  // get values
+  // тащим значения из буфера
   if ((AInfoData^.dwOptionsIn and ETS_ROI_ANSI_SET_INFORMATION) <> 0) then begin
-    // AnsiString
+    // как AnsiString
     VGlobalStorageIdentifier := AnsiString(PAnsiChar(AInfoData^.szGlobalStorageIdentifier));
     VServiceName             := AnsiString(PAnsiChar(AInfoData^.szServiceName));
   end else begin
-    // WideString
+    // как WideString
     VGlobalStorageIdentifier := WideString(PWideChar(AInfoData^.szGlobalStorageIdentifier));
     VServiceName             := WideString(PWideChar(AInfoData^.szServiceName));
   end;
 
-  // parse
+  // парсим и получаем полный путь до СУБД и сервиса в ней
   FPath.ApplyFrom(VGlobalStorageIdentifier, VServiceName);
 
-  // check result
+  // проверяем что напарсилось
   if (0<Length(FPath.Path_Items[0])) and (0<Length(FPath.Path_Items[2])) then begin
-    // may be correct
+    // корректно (с точки зрения формата, не обязательно сервис будет доступен)
     Result := ETS_RESULT_OK;
   end else begin
-    // error
+    // заведомо криво
     Result := ETS_RESULT_INVALID_PATH;
   end;
 end;
@@ -2096,6 +2180,7 @@ function TDBMS_Provider.MakeEmptyVersionInDB(const AIdVersion: SmallInt): Boolea
 var
   VNewVersion: TVersionAA;
 begin
+  // создание записи в БД для пустой версии текущего сервиса
   VNewVersion.id_ver := AIdVersion;
   VNewVersion.ver_value :='';
   VNewVersion.ver_date := NowUTC;
@@ -2110,6 +2195,7 @@ var
 begin
   VDataset := FConnection.MakePoolDataset;
   try
+    // забацаем SQL для вставки записи о новой версии
     VDataset.SQL.Text := 'insert into v_' + InternalGetServiceNameByDB +
               '(id_ver,ver_value,ver_date,ver_number) values (' +
               IntToStr(ANewVersionPtr^.id_ver) + ',' +
@@ -2117,6 +2203,7 @@ begin
               WideStrToDB(FormatDateTime(c_VersionDateTileToDBFormat, ANewVersionPtr^.ver_date)) + ',' +
               IntToStr(ANewVersionPtr^.ver_number) + ')';
     try
+      // выполним (напрямую)
       VDataset.ExecSQL(TRUE);
       Result := TRUE;
     except
@@ -2132,24 +2219,25 @@ var
   VDataset: TDBMS_Dataset;
   VNewItem: TVersionAA;
 begin
+  // читаем все версии в почищенный список
   FVersionList.Clear;
   VDataset := FConnection.MakePoolDataset;
   try
     VDataset.OpenSQL(GetSQL_SelectVersions);
     if (not VDataset.IsEmpty) then begin
-      // set capacity
+      // сразу установим размер по числу записей в датасете
       FVersionList.SetCapacity(VDataset.RecordCount);
-      // enum
+      // перечисляем
       VDataset.First;
       while (not VDataset.Eof) do begin
-        // add record to array
+        // добавляем поштучно
         VNewItem.id_ver := VDataset.FieldByName('id_ver').AsInteger;
         VNewItem.ver_value := VDataset.FieldByName('ver_value').AsString;
         VNewItem.ver_date := VDataset.FieldByName('ver_date').AsDateTime;
         VNewItem.ver_number := VDataset.FieldByName('ver_number').AsInteger;
         VNewItem.ver_comment := VDataset.FieldByName('ver_comment').AsString;
         FVersionList.AddItem(@VNewItem);
-        // next
+        // - Следующий!
         VDataset.Next;
       end;
     end;
@@ -2165,6 +2253,7 @@ begin
   VDataset := FConnection.MakePoolDataset;
   try
     try
+      // простая универсальная проверка существования и доступности таблицы
       VDataset.OpenSQL('select 1 from ' + ATableName + ' where 0=1');
       Result := TRUE;
     except
@@ -2182,6 +2271,7 @@ begin
   VDataset := FConnection.MakePoolDataset;
   try
     try
+      // проверка существования указанной версии (по идентификатору) для текущего сервиса
       VDataset.OpenSQL('select id_ver from v_' + InternalGetServiceNameByDB + ' where id_ver=' + IntToStr(AIdVersion));
       Result := (not VDataset.IsEmpty) and (not VDataset.FieldByName('id_ver').IsNull);
     except

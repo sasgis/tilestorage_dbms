@@ -5,9 +5,14 @@ interface
 uses
   SysUtils,
   Classes,
+  t_SQL_types,
+{$if defined(ETS_USE_ZEOS)}
+
+{$else}
   DB,
   DBXCommon,
   SQLExpr,
+{$ifend}
   t_ETS_Path,
   t_ETS_Tiles;
 
@@ -30,6 +35,7 @@ type
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
     function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
+    function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
   end;
 
   TDBMS_Connection = class(TInterfacedObject, IDBMS_Connection)
@@ -37,6 +43,7 @@ type
     FSyncPool: IReadWriteSync;
     FPath: TETS_Path_Divided_W;
     FSQLConnection: TSQLConnection;
+    FEngineType: TEngineType;
   private
     function ApplyAuthenticationInfo: Byte;
     procedure KeepAuthenticationInfo;
@@ -45,12 +52,14 @@ type
     procedure ApplyParamsToConnection(const AParams: TStrings);
   private
     function IsTrustedConnection: Boolean;
+    function GetEngineTypeUsingSQL: TEngineType;
   private
     { IDBMS_Connection }
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
     function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
+    function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
   public
     constructor Create;
     destructor Destroy; override;
@@ -191,7 +200,9 @@ begin
   // DriverName=ASE
   // or
   // Trusted_Connection=True
-  VFilename := GetModuleFileNameWithoutExt+'.ini';
+
+  // здесь нет добавок в имя файла, потому что настройки определяются ДО подключения к СУБД
+  VFilename := GetModuleFileNameWithoutExt('')+'.ini';
   if FileExists(VFilename) then begin
     VIni:=TIniFile.Create(VFilename);
     try
@@ -223,35 +234,22 @@ end;
 
 procedure TDBMS_Connection.ApplyODBCParamsToConnection;
 begin
-(*
-ConnectionName = 'OdbcConnection'
-DriverName = 'Odbc'
-GetDriverFunc = 'getSQLDriverODBC'
-LibraryName = 'dbxoodbc.dll'
-LoginPrompt = False
-Params.Strings = (
-  'DriverName=Odbc'
-  'Database=DSN'
-  'User_Name=user'
-  'Password=password')
-VendorLib = 'ODBC32.DLL'
-*)
   FSQLConnection.LoginPrompt := FALSE;
   FSQLConnection.LoadParamsOnConnect := FALSE;
 
   // set drivername and clear all params
   FSQLConnection.ConnectionName := '';
-  FSQLConnection.DriverName := 'Odbc';
+  FSQLConnection.DriverName := c_ODBC_DriverName;
   // FSQLConnection.Params.Clear;
-  FSQLConnection.LibraryName := 'dbxoodbc.dll';
-  FSQLConnection.GetDriverFunc := 'getSQLDriverODBC';
+  FSQLConnection.LibraryName := c_ODBC_LibraryName;
+  FSQLConnection.GetDriverFunc := c_ODBC_GetDriverFunc;
 
   // set params
   FSQLConnection.Params.Values[TDBXPropertyNames.DriverName] := FSQLConnection.DriverName;
   FSQLConnection.Params.Values[TDBXPropertyNames.Database] := FPath.Path_Items[0];
   
   // set connection name
-  FSQLConnection.ConnectionName := FSQLConnection.DriverName + 'Connection' + Format('%p',[Pointer(FSQLConnection)]);
+  FSQLConnection.ConnectionName := FSQLConnection.DriverName + c_RTL_Connection + Format('%p',[Pointer(FSQLConnection)]);
 end;
 
 procedure TDBMS_Connection.ApplyParamsToConnection(const AParams: TStrings);
@@ -275,7 +273,7 @@ begin
       // set new DriverName
       FSQLConnection.LoadParamsOnConnect := FALSE;
       FSQLConnection.DriverName := VNewValue;
-      FSQLConnection.ConnectionName := VNewValue + 'Connection';
+      FSQLConnection.ConnectionName := VNewValue + c_RTL_Connection;
       // default params
       VDBXProperties := TDBXConnectionFactory.GetConnectionFactory.GetDriverProperties(VNewValue);
       FSQLConnection.Params.Assign(VDBXProperties.Properties);
@@ -307,7 +305,7 @@ begin
   end;
 
   // set connection name
-  VCurItem := FSQLConnection.DriverName + 'Connection' + Format('%p',[Pointer(FSQLConnection)]);
+  VCurItem := FSQLConnection.DriverName + c_RTL_Connection + Format('%p',[Pointer(FSQLConnection)]);
   if (not SameText(FSQLConnection.ConnectionName,VCurItem)) then begin
     // set or replace
     FSQLConnection.ConnectionName := VCurItem;
@@ -340,6 +338,7 @@ end;
 
 constructor TDBMS_Connection.Create;
 begin
+  FEngineType := et_Unknown;
   inherited Create;
   FSyncPool := MakeSync_Tiny(Self);
   FSQLConnection := TSQLConnection.Create(nil);
@@ -387,6 +386,74 @@ begin
     end else begin
       // cannot connect
       Result := ETS_RESULT_NEED_EXCLUSIVE;
+    end;
+  end;
+end;
+
+function TDBMS_Connection.GetEngineType(const ACheckMode: TCheckEngineTypeMode): TEngineType;
+begin
+  case ACheckMode of
+    cetm_Check: begin
+      // check if not checked
+      // allow get info from driver
+      if (et_Unknown=FEngineType) then begin
+        FEngineType := GetEngineTypeByDBXDriverName(FSQLConnection.DriverName);
+        if (et_Unknown=FEngineType) then begin
+          // use sql requests
+          FEngineType := GetEngineTypeUsingSQL;
+        end;
+      end;
+    end;
+    cetm_Force: begin
+      // (re)check via SQL requests
+      FEngineType := GetEngineTypeUsingSQL;
+    end;
+  end;
+
+  Result := FEngineType;
+end;
+
+function TDBMS_Connection.GetEngineTypeUsingSQL: TEngineType;
+var
+  VDataset: TDBMS_Dataset;
+  VText: String;
+begin
+  if (EnsureConnected(FALSE) <> ETS_RESULT_OK) then begin
+    // not connected
+    Result := et_Unknown;
+  end else begin
+    // connected
+    VDataset := MakePoolDataset;
+    try
+      // first check
+      try
+        VDataset.OpenSQL(c_SQLCMD_VERSION_S);
+        if VDataset.FieldCount>0 then
+        if (VDataset.Fields[0].DataType in [ftString, ftFixedChar, ftMemo, ftWideString, ftFixedWideChar, ftWideMemo]) then begin
+          VText := LowerCase(VDataset.Fields[0].AsString);
+          if GetEngineTypeUsingSQL_Version_S(VText, Result) then
+            Exit;
+        end;
+        // unknown
+        Result := et_Unknown;
+      except
+        on E: Exception do begin
+          // TODO: check message is about 'FROM' clause
+        end;
+      end;
+
+      // second check
+      try
+        VDataset.OpenSQL(c_SQLCMD_FROM_DUAL);
+        // TODO: check resultset
+      except
+        on E: Exception do begin
+          // TODO: check message
+        end;
+      end;
+      
+    finally
+      KillPoolDataset(VDataset);
     end;
   end;
 end;
