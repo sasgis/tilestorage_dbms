@@ -232,6 +232,41 @@ Select first 10 * from systables
 select skip 10 limit 10 * systables;
 
 
+FireBird:
+set term ^;
+execute block as
+begin
+if (not (exists(select 1 from c_contenttype where id_contenttype=1))) then
+begin
+  execute STATEMENT 'INSERT into c_contenttype (id_contenttype, contenttype_text) values (1, ''image/png'')';
+end
+end^
+set term ;^
+
+ИЛИ
+
+set term ^;
+execute block as
+begin
+if (not (exists(select 1 from c_contenttype where id_contenttype=1))) then
+begin
+  INSERT into c_contenttype (id_contenttype, contenttype_text) values (1, 'image/png');
+end
+end^
+set term ;^
+
+если напрямую то
+execute block as
+begin
+if (not (exists(select 1 from c_contenttype where id_contenttype=1))) then
+begin
+  INSERT into c_contenttype (id_contenttype, contenttype_text)
+  values (1, 'image/png');
+end
+end
+;
+
+
 *)
 
 
