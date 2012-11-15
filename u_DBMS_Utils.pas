@@ -9,11 +9,17 @@ uses
 function AnsiStrToDB(const S: AnsiString): AnsiString;
 function WideStrToDB(const S: WideString): WideString;
 
-function GetModuleFileNameWithoutExt(const ATailAfterDot: String): String;
+function GetModuleFileNameWithoutExt(
+  const AInSqlSubFolder: Boolean;
+  const ATailAfterDot: String
+): String;
 
 function NowUTC: TDateTime;
 
 implementation
+
+uses
+  t_DBMS_Template;
 
 function AnsiStrToDB(const S: AnsiString): AnsiString;
 begin
@@ -30,12 +36,18 @@ begin
   Result := '''' + Result + '''';
 end;
 
-function GetModuleFileNameWithoutExt(const ATailAfterDot: String): String;
+function GetModuleFileNameWithoutExt(
+  const AInSqlSubFolder: Boolean;
+  const ATailAfterDot: String
+): String;
 begin
   Result := GetModuleName(HInstance);
   Result := ExtractFileName(Result);
   if (0<Length(ATailAfterDot)) then begin
     Result := Result + '.' + ATailAfterDot;
+  end;
+  if AInSqlSubFolder then begin
+    Result := c_SQL_SubFolder + Result;
   end;
 end;
 

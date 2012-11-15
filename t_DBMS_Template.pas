@@ -7,6 +7,14 @@ uses
   SysUtils;
 
 const
+  // подпапка для скриптов и настроек
+  c_SQL_SubFolder = 'DBMS\';
+  // расширения для файлов скриптов (базовое и для шаблонов)
+  c_SQL_Ext_Base = '.sql';
+  c_SQL_Ext_Tmpl = '.xql';
+  // расширение для файла результата
+  c_SQL_Ext_Out  = '.out';
+
   // таблица с шаблонами запросов
   c_Template_Tablename = 't_all_sql';
 

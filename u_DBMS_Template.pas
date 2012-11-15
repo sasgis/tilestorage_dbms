@@ -82,7 +82,7 @@ begin
   
   // templated sql text
   FAux := TStringList.Create;
-  VFileName := GetModuleFileNameWithoutExt(AUniqueEngineType) + '.aux';
+  VFileName := GetModuleFileNameWithoutExt(TRUE, AUniqueEngineType) + c_SQL_Ext_Tmpl;
   if FileExists(VFileName) then
   try
     FAux.LoadFromFile(VFileName);
@@ -91,7 +91,7 @@ begin
   
   // plan sql text
   FSQL := TStringList.Create;
-  VFileName := GetModuleFileNameWithoutExt(AUniqueEngineType) + '.sql';
+  VFileName := GetModuleFileNameWithoutExt(TRUE, AUniqueEngineType) + c_SQL_Ext_Base;
   if FileExists(VFileName) then
   try
     FSQL.LoadFromFile(VFileName);
@@ -184,7 +184,7 @@ begin
   finally
     if VErrors.Count>0 then
     try
-      VErrors.SaveToFile(GetModuleFileNameWithoutExt(FUniqueEngineType)+'.out');
+      VErrors.SaveToFile(GetModuleFileNameWithoutExt(TRUE, FUniqueEngineType)+c_SQL_Ext_Out);
     except
     end;
 

@@ -202,7 +202,7 @@ begin
   // Trusted_Connection=True
 
   // здесь нет добавок в имя файла, потому что настройки определяются ДО подключения к СУБД
-  VFilename := GetModuleFileNameWithoutExt('')+'.ini';
+  VFilename := GetModuleFileNameWithoutExt(FALSE, '')+'.ini';
   if FileExists(VFilename) then begin
     VIni:=TIniFile.Create(VFilename);
     try
