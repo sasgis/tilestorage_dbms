@@ -54,6 +54,21 @@ const
     ''
   );
 
+  // 'Integrated Security' or 'Trusted_Connection' (if allowed)
+  c_SQL_Integrated_Security: array [TEngineType] of String = (
+    'IntegratedSecurity',  // Microsoft SQL  // Trusted_Connection=True // Trusted_Connection=Yes
+    '',                    // Sybase ASE
+    '',                    // Sybase ASA
+    'Integrated Security', // Oracle // Integrated Security=SSPI
+    '',                    // Informix
+    '',                    // DB2
+    '',                    // MySQL
+    'Integrated Security', // PostgreSQL
+    'Integrated Security', // Mimer
+    '',                    // Firebird
+    ''
+  );
+
   // unique DBX drivernames (do not add item for ODBC!)
   c_SQL_DBX_Driver_Name: array [TEngineType] of String = (
     'MSSQL',
@@ -96,6 +111,21 @@ const
   'TIMESTAMP', // PostgreSQL
   'TIMESTAMP', // Mimer
   'TIMESTAMP', // Firebird
+  ''
+  );
+
+  // prefix before literal datetime
+  c_SQL_DateTime_Literal_Prefix: array [TEngineType] of String = (
+  '',          // MSSQL
+  '',          // ASE
+  '',          // ASA
+  '',          // Oracle
+  '',          // Informix
+  '',          // DB2
+  '',          // MySQL
+  '',          // PostgreSQL
+  'TIMESTAMP', // Mimer
+  '',          // Firebird
   ''
   );
 
@@ -295,13 +325,15 @@ VendorLib = 'ODBC32.DLL'
 const
   c_ODBC_DriverName  = 'Odbc';
   c_ODBC_LibraryName = 'dbxoodbc.dll';
-  c_ODBC_GetDriverFunc = 'getSQLDriverODBC';
+  c_ODBC_GetDriverFunc = 'getSQLDriverODBCW'; // 'getSQLDriverODBC'
+  c_ODBC_VendorLib = 'ODBC32.DLL';
 
 const
   c_RTL_Connection = 'Connection';
+  c_RTL_Interbase = 'Interbase'; // for Firebird
+  c_RTL_Trusted_Connection = 'Trusted_Connection';
 
-
-function GetEngineTypeByDBXDriverName(const ADBXDriverName: String): TEngineType;
+function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
 
 function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
 
@@ -310,10 +342,55 @@ implementation
 uses
   SysUtils;
 
-function GetEngineTypeByDBXDriverName(const ADBXDriverName: String): TEngineType;
+function GetEngineTypeByODBCDescription(const AODBCDescription: WideString): TEngineType;
+var VDescUpper: String;
 begin
-  if (0=Length(ADBXDriverName)) or SameText(c_ODBC_DriverName,ADBXDriverName) then begin
+  VDescUpper := UpperCase(AODBCDescription);
+  if (System.Pos('MIMER', VDescUpper)>0) then begin
+    // MIMER
+    Result := et_Mimer;
+  end else if (System.Pos('FIREBIRD', VDescUpper)>0) then begin
+    // FIREBIRD
+    Result := et_Firebird;
+  end else if (System.Pos('POSTGRESQL', VDescUpper)>0) then begin
+    // POSTGRESQL
+    Result := et_PostgreSQL;
+  end else if (System.Pos('ORACLE', VDescUpper)>0) then begin
+    // ORACLE
+    Result := et_Oracle;
+  end else if (System.Pos('INFORMIX', VDescUpper)>0) then begin
+    // INFORMIX
+    Result := et_Informix;
+  end else if (System.Pos('DB2', VDescUpper)>0) then begin
+    // DB2
+    Result := et_DB2;
+  end else if (System.Pos('ADAPTIVE', VDescUpper)>0) and (System.Pos('SERVER', VDescUpper)>0) and (System.Pos('ENTERPRISE', VDescUpper)>0) then begin
+    // ASE
+    Result := et_ASE;
+  end else if ('SQL SERVER'=VDescUpper) then begin
+    // MSSQL
+    Result := et_MSSQL;
+  end else begin
     Result := et_Unknown;
+  end;
+end;
+
+function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
+begin
+  if (0=Length(ADBXDriverName)) then begin
+    Result := et_Unknown;
+    Exit;
+  end;
+
+  if SameText(c_ODBC_DriverName,ADBXDriverName) then begin
+    // check by ODBC driver description
+    Result := GetEngineTypeByODBCDescription(AODBCDescription);
+    Exit;
+  end;
+
+  if SameText(c_RTL_Interbase,ADBXDriverName) then begin
+    // Interbase - for Firebird
+    Result := et_Firebird;
     Exit;
   end;
 
@@ -321,6 +398,7 @@ begin
   while (Result<et_Unknown) do begin
     if (0<Length(c_SQL_DBX_Driver_Name[Result])) and SameText(ADBXDriverName, c_SQL_DBX_Driver_Name[Result]) then
       Exit;
+    Inc(Result);
   end;
 end;
 

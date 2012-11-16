@@ -16,6 +16,8 @@ type
     FSQL: TStringList;
     FAux: TStringList;
     FUniqueEngineType: String;
+    FForcedSchemaPrefix: String;
+    FAppendDivider: String;
   private
     function LineIsEmptyOrComment(const ASQLLine: String): Boolean;
 
@@ -46,7 +48,7 @@ type
       const E: Exception
     );
   public
-    constructor Create(const AUniqueEngineType: String);
+    constructor Create(const AUniqueEngineType, AForcedSchemaPrefix, AAppendDivider: String);
     destructor Destroy; override;
     
     // выполнение всех имеющихся команд SQL из скрипта
@@ -72,17 +74,19 @@ begin
   AErrors.Add(E.Message);
 end;
 
-constructor TDBMS_SQLTemplates_File.Create(const AUniqueEngineType: String);
+constructor TDBMS_SQLTemplates_File.Create(const AUniqueEngineType, AForcedSchemaPrefix, AAppendDivider: String);
 var
   VFileName: String;
 begin
   inherited Create;
   
   FUniqueEngineType := AUniqueEngineType;
+  FForcedSchemaPrefix := AForcedSchemaPrefix;
+  FAppendDivider := AAppendDivider;
   
   // templated sql text
   FAux := TStringList.Create;
-  VFileName := GetModuleFileNameWithoutExt(TRUE, AUniqueEngineType) + c_SQL_Ext_Tmpl;
+  VFileName := GetModuleFileNameWithoutExt(TRUE, FALSE, AUniqueEngineType) + c_SQL_Ext_Tmpl;
   if FileExists(VFileName) then
   try
     FAux.LoadFromFile(VFileName);
@@ -91,7 +95,7 @@ begin
   
   // plan sql text
   FSQL := TStringList.Create;
-  VFileName := GetModuleFileNameWithoutExt(TRUE, AUniqueEngineType) + c_SQL_Ext_Base;
+  VFileName := GetModuleFileNameWithoutExt(TRUE, FALSE, AUniqueEngineType) + c_SQL_Ext_Base;
   if FileExists(VFileName) then
   try
     FSQL.LoadFromFile(VFileName);
@@ -138,13 +142,20 @@ begin
       if (VLines.Count>0) then
       try
         if (0=Length(AInsertIntoTableForTemplated)) then begin
-          // just execute SQL text
-          ADataset.SQL.Clear;
-          ADataset.SQL.AddStrings(VLines);
-          ADataset.ExecSQL(TRUE);
+          // если не в таблицу - значит просто исполняем команды SQL
+          if (0=Length(FAppendDivider)) then begin
+            // просто дообавляем строки
+            ADataset.SQL.Clear;
+            ADataset.SQL.AddStrings(VLines);
+          end else begin
+            // кроме строк добавляем окончание команды
+            ADataset.SQL.Text := Trim(VLines.Text) + FAppendDivider;
+          end;
+          // исполняем
+          ADataset.ExecSQL(FALSE);
         end else begin
           // make insert SQL statement for special table
-          ADataset.SQL.Text := 'insert into '+c_Template_Tablename+
+          ADataset.SQL.Text := 'insert into ' + FForcedSchemaPrefix + c_Tablename_With_Templates+
                               ' (object_name,object_operation,index_sql,object_sql)'+
                               ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')';
           ADataset.ExecSQL(TRUE);
@@ -184,7 +195,7 @@ begin
   finally
     if VErrors.Count>0 then
     try
-      VErrors.SaveToFile(GetModuleFileNameWithoutExt(TRUE, FUniqueEngineType)+c_SQL_Ext_Out);
+      VErrors.SaveToFile(GetModuleFileNameWithoutExt(TRUE, FALSE, FUniqueEngineType)+c_SQL_Ext_Out);
     except
     end;
 
@@ -266,22 +277,42 @@ function TDBMS_SQLTemplates_File.GetNextDivLineIndex(
 var
   VLine: String;
 begin
-  // before loop
+  // перед циклом чистимся и берём стартовую строку
   ALines.Clear;
   VLine := Trim(ASrcLines[AStartLine]);
   if (not SameText(VLine, ADivider)) then
     ALines.Add(VLine);
 
-  // loop
+  // цикл до разделителя
   Result := AStartLine+1;
   while (Result<ASrcLines.Count) do begin
     VLine := Trim(ASrcLines[Result]);
     if SameText(VLine, ADivider) then
-      Exit
+      break
     else
       ALines.Add(VLine);
     Inc(Result);
   end;
+
+  // а теперь с начала и с конца строк удаляем пустышки
+
+  while ALines.Count>0 do begin
+    VLine := Trim(ALines[0]);
+    if (0=Length(VLine)) then
+      ALines.Delete(0)
+    else
+      break;
+  end;
+
+  while ALines.Count>0 do begin
+    VLine := Trim(ALines[ALines.Count-1]);
+    if (0=Length(VLine)) then
+      ALines.Delete(ALines.Count-1)
+    else
+      break;
+  end;
+
+  // вот теперь остаток можно исполнять  
 end;
 
 function TDBMS_SQLTemplates_File.GetSQLDivider(const ALines: TStrings): String;

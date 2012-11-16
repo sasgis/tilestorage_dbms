@@ -16,7 +16,7 @@ const
   c_SQL_Ext_Out  = '.out';
 
   // таблица с шаблонами запросов
-  c_Template_Tablename = 't_all_sql';
+  c_Tablename_With_Templates = 't_all_sql';
 
   // префикс для разбора скрипта и выполнения потаблично
   c_Template_CreateTable_Prefix = 'create table';
@@ -31,10 +31,11 @@ const
   // %HEAD% - "верхняя" часть идентификатора тайла, "ушедшая" в имя таблицы
   c_Templated_RealTiles   = '%DIV%%ZOOM%%HEAD%_%SERVICE%';
 
-  // формат для вставки даты версии в БД
-  c_VersionDateTileToDBFormat = 'yyyymmdd hh:nn:ss.zzz';
-  // формат для вставки даты тайла в БД
-  c_UTCLoadDateTimeToDBFormat = 'yyyymmdd hh:nn:ss.zzz';
+  c_Date_Separator = '-';
+  c_Time_Separator = ':';
+
+  // формат для вставки даты-времени в БД
+  c_DateTimeToDBFormat = 'YYYY' + c_Date_Separator + 'MM' + c_Date_Separator + 'DD HH' + c_Time_Separator + 'NN' + c_Time_Separator + 'SS';
 
 type
   TSQLParts = record
@@ -48,6 +49,7 @@ type
     Zoom: Byte;
     // значение маски зума, если меньше - нет деления на таблицы по зумам
     XYMaskWidth: Byte;
+    // имя таблицы для тайлов - здесь без возможного префикса схемы
     TileTableName: WideString;
     // "верхняя" часть идентификатора тайла - в имя таблицы
     XYUpperToTable: TPoint;

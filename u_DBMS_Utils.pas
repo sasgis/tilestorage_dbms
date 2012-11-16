@@ -11,6 +11,7 @@ function WideStrToDB(const S: WideString): WideString;
 
 function GetModuleFileNameWithoutExt(
   const AInSqlSubFolder: Boolean;
+  const AUnderlineBefore: Boolean;
   const ATailAfterDot: String
 ): String;
 
@@ -38,13 +39,18 @@ end;
 
 function GetModuleFileNameWithoutExt(
   const AInSqlSubFolder: Boolean;
+  const AUnderlineBefore: Boolean;
   const ATailAfterDot: String
 ): String;
 begin
   Result := GetModuleName(HInstance);
   Result := ExtractFileName(Result);
+  Result := ChangeFileExt(Result,'');
   if (0<Length(ATailAfterDot)) then begin
     Result := Result + '.' + ATailAfterDot;
+  end;
+  if AUnderlineBefore then begin
+    Result := '_' + Result;
   end;
   if AInSqlSubFolder then begin
     Result := c_SQL_SubFolder + Result;

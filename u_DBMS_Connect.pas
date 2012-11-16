@@ -6,11 +6,13 @@ uses
   SysUtils,
   Classes,
   t_SQL_types,
+  t_DBMS_Template,
 {$if defined(ETS_USE_ZEOS)}
 
 {$else}
   DB,
   DBXCommon,
+  DBXDynaLink,
   SQLExpr,
 {$ifend}
   t_ETS_Path,
@@ -35,7 +37,12 @@ type
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
     function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
+    // тип сервера БД
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
+    function GetCheckedEngineType: TEngineType;
+    // внутренние параметры
+    function GetInternalParameter(const AInternalParameterName: String): String;
+    function ForcedSchemaPrefix: String;
   end;
 
   TDBMS_Connection = class(TInterfacedObject, IDBMS_Connection)
@@ -44,12 +51,15 @@ type
     FPath: TETS_Path_Divided_W;
     FSQLConnection: TSQLConnection;
     FEngineType: TEngineType;
+    FODBCDescription: WideString;
+    FInternalParams: TStringList;
   private
+    procedure SaveInternalParameter(const AParamName, AParamValue: String);
     function ApplyAuthenticationInfo: Byte;
     procedure KeepAuthenticationInfo;
-    procedure ApplyODBCParamsToConnection;
-    procedure ApplyConnectionParams;
-    procedure ApplyParamsToConnection(const AParams: TStrings);
+    function ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
+    function ApplyConnectionParams: Byte;
+    function ApplyParamsToConnection(const AParams: TStrings): Byte;
   private
     function IsTrustedConnection: Boolean;
     function GetEngineTypeUsingSQL: TEngineType;
@@ -60,6 +70,9 @@ type
     function MakePoolDataset: TDBMS_Dataset;
     function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
+    function GetCheckedEngineType: TEngineType;
+    function GetInternalParameter(const AInternalParameterName: String): String;
+    function ForcedSchemaPrefix: String;
   public
     constructor Create;
     destructor Destroy; override;
@@ -136,16 +149,32 @@ end;
 { TDBMS_Connection }
 
 function TDBMS_Connection.ApplyAuthenticationInfo: Byte;
+(*
 var
   VServer: TDBMS_Server;
+  VUIDParamName, VPwdParamName: WideString;
   VUsername: WideString;
   VPassword: WideString;
+*)
 begin
+  // пока что всё только из ini
+(*
+  if SameText(FSQLConnection.DriverName,c_RTL_Interbase) then begin
+    VUIDParamName := 'UID';
+    VPwdParamName := 'PWD';
+  end else begin
+    VUIDParamName := TDBXPropertyNames.UserName;
+    VPwdParamName := TDBXPropertyNames.Password;
+  end;
+
   VUsername := '';
   VPassword := '';
 
-  // if Trusted_Connection=True - keep empty
-  if not IsTrustedConnection then begin
+  if IsTrustedConnection then begin
+    // if Trusted_Connection=True - keep empty
+    FSQLConnection.Params.Values[VUIDParamName] := '';
+    FSQLConnection.Params.Values[VPwdParamName] := '';
+  end else begin
     // get info from G_ConnectionList
     G_ConnectionList.FSyncList.BeginWrite;
     try
@@ -163,9 +192,18 @@ begin
           VUsername := VServer.FUsername;
           VPassword := VServer.FPassword;
         end else begin
-          // TODO: not defined - get it from storage
-          VUsername := 'sa';
-          VPassword := '';
+          // проверим может быть возможно подключение без логина
+          if (0<Length(c_SQL_Integrated_Security[GetCheckedEngineType])) then begin
+            // по идее это возможно
+            VUsername := '';
+            VPassword := '';
+            //FSQLConnection.Params.Values[c_SQL_Integrated_Security[GetCheckedEngineType]] := 'true';
+          end else begin
+            // обязательно нужен логин и пароль
+            // TODO: вычитать его из хранилища
+            VUsername := 'sa';
+            VPassword := '';
+          end;
         end;
       end else begin
         // fuckup - try empty values
@@ -173,36 +211,33 @@ begin
     finally
       G_ConnectionList.FSyncList.EndWrite;
     end;
+
+    // apply User_Name and Password
+    FSQLConnection.Params.Values[VUIDParamName] := VUsername;
+    FSQLConnection.Params.Values[VPwdParamName] := VPassword;
   end;
 
-  // apply User_Name and Password
-  FSQLConnection.Params.Values[TDBXPropertyNames.UserName] := VUsername;
-  FSQLConnection.Params.Values[TDBXPropertyNames.Password] := VPassword;
-
+*)
   FSQLConnection.LoginPrompt := FALSE;
 
   Result := ETS_RESULT_OK;
 end;
 
-procedure TDBMS_Connection.ApplyConnectionParams;
+function TDBMS_Connection.ApplyConnectionParams: Byte;
 var
   VSectionName: String;
   VFilename: String;
   VIni: TIniFile;
   VParams: TStringList;
-  VDescription: WideString;
 begin
   VSectionName := FPath.AsEndpoint;
 
-  // 1. check for [MAIN\gis] section in 'TileStorage_DBMS.ini' with strings like
-  // ClientAppName=sas_DBMS
-  // ClientCharSet=cp1251
-  // DriverName=ASE
-  // or
-  // Trusted_Connection=True
+  // хотя возможно подключение через дрйвер ODBC вообще без настройки дополнительных параметров (например, к ASE)
+  // будем требовать наличия секции в файлике ini
 
   // здесь нет добавок в имя файла, потому что настройки определяются ДО подключения к СУБД
-  VFilename := GetModuleFileNameWithoutExt(FALSE, '')+'.ini';
+  // для визуального отличия от остальных файлов добавляем подчёркивание в начало имени
+  VFilename := GetModuleFileNameWithoutExt(TRUE, TRUE, '')+'.ini';
   if FileExists(VFilename) then begin
     VIni:=TIniFile.Create(VFilename);
     try
@@ -212,27 +247,44 @@ begin
         try
           VIni.ReadSectionValues(VSectionName, VParams);
           // apply all params
-          ApplyParamsToConnection(VParams);
+          Result := ApplyParamsToConnection(VParams);
         finally
           VParams.Free;
         end;
-        // done
-        Exit;
+      end else begin
+        // секция не найдена
+        Result := ETS_RESULT_INI_SECTION_NOT_FOUND;
       end;
     finally
       VIni.Free;
     end;
+  end else begin
+    // файл ini не найден
+    Result := ETS_RESULT_INI_FILE_NOT_FOUND;
   end;
 
+  (*
   // 2. get params from ODBC sources (only by ODBCSERVERNAME) and add DATABASENAME if not defined
-  if Load_DSN_Params_from_ODBC(FPath.Path_Items[0], VDescription) then begin
+  if Load_DSN_Params_from_ODBC(FPath.Path_Items[0], FODBCDescription) then begin
     // VDescription is the description of the driver associated with the data source
     // For example, dBASE or SQL Server
-    ApplyODBCParamsToConnection;
+    ApplyODBCParamsToConnection(nil);
   end;
+  *)
 end;
 
-procedure TDBMS_Connection.ApplyODBCParamsToConnection;
+procedure TDBMS_Connection.SaveInternalParameter(const AParamName, AParamValue: String);
+begin
+  if (nil=FInternalParams) then
+    FInternalParams := TStringList.Create;
+  // просто складываем параметры в список
+  FInternalParams.Values[AParamName] := AParamValue;
+end;
+
+function TDBMS_Connection.ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
+var
+  i: Integer;
+  VParamName: String;
 begin
   FSQLConnection.LoginPrompt := FALSE;
   FSQLConnection.LoadParamsOnConnect := FALSE;
@@ -241,34 +293,58 @@ begin
   FSQLConnection.ConnectionName := '';
   FSQLConnection.DriverName := c_ODBC_DriverName;
   // FSQLConnection.Params.Clear;
-  FSQLConnection.LibraryName := c_ODBC_LibraryName;
+  FSQLConnection.LibraryName := c_SQL_SubFolder + c_ODBC_LibraryName;
   FSQLConnection.GetDriverFunc := c_ODBC_GetDriverFunc;
+  FSQLConnection.VendorLib := c_ODBC_VendorLib;
 
   // set params
   FSQLConnection.Params.Values[TDBXPropertyNames.DriverName] := FSQLConnection.DriverName;
   FSQLConnection.Params.Values[TDBXPropertyNames.Database] := FPath.Path_Items[0];
-  
+
+  if (AOptionalList<>nil) then
+  if (AOptionalList.Count>0) then
+  for i := 0 to AOptionalList.Count-1 do begin
+    // пропихиваем параметры снаружи (но не все!)
+    VParamName := AOptionalList.Names[i];
+    if SameText(Copy(VParamName,1,Length(ETS_INTERNAL_PARAMS_PREFIX)),ETS_INTERNAL_PARAMS_PREFIX) then begin
+      // исключительно внутренний параметр
+      SaveInternalParameter(VParamName, AOptionalList.ValueFromIndex[i]);
+    end else begin
+      // даже и ту тне все пропихиваем
+      if (not SameText(VParamName,TDBXPropertyNames.DriverName)) then begin
+        FSQLConnection.Params.Values[VParamName] := AOptionalList.ValueFromIndex[i];
+      end;
+    end;
+  end;
+
   // set connection name
   FSQLConnection.ConnectionName := FSQLConnection.DriverName + c_RTL_Connection + Format('%p',[Pointer(FSQLConnection)]);
+
+  Result := ETS_RESULT_OK;
 end;
 
-procedure TDBMS_Connection.ApplyParamsToConnection(const AParams: TStrings);
+function TDBMS_Connection.ApplyParamsToConnection(const AParams: TStrings): Byte;
 var
   i: Integer;
   VNewValue, VCurItem: String; // String from TStrings
   VOldValue: WideString;
   VDBXProperties: TDBXProperties;
+  VUseODBC: Boolean;
 begin
-  // get DriverName from params
+  // вытащим имя драйвера из прочитанных параметров
   i := AParams.IndexOfName(TDBXPropertyNames.DriverName);
   if (i>=0) then begin
-    // found
+    // драйвер указан
     VNewValue := AParams.Values[TDBXPropertyNames.DriverName];
     AParams.Delete(i);
-    // check in params
+    // проверим, может быть драйвер уже есть в параметрах подключения
     VOldValue := FSQLConnection.Params.Values[TDBXPropertyNames.DriverName];
 
+    // может сказано грузить через драйвер ODBC - тогда пропихнём остальные параметры
+    VUseODBC := SameText(VNewValue, c_ODBC_DriverName);
+
     // compare
+    if (not VUseODBC) then
     if (not WideSameText(VNewValue, VOldValue)) then begin
       // set new DriverName
       FSQLConnection.LoadParamsOnConnect := FALSE;
@@ -278,6 +354,9 @@ begin
       VDBXProperties := TDBXConnectionFactory.GetConnectionFactory.GetDriverProperties(VNewValue);
       FSQLConnection.Params.Assign(VDBXProperties.Properties);
     end;
+  end else begin
+    // драйвер не указан - значит используем драйвер ODBC
+    VUseODBC := TRUE;
   end;
 
   if (Length(FPath.Path_Items[0])>0) then
@@ -289,7 +368,21 @@ begin
     FSQLConnection.Params.Values[TDBXPropertyNames.Database] := FPath.Path_Items[1]
   else
     FSQLConnection.Params.Values[TDBXPropertyNames.Database] := '';
-        
+
+  // если работаем через драйвер ODBC - применяем параметры и валим
+  if VUseODBC then begin
+    if Load_DSN_Params_from_ODBC(FPath.Path_Items[0], FODBCDescription) then begin
+      // источник найден в системных DSN
+      Result := ApplyODBCParamsToConnection(AParams);
+    end else begin
+      // источник не найден
+      Result := ETS_RESULT_UNKNOWN_ODBC_DSN;
+    end;
+    Exit;
+  end;
+
+  // здесь только если работаем не через драйвер ODBC
+
   // apply other params
   if (AParams.Count>0) then
   for i := 0 to AParams.Count-1 do begin
@@ -310,6 +403,8 @@ begin
     // set or replace
     FSQLConnection.ConnectionName := VCurItem;
   end;
+
+  Result := ETS_RESULT_OK;
 end;
 
 procedure TDBMS_Connection.CompactPool;
@@ -339,9 +434,11 @@ end;
 constructor TDBMS_Connection.Create;
 begin
   FEngineType := et_Unknown;
+  FODBCDescription := '';
   inherited Create;
   FSyncPool := MakeSync_Tiny(Self);
   FSQLConnection := TSQLConnection.Create(nil);
+  FInternalParams := nil;
 end;
 
 destructor TDBMS_Connection.Destroy;
@@ -351,6 +448,8 @@ begin
   
   CompactPool;
   FreeAndNil(FSQLConnection);
+
+  FreeAndNil(FInternalParams);
 
   FSyncPool := nil;
 
@@ -366,7 +465,9 @@ begin
     // not connected
     if AllowTryToConnect then begin
       // apply params and try to connect
-      ApplyConnectionParams;
+      Result := ApplyConnectionParams;
+      if (ETS_RESULT_OK<>Result) then
+        Exit;
 
       // apply auth info
       Result := ApplyAuthenticationInfo;
@@ -390,6 +491,29 @@ begin
   end;
 end;
 
+function TDBMS_Connection.ForcedSchemaPrefix: String;
+begin
+  Result := GetInternalParameter(ETS_INTERNAL_SCHEMA);
+  if (0<Length(Result)) then begin
+    Result := Result + '.';
+  end;
+end;
+
+function TDBMS_Connection.GetInternalParameter(const AInternalParameterName: String): String;
+begin
+  // тащим значение из внутренних параметров
+  if FInternalParams<>nil then begin
+    Result := Trim(FInternalParams.Values[AInternalParameterName]);
+  end else begin
+    Result := '';
+  end;
+end;
+
+function TDBMS_Connection.GetCheckedEngineType: TEngineType;
+begin
+  Result := GetEngineType(cetm_Check);
+end;
+
 function TDBMS_Connection.GetEngineType(const ACheckMode: TCheckEngineTypeMode): TEngineType;
 begin
   case ACheckMode of
@@ -397,7 +521,7 @@ begin
       // check if not checked
       // allow get info from driver
       if (et_Unknown=FEngineType) then begin
-        FEngineType := GetEngineTypeByDBXDriverName(FSQLConnection.DriverName);
+        FEngineType := GetEngineTypeByDBXDriverName(FSQLConnection.DriverName, FODBCDescription);
         if (et_Unknown=FEngineType) then begin
           // use sql requests
           FEngineType := GetEngineTypeUsingSQL;
@@ -460,9 +584,29 @@ end;
 
 function TDBMS_Connection.IsTrustedConnection: Boolean;
 var
+  VEngineType: TEngineType;
+  VDriverParam: String;
   VValue: WideString;
 begin
-  VValue := FSQLConnection.Params.Values['Trusted_Connection'];
+  VEngineType := GetCheckedEngineType;
+
+  // отдельно проверим Trusted_Connection для MSSQL
+  if (et_MSSQL=VEngineType) then begin
+    VValue := FSQLConnection.Params.Values[c_RTL_Trusted_Connection];
+    if (0<Length(VValue)) then begin
+      // что-то указано
+      Result :=  (WideSameText(VValue, 'true') or WideSameText(VValue, 'yes'));
+      Exit;
+    end;
+  end;
+
+  // обычная проверка
+  VDriverParam := c_SQL_Integrated_Security[VEngineType];
+  Result := (0<Length(VDriverParam));
+  if (not Result) then
+    Exit;
+
+  VValue := FSQLConnection.Params.Values[VDriverParam];
   Result := (0<Length(VValue)) and (WideSameText(VValue, 'true') or WideSameText(VValue, 'yes'));
 
   // www.connectionstrings.com
@@ -697,6 +841,8 @@ end;
 
 procedure TDBMS_Dataset.OpenSQL(const ASQLText: WideString);
 begin
+  if Active then
+    Close;
   Self.CommandText := ASQLText;
   Self.Open;
 end;

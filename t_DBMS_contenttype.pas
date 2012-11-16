@@ -63,6 +63,7 @@ type
     
     property ContentTypeFlags: TContentTypeFlags read FContentTypeFlags;
     property EmptyContentTypeIdContentType: SmallInt read FEmptyContentTypeIdContentType;
+    property Count: SmallInt read FCount;
   end;
 
 

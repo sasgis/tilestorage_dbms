@@ -75,6 +75,7 @@ type
 
     property VersionFlags: TVersionFlags read FVersionFlags;
     property EmptyVersionIdVer: SmallInt read FEmptyVersionIdVer;
+    property Count: SmallInt read FCount;
   end;
 
 implementation
