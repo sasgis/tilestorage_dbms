@@ -9,7 +9,7 @@ create table v_%SERVICE% (
 lock datarows
 go
 
-create unique index u_%SERVICE%__ on v_%SERVICE% (
+create unique index v_%SERVICE%_u on v_%SERVICE% (
 ver_value ASC
 )
 go

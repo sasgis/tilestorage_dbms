@@ -1,10 +1,5 @@
-/*==============================================================*/
-/* Table: t_all_sql                                             */
-/*==============================================================*/
-/* allow to use select * from dual */
 create view DUAL as select version() as ENGINE_VERSION
 ;
-/* end of script */
 
 create table t_all_sql (
    object_name          name                           not null,
@@ -20,9 +15,6 @@ create table t_all_sql (
 
 
 
-/*==============================================================*/
-/* Table: c_contenttype                                         */
-/*==============================================================*/
 create table c_contenttype (
    id_contenttype       smallint                       not null,
    contenttype_text     varchar(50)                    not null,
@@ -57,7 +49,7 @@ begin
 if not exists(select 1 from c_contenttype where id_contenttype=3)
 then
   insert into c_contenttype (id_contenttype, contenttype_text)
-  values (3, 'image/jp2');
+  values (3, 'image/jpg');
 end if;
 end;
 $$
@@ -102,6 +94,17 @@ if not exists(select 1 from c_contenttype where id_contenttype=7)
 then
   insert into c_contenttype (id_contenttype, contenttype_text)
   values (7, 'image/vnd.microsoft.icon');
+end if;
+end;
+$$
+;
+
+do $$
+begin
+if not exists(select 1 from c_contenttype where id_contenttype=8)
+then
+  insert into c_contenttype (id_contenttype, contenttype_text)
+  values (8, 'image/jp2');
 end if;
 end;
 $$
@@ -176,9 +179,6 @@ $$
 ;
 
 
-/*==============================================================*/
-/* Index: c_contenttype_uniq                                    */
-/*==============================================================*/
 create unique index c_contenttype_uniq on c_contenttype (
 contenttype_text ASC
 )
@@ -186,9 +186,6 @@ contenttype_text ASC
 
 
 
-/*==============================================================*/
-/* Table: t_options                                             */
-/*==============================================================*/
 create table t_options (
    id_option            int                            not null,
    option_descript      varchar(255)                   not null,
@@ -233,9 +230,6 @@ $$
 
 
 
-/*==============================================================*/
-/* Table: t_div_mode                                            */
-/*==============================================================*/
 create table t_div_mode (
    id_div_mode          char(1)                        not null,
    div_mode_name        varchar(30)                    not null,
@@ -321,9 +315,6 @@ end;
 $$
 ;
 
-/*==============================================================*/
-/* Index: div_mode_name_uniq                                    */
-/*==============================================================*/
 create unique index div_mode_name_uniq on t_div_mode (
 div_mode_name ASC
 )
@@ -333,9 +324,6 @@ div_mode_name ASC
 
 
 
-/*==============================================================*/
-/* Table: t_ver_comp                                            */
-/*==============================================================*/
 create table t_ver_comp (
    id_ver_comp          char(1)                        not null,
    ver_comp_field       varchar(30)                    not null,
@@ -368,7 +356,7 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='A')
+if not exists(select 1 from t_ver_comp where id_ver_comp='V')
 then
   insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('V','ver_value','By value');
@@ -390,7 +378,7 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='D')
+if not exists(select 1 from t_ver_comp where id_ver_comp='N')
 then
   insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('N','ver_number','By number');
@@ -399,17 +387,11 @@ end;
 $$
 ;
 
-/*==============================================================*/
-/* Index: t_ver_comp_field_uniq                                 */
-/*==============================================================*/
 create unique index t_ver_comp_field_uniq on t_ver_comp (
 ver_comp_field ASC
 )
 ;
 
-/*==============================================================*/
-/* Index: t_ver_comp_name_uniq                                  */
-/*==============================================================*/
 create unique index t_ver_comp_name_uniq on t_ver_comp (
 ver_comp_name ASC
 )
@@ -419,9 +401,6 @@ ver_comp_name ASC
 
 
 
-/*==============================================================*/
-/* Table: t_service                                             */
-/*==============================================================*/
 create table t_service (
    id_service           smallint                       not null,
    service_code         varchar(20)                    not null,
@@ -436,17 +415,11 @@ create table t_service (
 )
 ;
 
-/*==============================================================*/
-/* Index: service_code_uniq                                     */
-/*==============================================================*/
 create unique index service_code_uniq on t_service (
 service_code ASC
 )
 ;
 
-/*==============================================================*/
-/* Index: service_name_uniq                                     */
-/*==============================================================*/
 create unique index service_name_uniq on t_service (
 service_name ASC
 )
