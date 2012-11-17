@@ -103,7 +103,7 @@ const
   c_SQL_DateTime_FieldName: array [TEngineType] of String = (
   'DATETIME',  // MSSQL
   'DATETIME',  // ASE
-  'DATETIME',  // ASA
+  'TIMESTAMP', // ASA
   'DATE',      // Oracle
   'DATETIME',  // Informix
   'TIMESTAMP', // DB2
@@ -129,7 +129,22 @@ const
   ''
   );
 
-  // type to store LongInt (4 bytes with sign)
+  // type to store BigInt (8 bytes with sign) from -9223372036854775808 to 9223372036854775807
+  c_SQL_INT8_FieldName: array [TEngineType] of String = (
+  'BIGINT', // MSSQL
+  'BIGINT', // ASE
+  'BIGINT', // ASA
+  'NUMBER', // Oracle NUMBER(p)
+  'BIGINT', // Informix
+  'BIGINT', // DB2
+  'BIGINT', // MySQL
+  'BIGINT', // PostgreSQL
+  'BIGINT', // Mimer
+  'BIGINT', // Firebird - Dialect 3 only!
+  ''
+  );
+
+  // type to store LongInt (4 bytes with sign) from -2147483648 to 2147483647
   c_SQL_INT4_FieldName: array [TEngineType] of String = (
   'INT',    // MSSQL
   'INT',    // ASE
@@ -144,7 +159,7 @@ const
   ''
   );
 
-  // type to store MediumInt (3 bytes with sign)
+  // type to store MediumInt (3 bytes with sign) from -8388608 to 8388607
   c_SQL_INT3_FieldName: array [TEngineType] of String = (
   '',          // MSSQL
   '',          // ASE
@@ -159,7 +174,7 @@ const
   ''
   );
 
-  // type to store SmallInt (2 bytes with sign)
+  // type to store SmallInt (2 bytes with sign) from -32768 to 32767
   c_SQL_INT2_FieldName: array [TEngineType] of String = (
   'SMALLINT', // MSSQL
   'SMALLINT', // ASE
@@ -176,13 +191,13 @@ const
 
   // type to store TinyInt (1 byte with sign)
   c_SQL_INT1_FieldName: array [TEngineType] of String = (
-  '',         // MSSQL
-  '',         // ASE
-  '',         // ASA
+  'TINYINT',  // MSSQL (type is always unsigned - from 0 to 255)
+  'TINYINT',  // ASE   (type is always unsigned - from 0 to 255)
+  'TINYINT',  // ASA   (type is always unsigned - from 0 to 255)
   '',         // Oracle NUMBER(p)
   '',         // Informix
   '',         // DB2
-  '',         // MySQL
+  'TINYINT',  // MySQL (signed - from -128 to 127, unsigned - from 0 to 255)
   '',         // PostgreSQL
   '',         // Mimer
   '',         // Firebird
@@ -208,7 +223,7 @@ const
   c_SQL_FROM: array [TEngineType] of String = (
   '',              // MSSQL
   '',              // ASE
-  '',              // ASA
+  'DUMMY',         // ASA (dummy_col INTEGER NOT NULL)
   'DUAL',          // Oracle
   '',              // Informix
   '',              // DB2

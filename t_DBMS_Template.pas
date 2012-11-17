@@ -69,8 +69,6 @@ type
   TSQLTile = record
     // зум (от 1 до 24)
     Zoom: Byte;
-    // значение маски зума, если меньше - нет делени€ на таблицы по зумам
-    XYMaskWidth: Byte;
     // им€ таблицы дл€ тайлов - здесь без возможного префикса схемы
     TileTableName: WideString;
     // "верхн€€" часть идентификатора тайла - в им€ таблицы
@@ -81,30 +79,33 @@ type
     // convert zoom value to single char (to use in tablename)
     function ZoomToTableNameChar: Char;
     // get upper part of X and Y (for tablename)
-    function HXToTableNameChar: String;
-    function HYToTableNameChar: String;
+    function HXToTableNameChar(const AXYMaskWidth: Byte): String;
+    function HYToTableNameChar(const AXYMaskWidth: Byte): String;
     // deprecated version (for both XY)
-    function GetXYUpperInfix: String; deprecated;
+    function GetXYUpperInfix(const AXYMaskWidth: Byte): String; deprecated;
   end;
   PSQLTile = ^TSQLTile;
 
 implementation
 
+uses
+  t_DBMS_service;
+
 { TSQLTile }
 
-function TSQLTile.GetXYUpperInfix: String;
+function TSQLTile.GetXYUpperInfix(const AXYMaskWidth: Byte): String;
 var
   VExceed: Byte;
   VUpperL: LongInt;
 begin
   // if single table
-  if (0=XYMaskWidth) or (Zoom <= (XYMaskWidth+1)) then begin
-    // single table - use 0
-    Result + '0';
+  if UseSingleTable(AXYMaskWidth, Zoom) then begin
+    // single table - use empty string
+    Result:='';
     Exit;
   end;
 
-  VExceed := (Zoom - (XYMaskWidth+1));
+  VExceed := (Zoom - (AXYMaskWidth+1));
 
   // count of tables = 4^VExceed
   // both X and Y are from 0 to 2^VExceed-1
@@ -119,10 +120,10 @@ begin
   end;
 end;
 
-function TSQLTile.HXToTableNameChar: String;
+function TSQLTile.HXToTableNameChar(const AXYMaskWidth: Byte): String;
 begin
   // если одна таблица - значит не делимс€ - вернЄм пустую строку
-  if (0=XYMaskWidth) or (Zoom <= (XYMaskWidth+1)) then begin
+  if UseSingleTable(AXYMaskWidth, Zoom) then begin
     Result:='';
     Exit;
   end;
@@ -136,10 +137,10 @@ begin
   end;
 end;
 
-function TSQLTile.HYToTableNameChar: String;
+function TSQLTile.HYToTableNameChar(const AXYMaskWidth: Byte): String;
 begin
   // если одна таблица - значит не делимс€ - вернЄм пустую строку
-  if (0=XYMaskWidth) or (Zoom <= (XYMaskWidth+1)) then begin
+  if UseSingleTable(AXYMaskWidth, Zoom) then begin
     Result:='';
     Exit;
   end;

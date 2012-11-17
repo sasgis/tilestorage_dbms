@@ -130,7 +130,7 @@ type
   private
     function SQLDateTimeToDBValue(const ADateTime: TDateTime): WideString;
 
-    function GetSQLIntName_Max: String;
+    function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
   private
     function CreateAllBaseTablesFromScript: Byte;
     
@@ -172,6 +172,7 @@ type
     // create table using SQL commands from special table
     function CreateTableByTemplate(
       const ATemplateName, ATableName: WideString;
+      const AZoom: Byte;
       const ASubstSQLTypes: Boolean
     ): Byte;
 
@@ -592,6 +593,7 @@ end;
 
 function TDBMS_Provider.CreateTableByTemplate(
   const ATemplateName, ATableName: WideString;
+  const AZoom: Byte;
   const ASubstSQLTypes: Boolean
 ): Byte;
 var
@@ -674,13 +676,7 @@ begin
         if ASubstSQLTypes then begin
           // также необходимо подставить нуные типы полей для оптимального хранения XY
           // а именно - заменить numeric на INT нужной ширины
-          VReplaceNumeric := '';
-          case FDBMS_Service_Info.id_div_mode of
-          end;
-          // если не определились - заменяем на INT4 - его хватит всегда
-          if (0=Length(VReplaceNumeric)) then begin
-            VReplaceNumeric := GetSQLIntName_Max;
-          end;
+          VReplaceNumeric := GetSQLIntName_Div(FDBMS_Service_Info.XYMaskWidth, AZoom);
           VSQLText := StringReplace(VSQLText, c_RTL_Numeric, VReplaceNumeric, [rfReplaceAll,rfIgnoreCase]);
         end;
 
@@ -1096,7 +1092,7 @@ begin
           // проверяем, может не было таблицы
           if (not TableExists(VTableName)) then begin
             // пробуем создать таблицу по шаблону
-            CreateTableByTemplate(c_Templated_RealTiles, VTableName, TRUE);
+            CreateTableByTemplate(c_Templated_RealTiles, VTableName, AInsertBuffer^.XYZ.z, TRUE);
             // проверяем существование таблицы
             if (not TableExists(VTableName)) then begin
               // не удалось даже создать - валим
@@ -1440,21 +1436,159 @@ begin
   end;
 end;
 
-function TDBMS_Provider.GetSQLIntName_Max: String;
+function TDBMS_Provider.GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
 var
   VEngineType: TEngineType;
 begin
-  // возвращает максимально широкий тип INT, в котором есть смысл
+  // если зум не больше чем ширина маски + 1 - значит таблица только одна
+  // а значит в тип должен входить диапазон от 0 до 2^(Z-1)-1 включительно:
+
+  // если без учёта ширины маски (для целей совместимости не используем UNSIGNED-поля):
+
+  // зумы, входящие в INT1 (TINYINT):
+  // 1  - от 0 до 2^0-1  =   0 NUMBER(1)
+  // 2  - от 0 до 2^1-1  =   1
+  // 3  - от 0 до 2^2-1  =   3
+  // 4  - от 0 до 2^3-1  =   7
+  // 5  - от 0 до 2^4-1  =  15 NUMBER(2)
+  // 6  - от 0 до 2^5-1  =  31
+  // 7  - от 0 до 2^6-1  =  63
+  // 8  - от 0 до 2^7-1  = 127 NUMBER(3)
+  
+  // зумы, входящие в INT2 (SMALLINT):
+  // 9  - от 0 до 2^8-1  =   255
+  // 10 - от 0 до 2^9-1  =   511
+  // 11 - от 0 до 2^10-1 =  1023 NUMBER(4)
+  // 12 - от 0 до 2^11-1 =  2047
+  // 13 - от 0 до 2^12-1 =  4095
+  // 14 - от 0 до 2^13-1 =  8191
+  // 15 - от 0 до 2^14-1 = 16383 NUMBER(5)
+  // 16 - от 0 до 2^15-1 = 32767
+
+  // зумы, входящие в INT3 (MEDIUMINT):
+  // 17 - от 0 до 2^16-1 =   65535
+  // 18 - от 0 до 2^17-1 =  131071 NUMBER(6)
+  // 19 - от 0 до 2^18-1 =  262143
+  // 20 - от 0 до 2^19-1 =  524287
+  // 21 - от 0 до 2^20-1 = 1048575 NUMBER(7)
+  // 22 - от 0 до 2^21-1 = 2097151
+  // 23 - от 0 до 2^22-1 = 4194303
+  // 24 - от 0 до 2^23-1 = 8388607
+
+  // зумы, входящие в INT4 (INTEGER):
+  // 25 - от 0 до 2^24-1 =   16777215 NUMBER(8)
+  // 26 - от 0 до 2^25-1 =   33554431
+  // 27 - от 0 до 2^26-1 =   67108863
+  // 28 - от 0 до 2^27-1 =  134217727 NUMBER(9)
+  // 29 - от 0 до 2^28-1 =  268435455
+  // 30 - от 0 до 2^29-1 =  536870911
+  // 31 - от 0 до 2^30-1 = 1073741823 NUMBER(10)
+  // 32 - от 0 до 2^31-1 = 2147483647
+
+  // если маска 10 - то остаток от деления на 1024 падает в идентификатор тайла
+  // а целая часть от деления на 1024 падает в имя таблицы
+  // значит тип достаточно взять такой, чтобы входило от 0 до 1023
+  // пока что все поддерживаемые маски в диапазоне от 10 до 15, что соответствует делителю от 1024 до 32768:
+  // 10 - от 0 до 1023  - INT2 или NUMBER(4)
+  // 11 - от 0 до 2047  - INT2 или NUMBER(4)
+  // 12 - от 0 до 4095  - INT2 или NUMBER(4)
+  // 13 - от 0 до 8191  - INT2 или NUMBER(4)
+  // 14 - от 0 до 16383 - INT2 или NUMBER(5)
+  // 15 - от 0 до 32767 - INT2 или NUMBER(5)
+
+  // в зависимости от типа сервера БД и расчётов выше будем формировать тип поля
   VEngineType := FConnection.GetCheckedEngineType;
-  if c_SQL_INT_With_Size[VEngineType] then begin
-    // поле с размером (Both precision and scale are in decimal digits)
-    // если зум Z с 1 до 24, то X и Y каждый по отдельности изменяются от 0 до 2^(Z-1)-1 включительно
-    // значит максимально возможное значение координаты будет (+ пара зумов пока та же длина) 67108864-1
-    // то есть хватит 8 разрядов
-    Result := c_SQL_INT4_FieldName[VEngineType]+'(8)';
+
+  if UseSingleTable(AXYMaskWidth, AZoom) then begin
+    // вообще не делимся по таблицам (или деление отключено, или зум маловат)
+    if c_SQL_INT_With_Size[VEngineType] then begin
+      // поле с размером, размер указывается в десятичных символах
+      if (AZoom>32) then begin
+        // поле указываем без размера - максимальная ширина
+        Result := c_SQL_INT8_FieldName[VEngineType];
+      end else if (AZoom>=31) then begin
+        // 10 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(10)';
+      end else if (AZoom>=28) then begin
+        // 9 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(9)';
+      end else if (AZoom>=25) then begin
+        // 8 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(8)';
+      end else if (AZoom>=21) then begin
+        // 7 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(7)';
+      end else if (AZoom>=18) then begin
+        // 6 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(6)';
+      end else if (AZoom>=15) then begin
+        // 5 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(5)';
+      end else if (AZoom>=11) then begin
+        // 4 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(4)';
+      end else if (AZoom>=8) then begin
+        // 3 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(3)';
+      end else if (AZoom>=5) then begin
+        // 2 символов
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(2)';
+      end else begin
+        // 1 символ
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(1)';
+      end;
+      // конец для поля с размером
+    end else begin
+      // поле без размера, просто по ширине в байтах
+      if (AZoom>32) then begin
+        // просто BIGINT на всякий случай
+        Result := c_SQL_INT8_FieldName[VEngineType];
+      end else if (AZoom>24) then begin
+        // INT4
+        Result := c_SQL_INT4_FieldName[VEngineType];
+      end else if (AZoom>16) then begin
+        // INT3, если нет - INT4
+        Result := c_SQL_INT3_FieldName[VEngineType];
+        if (0=Length(Result)) then
+          Result := c_SQL_INT4_FieldName[VEngineType];
+      end else if (AZoom>8) then begin
+        // INT2
+        Result := c_SQL_INT2_FieldName[VEngineType];
+      end else begin
+        // INT1, если нет - INT2
+        Result := c_SQL_INT1_FieldName[VEngineType];
+        if (0=Length(Result)) then
+          Result := c_SQL_INT2_FieldName[VEngineType];
+      end;
+      // конец для поля без размера
+    end;
+    // конец без деления по таблицам
   end else begin
-    // без размера - значит вернём INT4
-    Result := c_SQL_INT4_FieldName[VEngineType];
+    // делимся по таблицам на основании ширины маски
+    if c_SQL_INT_With_Size[VEngineType] then begin
+      // поле с размером
+      if (AXYMaskWidth>=16) then begin
+        // поле указываем без размера - максимальная ширина
+        Result := c_SQL_INT8_FieldName[VEngineType];
+      end else if (AXYMaskWidth>=14) then begin
+        // 5 символа
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(5)';
+      end else begin
+        // 4 символа
+        Result := c_SQL_INT8_FieldName[VEngineType]+'(4)';
+      end;
+      // конец для поля с размером
+    end else begin
+      // поле без размера
+      if (AXYMaskWidth>=16) then begin
+        // просто BIGINT на всякий случай
+        Result := c_SQL_INT8_FieldName[VEngineType];
+      end else begin
+        // INT2 - и не больше, и не меньше
+        Result := c_SQL_INT2_FieldName[VEngineType];
+      end;
+      // конец для поля без размера
+    end;
   end;
 end;
 
@@ -1983,31 +2117,22 @@ function TDBMS_Provider.InternalCalcSQLTile(
   const AXYZ: PTILE_ID_XYZ;
   const ASQLTile: PSQLTile
 ): Byte;
+var
+  VXYMaskWidth: Byte;
 begin
   // сохраняем зум (от 1 до 24)
   ASQLTile^.Zoom := AXYZ^.z;
   
-  // определяем маску зума
-  case FDBMS_Service_Info.id_div_mode of
-    TILE_DIV_1024..TILE_DIV_32768: begin
-      // делимся по таблицам
-      ASQLTile^.XYMaskWidth := 10 + Ord(FDBMS_Service_Info.id_div_mode) - Ord(TILE_DIV_1024);
-    end;
-    else {TILE_DIV_NONE} begin
-      // не делимся по таблицам
-      ASQLTile^.XYMaskWidth := 0;
-    end;
-  end;
-
   // делим XY на "верхнюю" и "нижнюю" части
   InternalDivideXY(AXYZ^.xy, ASQLTile);
 
-
+  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
+  
   // строим имя таблицы для тайлов
   ASQLTile^.TileTableName := ASQLTile^.ZoomToTableNameChar +
-                             ASQLTile^.HXToTableNameChar +
+                             ASQLTile^.HXToTableNameChar(VXYMaskWidth) +
                              FDBMS_Service_Info.id_div_mode +
-                             ASQLTile^.HYToTableNameChar +
+                             ASQLTile^.HYToTableNameChar(VXYMaskWidth) +
                              '_' +
                              InternalGetServiceNameByDB;
 
@@ -2020,17 +2145,20 @@ procedure TDBMS_Provider.InternalDivideXY(
 );
 var
   VMask: LongInt;
+  VXYMaskWidth: Byte;
 begin
-  if (0=ASQLTile^.XYMaskWidth) then begin
+  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
+
+  if (0=VXYMaskWidth) then begin
     // do not divide
     ASQLTile^.XYUpperToTable.X := 0;
     ASQLTile^.XYUpperToTable.Y := 0;
     ASQLTile^.XYLowerToID := AXY;
   end else begin
     // divide
-    VMask := (1 shl ASQLTile^.XYMaskWidth)-1;
-    ASQLTile^.XYUpperToTable.X := AXY.X shr ASQLTile^.XYMaskWidth;
-    ASQLTile^.XYUpperToTable.Y := AXY.Y shr ASQLTile^.XYMaskWidth;
+    VMask := (1 shl VXYMaskWidth)-1;
+    ASQLTile^.XYUpperToTable.X := AXY.X shr VXYMaskWidth;
+    ASQLTile^.XYUpperToTable.Y := AXY.Y shr VXYMaskWidth;
     ASQLTile^.XYLowerToID.X := AXY.X and VMask;
     ASQLTile^.XYLowerToID.Y := AXY.Y and VMask;
   end;
@@ -2349,7 +2477,7 @@ begin
     if (not TableExists(VVersionsTableName)) then
     try
       // создадим
-      CreateTableByTemplate(c_Templated_Versions, VVersionsTableName, FALSE);
+      CreateTableByTemplate(c_Templated_Versions, VVersionsTableName, 0, FALSE);
     except
     end;
 
