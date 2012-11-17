@@ -1,32 +1,32 @@
 create view DUAL as select version() as ENGINE_VERSION
 ;
 
-create table t_all_sql (
+create table Z_ALL_SQL (
    object_name          name                           not null,
-   object_operation     char(1)                        not null
-         constraint CKC_OBJECT_OPERATION_T_ALL_SQ check (object_operation in ('C','S','I','U','D')),
+   object_oper          char(1)                        not null
+         constraint CKC_OBJECT_OPER_Z_ALL_SQL check (object_oper in ('C','S','I','U','D')),
    index_sql            smallint                       not null,
    skip_sql             char(1)                        default '0' not null,
    ignore_errors        char(1)                        default '1' not null,
    object_sql           text                           null,
-   constraint PK_T_ALL_SQL primary key (object_name, object_operation, index_sql)
+   constraint PK_Z_ALL_SQL primary key (object_name, object_oper, index_sql)
 )
 ;
 
 
 
-create table c_contenttype (
+create table Z_CONTENTTYPE (
    id_contenttype       smallint                       not null,
    contenttype_text     varchar(50)                    not null,
-   constraint PK_C_CONTENTTYPE primary key (id_contenttype)
+   constraint PK_Z_CONTENTTYPE primary key (id_contenttype)
 )
 ;
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=1)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=1)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (1, 'image/png');
 end if;
 end;
@@ -35,9 +35,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=2)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=2)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (2, 'image/jpeg');
 end if;
 end;
@@ -46,9 +46,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=3)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=3)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (3, 'image/jpg');
 end if;
 end;
@@ -57,9 +57,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=4)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=4)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (4, 'image/gif');
 end if;
 end;
@@ -68,9 +68,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=5)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=5)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (5, 'image/tiff');
 end if;
 end;
@@ -79,9 +79,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=6)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=6)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (6, 'image/svg+xml');
 end if;
 end;
@@ -90,9 +90,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=7)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=7)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (7, 'image/vnd.microsoft.icon');
 end if;
 end;
@@ -101,9 +101,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=8)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=8)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (8, 'image/jp2');
 end if;
 end;
@@ -113,9 +113,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=65)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=65)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (65, 'application/vnd.google-earth.kml+xml');
 end if;
 end;
@@ -124,9 +124,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=66)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=66)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (66, 'application/gpx+xml');
 end if;
 end;
@@ -135,9 +135,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=67)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=67)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (67, 'application/vnd.google-earth.kmz');
 end if;
 end;
@@ -146,9 +146,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=68)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=68)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (68, 'application/xml');
 end if;
 end;
@@ -158,9 +158,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=91)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=91)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (91, 'text/html');
 end if;
 end;
@@ -169,9 +169,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from c_contenttype where id_contenttype=92)
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=92)
 then
-  insert into c_contenttype (id_contenttype, contenttype_text)
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
   values (92, 'text/plain');
 end if;
 end;
@@ -179,26 +179,26 @@ $$
 ;
 
 
-create unique index c_contenttype_uniq on c_contenttype (
+create unique index Z_CONTENTTYPE_UNIQ on Z_CONTENTTYPE (
 contenttype_text ASC
 )
 ;
 
 
 
-create table t_options (
+create table Z_OPTIONS (
    id_option            int                            not null,
    option_descript      varchar(255)                   not null,
    option_value         int                            not null,
-   constraint PK_T_OPTIONS primary key (id_option)
+   constraint PK_Z_OPTIONS primary key (id_option)
 )
 ;
 
 do $$
 begin
-if not exists(select 1 from t_options where id_option=1)
+if not exists(select 1 from Z_OPTIONS where id_option=1)
 then
-  insert into t_options (id_option,option_descript,option_value)
+  insert into Z_OPTIONS (id_option,option_descript,option_value)
   values (1, 'Autocreate services', 0);
 end if;
 end;
@@ -207,9 +207,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_options where id_option=2)
+if not exists(select 1 from Z_OPTIONS where id_option=2)
 then
-  insert into t_options (id_option,option_descript,option_value)
+  insert into Z_OPTIONS (id_option,option_descript,option_value)
   values (2, 'Autocreate versions', 0);
 end if;
 end;
@@ -218,9 +218,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_options where id_option=3)
+if not exists(select 1 from Z_OPTIONS where id_option=3)
 then
-  insert into t_options (id_option,option_descript,option_value)
+  insert into Z_OPTIONS (id_option,option_descript,option_value)
   values (3, 'Keep TILE for TNE', 0);
 end if;
 end;
@@ -230,19 +230,19 @@ $$
 
 
 
-create table t_div_mode (
+create table Z_DIV_MODE (
    id_div_mode          char(1)                        not null,
    div_mode_name        varchar(30)                    not null,
    div_mask_width       smallint                       not null,
-   constraint PK_T_DIV_MODE primary key (id_div_mode)
+   constraint PK_Z_DIV_MODE primary key (id_div_mode)
 )
 ;
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='Z')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='Z')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
   values ('Z','All-in-One',0);
 end if;
 end;
@@ -251,10 +251,10 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='F')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='I')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
-  values ('F','Based on 1024',10);
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
+  values ('I','Based on 1024',10);
 end if;
 end;
 $$
@@ -262,10 +262,10 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='G')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='J')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
-  values ('G','Based on 2048',11);
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
+  values ('J','Based on 2048',11);
 end if;
 end;
 $$
@@ -273,10 +273,10 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='H')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='K')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
-  values ('H','Based on 4096',12);
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
+  values ('K','Based on 4096',12);
 end if;
 end;
 $$
@@ -284,10 +284,10 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='I')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='L')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
-  values ('I','Based on 8192',13);
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
+  values ('L','Based on 8192',13);
 end if;
 end;
 $$
@@ -295,10 +295,10 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='J')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='M')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
-  values ('J','Based on 16384',14);
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
+  values ('M','Based on 16384',14);
 end if;
 end;
 $$
@@ -306,16 +306,16 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_div_mode where id_div_mode='K')
+if not exists(select 1 from Z_DIV_MODE where id_div_mode='N')
 then
-  insert into t_div_mode (id_div_mode,div_mode_name,div_mask_width)
-  values ('K','Based on 32768',15);
+  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
+  values ('N','Based on 32768',15);
 end if;
 end;
 $$
 ;
 
-create unique index div_mode_name_uniq on t_div_mode (
+create unique index Z_DIV_MODE_UNIQ on Z_DIV_MODE (
 div_mode_name ASC
 )
 ;
@@ -324,19 +324,19 @@ div_mode_name ASC
 
 
 
-create table t_ver_comp (
+create table Z_VER_COMP (
    id_ver_comp          char(1)                        not null,
    ver_comp_field       varchar(30)                    not null,
    ver_comp_name        varchar(30)                    not null,
-   constraint PK_T_VER_COMP primary key (id_ver_comp)
+   constraint PK_Z_VER_COMP primary key (id_ver_comp)
 )
 ;
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='0')
+if not exists(select 1 from Z_VER_COMP where id_ver_comp='0')
 then
-  insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
+  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('0','-','No');
 end if;
 end;
@@ -345,9 +345,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='I')
+if not exists(select 1 from Z_VER_COMP where id_ver_comp='I')
 then
-  insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
+  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('I','id_ver','By id');
 end if;
 end;
@@ -356,9 +356,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='V')
+if not exists(select 1 from Z_VER_COMP where id_ver_comp='V')
 then
-  insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
+  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('V','ver_value','By value');
 end if;
 end;
@@ -367,9 +367,9 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='D')
+if not exists(select 1 from Z_VER_COMP where id_ver_comp='D')
 then
-  insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
+  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('D','ver_date','By date');
 end if;
 end;
@@ -378,21 +378,21 @@ $$
 
 do $$
 begin
-if not exists(select 1 from t_ver_comp where id_ver_comp='N')
+if not exists(select 1 from Z_VER_COMP where id_ver_comp='N')
 then
-  insert into t_ver_comp (id_ver_comp,ver_comp_field,ver_comp_name)
+  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
   values ('N','ver_number','By number');
 end if;
 end;
 $$
 ;
 
-create unique index t_ver_comp_field_uniq on t_ver_comp (
+create unique index Z_VER_COMP_F_UNIQ on Z_VER_COMP (
 ver_comp_field ASC
 )
 ;
 
-create unique index t_ver_comp_name_uniq on t_ver_comp (
+create unique index Z_VER_COMP_N_UNIQ on Z_VER_COMP (
 ver_comp_name ASC
 )
 ;
@@ -401,43 +401,43 @@ ver_comp_name ASC
 
 
 
-create table t_service (
+create table Z_SERVICE (
    id_service           smallint                       not null,
    service_code         varchar(20)                    not null,
    service_name         varchar(50)                    not null,
    id_contenttype       smallint                       not null,
    id_ver_comp          char(1)                        default '0' not null,
-   id_div_mode          char(1)                        default 'F' not null,
+   id_div_mode          char(1)                        default 'I' not null,
    work_mode            char(1)                        default '0' not null
-         constraint CKC_WORK_MODE_T_SERVICE check (work_mode in ('0','S','R')),
+         constraint CKC_WORK_MODE_Z_SERVICE check (work_mode in ('0','S','R')),
    use_common_tiles     char(1)                        default '0' not null,
-   constraint PK_T_SERVICE primary key (id_service)
+   constraint PK_Z_SERVICE primary key (id_service)
 )
 ;
 
-create unique index service_code_uniq on t_service (
+create unique index Z_SERVICE_C_UNIQ on Z_SERVICE (
 service_code ASC
 )
 ;
 
-create unique index service_name_uniq on t_service (
+create unique index Z_SERVICE_N_UNIQ on Z_SERVICE (
 service_name ASC
 )
 ;
 
-alter table t_service
-   add constraint fk_t_service2c_contenttype foreign key (id_contenttype)
-      references c_contenttype (id_contenttype)
+alter table Z_SERVICE
+   add constraint FK_Z_SERVICE2Z_CONTENTTYPE foreign key (id_contenttype)
+      references Z_CONTENTTYPE (id_contenttype)
 ;
 
-alter table t_service
-   add constraint fk_t_service2t_div_mode foreign key (id_div_mode)
-      references t_div_mode (id_div_mode)
+alter table Z_SERVICE
+   add constraint FK_Z_SERVICE2Z_DIV_MODE foreign key (id_div_mode)
+      references Z_DIV_MODE (id_div_mode)
 ;
 
-alter table t_service
-   add constraint fk_t_service2t_ver_comp foreign key (id_ver_comp)
-      references t_ver_comp (id_ver_comp)
+alter table Z_SERVICE
+   add constraint FK_Z_SERVICE2Z_VER_COMP foreign key (id_ver_comp)
+      references Z_VER_COMP (id_ver_comp)
 ;
 
 

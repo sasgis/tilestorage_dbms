@@ -1,6 +1,6 @@
 create table IF NOT EXISTS Z_ALL_SQL (
    object_name          varchar(64)                    not null,
-   object_oper     char(1)                        not null
+   object_oper          char(1)                        not null
          constraint CKC_OBJECT_OPER_Z_ALL_SQL check (object_oper in ('C','S','I','U','D')),
    index_sql            smallint                       not null,
    skip_sql             char(1)                        default '0' not null,
