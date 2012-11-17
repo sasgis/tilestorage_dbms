@@ -155,8 +155,8 @@ begin
           ADataset.ExecSQL(FALSE);
         end else begin
           // make insert SQL statement for special table
-          ADataset.SQL.Text := 'insert into ' + FForcedSchemaPrefix + c_Tablename_With_Templates+
-                              ' (object_name,object_operation,index_sql,object_sql)'+
+          ADataset.SQL.Text := 'insert into ' + FForcedSchemaPrefix + Z_ALL_SQL+
+                              ' (object_name,object_oper,index_sql,object_sql)'+
                               ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')';
           ADataset.ExecSQL(TRUE);
         end;

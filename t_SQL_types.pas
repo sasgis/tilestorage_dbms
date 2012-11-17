@@ -261,41 +261,12 @@ Select first 10 * from systables
 С IDS10.00.xC3
 select skip 10 limit 10 * systables;
 
-
-FireBird:
-set term ^;
-execute block as
-begin
-if (not (exists(select 1 from c_contenttype where id_contenttype=1))) then
-begin
-  execute STATEMENT 'INSERT into c_contenttype (id_contenttype, contenttype_text) values (1, ''image/png'')';
-end
-end^
-set term ;^
-
-ИЛИ
-
-set term ^;
-execute block as
-begin
-if (not (exists(select 1 from c_contenttype where id_contenttype=1))) then
-begin
-  INSERT into c_contenttype (id_contenttype, contenttype_text) values (1, 'image/png');
-end
-end^
-set term ;^
-
-если напрямую то
-execute block as
-begin
-if (not (exists(select 1 from c_contenttype where id_contenttype=1))) then
-begin
-  INSERT into c_contenttype (id_contenttype, contenttype_text)
-  values (1, 'image/png');
-end
-end
-;
-
+MySQL:
+select version() from DUAL - works ('5.5.28-MariaDB')
+select * from DUAL - failes (SQL Error (1096): No tables used)
+select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - works
+create view V_DUAL as select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - works
+create view DUAL as select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - failes
 
 *)
 
@@ -332,6 +303,7 @@ const
   c_RTL_Connection = 'Connection';
   c_RTL_Interbase = 'Interbase'; // for Firebird
   c_RTL_Trusted_Connection = 'Trusted_Connection';
+  c_RTL_Numeric = 'numeric';
 
 function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
 

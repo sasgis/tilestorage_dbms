@@ -130,11 +130,14 @@ type
   private
     function SQLDateTimeToDBValue(const ADateTime: TDateTime): WideString;
 
+    function GetSQLIntName_Max: String;
+  private
     function CreateAllBaseTablesFromScript: Byte;
     
     // автоматическое создание записи о текущем сервисе (регистрация сервиса в БД)
     function AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
 
+    // автоматическое создание версии для сервиса
     function AutoCreateServiceVersion(
       const AExclusively: Boolean;
       const AInsertBuffer: PETS_INSERT_TILE_IN;
@@ -306,7 +309,8 @@ procedure TDBMS_Provider.AddVersionOrderBy(
 
     ASQLParts^.OrderBySQL := ' order by ' + AFieldName + ' desc';
   
-    ASQLParts^.FromSQL := ASQLParts^.FromSQL + ', v_' + InternalGetServiceNameByDB + ' w';
+    // добавляем таблицу с версиями
+    ASQLParts^.FromSQL := ASQLParts^.FromSQL + ', ' + c_Prefix_Versions + InternalGetServiceNameByDB + ' w';
 
     ASQLParts^.WhereSQL := ASQLParts^.WhereSQL + ' and v.id_ver=w.id_ver';
   end;
@@ -403,22 +407,25 @@ var
   VVerIsInt: Boolean;
   VKeepVerNumber: Boolean;
 begin
-  // only exclusively
+  // запрошенные версии создаются только в эксклюзивном режиме
   if (not AExclusively) then begin
     Result := ETS_RESULT_NEED_EXCLUSIVE;
     Exit;
   end;
 
-  // get requested version value
+  // получим запрошенную версию
   if (nil=AInsertBuffer^.szVersionIn) then begin
+    // нет версии
     AReqVersionPtr^.ver_value := '';
   end else if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
     AReqVersionPtr^.ver_value := AnsiString(PAnsiChar(AInsertBuffer^.szVersionIn));
   end else begin
+    // как Wide
     AReqVersionPtr^.ver_value := WideString(PWideChar(AInsertBuffer^.szVersionIn));
   end;
 
-  // check if empty version
+  // если пустая версия
   if (0=Length(AReqVersionPtr^.ver_value)) then begin
     // TODO: try to use 0 as id_ver
     if (not VersionExistsInDBWithIdVer(0)) then begin
@@ -595,13 +602,14 @@ var
   Vignore_errors: AnsiChar;
   //VStream: TStream;
   //VMemStream: TMemoryStream;
+  VReplaceNumeric: String;
 begin
   // а вдруг нет базовой таблицы с шаблонами
-  if (not TableExists(FConnection.ForcedSchemaPrefix+c_Tablename_With_Templates)) then begin
+  if (not TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
     // создадим базовые таблицы
     CreateAllBaseTablesFromScript;
     // а вдруг обломались?
-    if (not TableExists(FConnection.ForcedSchemaPrefix+c_Tablename_With_Templates)) then begin
+    if (not TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
       // полный отстой и нам тут делать нечего
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
@@ -618,9 +626,9 @@ begin
   VDataset := FConnection.MakePoolDataset;
   VExecSQL := FConnection.MakePoolDataset;
   try
-    VSQLText := 'select * from ' + FConnection.ForcedSchemaPrefix + c_Tablename_With_Templates+
+    VSQLText := 'select * from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
                 ' where object_name=' + WideStrToDB(ATemplateName) +
-                  ' and object_operation=''C'' and skip_sql=''0'' order by index_sql';
+                  ' and object_oper=''C'' and skip_sql=''0'' order by index_sql';
     VDataset.OpenSQL(VSQLText);
 
     if VDataset.IsEmpty then begin
@@ -665,7 +673,15 @@ begin
 
         if ASubstSQLTypes then begin
           // также необходимо подставить нуные типы полей для оптимального хранения XY
-          // TODO: заменить numeric на INT нужной ширины
+          // а именно - заменить numeric на INT нужной ширины
+          VReplaceNumeric := '';
+          case FDBMS_Service_Info.id_div_mode of
+          end;
+          // если не определились - заменяем на INT4 - его хватит всегда
+          if (0=Length(VReplaceNumeric)) then begin
+            VReplaceNumeric := GetSQLIntName_Max;
+          end;
+          VSQLText := StringReplace(VSQLText, c_RTL_Numeric, VReplaceNumeric, [rfReplaceAll,rfIgnoreCase]);
         end;
 
         // готово
@@ -1398,7 +1414,7 @@ begin
         // get new value for ver_number too
         VSQLText := VSQLText + ', max(ver_number) as ver_number';
       end;
-      VSQLText := VSQLText + ' from ' + FConnection.ForcedSchemaPrefix + 'v_' + InternalGetServiceNameByDB;
+      VSQLText := VSQLText + ' from ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
       VDataset.OpenSQL(VSQLText);
       // apply values
       if VDataset.IsEmpty or VDataset.FieldByName('id_ver').IsNull then
@@ -1421,6 +1437,24 @@ begin
     end;
   finally
     FConnection.KillPoolDataset(VDataset);
+  end;
+end;
+
+function TDBMS_Provider.GetSQLIntName_Max: String;
+var
+  VEngineType: TEngineType;
+begin
+  // возвращает максимально широкий тип INT, в котором есть смысл
+  VEngineType := FConnection.GetCheckedEngineType;
+  if c_SQL_INT_With_Size[VEngineType] then begin
+    // поле с размером (Both precision and scale are in decimal digits)
+    // если зум Z с 1 до 24, то X и Y каждый по отдельности изменяются от 0 до 2^(Z-1)-1 включительно
+    // значит максимально возможное значение координаты будет (+ пара зумов пока та же длина) 67108864-1
+    // то есть хватит 8 разрядов
+    Result := c_SQL_INT4_FieldName[VEngineType]+'(8)';
+  end else begin
+    // без размера - значит вернём INT4
+    Result := c_SQL_INT4_FieldName[VEngineType];
   end;
 end;
 
@@ -1475,9 +1509,6 @@ var
   VSQLTile: TSQLTile;
   VSQLParts: TSQLParts;
 begin
-  // %DIV%%ZOOM%%HEAD%_%SERVICE% - table with tiles
-  // u_%SERVICE% - table with common tiles
-
   // заполняем VSQLTile по переданным значениям
   Result := InternalCalcSQLTile(
     ASelectBufferIn^.XYZ,
@@ -1572,7 +1603,7 @@ begin
     // получим новый номер идентификатора
     // TODO: сделать в цикле и обработать облом
     try
-      VDataset.OpenSQL('select max(id_service) as id_service from ' + FConnection.ForcedSchemaPrefix + 't_service');
+      VDataset.OpenSQL('SELECT max(id_service) as id_service FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE);
     except
       // опять обломались на простом запросе
       Result := ETS_RESULT_INVALID_STRUCTURE;
@@ -1585,7 +1616,7 @@ begin
     // выполняем команду INSERT
     // прочие поля (id_ver_comp, id_div_mode, work_mode, use_common_tiles) залетают из DEFAULT-ных значений
     // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
-    ASQLTextResult := 'insert into ' + FConnection.ForcedSchemaPrefix + 't_service(id_service,service_code,service_name,id_contenttype) values (' +
+    ASQLTextResult := 'INSERT INTO ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
                             IntToStr(VNewIdService) + ',' +
                             WideStrToDB(VNewServiceCode) + ',' +
                             WideStrToDB(InternalGetServiceNameByHost) + ',' +
@@ -1726,7 +1757,7 @@ begin
   end;
 
   // соберём выражение INSERT
-  AInsertSQLResult := 'insert into ' + ATableName + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') values (' +
+  AInsertSQLResult := 'INSERT INTO ' + ATableName + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
                       IntToStr(VSQLTile.XYLowerToID.X) + ',' +
                       IntToStr(VSQLTile.XYLowerToID.Y) + ',' +
                       IntToStr(VReqVersion.id_ver) + ',' +
@@ -1735,28 +1766,28 @@ begin
                       IntToStr(VNewTileSize) + VNewTileBody + ')';
 
   // соберём выражение UPDATE
-  AUpdateSQLResult := 'update ' + ATableName + ' set id_contenttype=' + IntToStr(VIdContentType) +
+  AUpdateSQLResult := 'UPDATE ' + ATableName + ' SET id_contenttype=' + IntToStr(VIdContentType) +
                            ', load_date=' + SQLDateTimeToDBValue(AInsertBuffer^.dtLoadedUTC) +
                            ', tile_size=' + IntToStr(VNewTileSize) +
                            AUpdateSQLResult +
-                      ' where x=' + IntToStr(VSQLTile.XYLowerToID.X) +
+                      ' WHERE x=' + IntToStr(VSQLTile.XYLowerToID.X) +
                         ' and y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
                         ' and id_ver=' + IntToStr(VReqVersion.id_ver);
 end;
 
 function TDBMS_Provider.GetSQL_SelectContentTypes: WideString;
 begin
-  Result := 'select * from ' + FConnection.ForcedSchemaPrefix + 'c_contenttype';
+  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_CONTENTTYPE;
 end;
 
 function TDBMS_Provider.GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): WideString;
 begin
-  Result := 'select * from ' + FConnection.ForcedSchemaPrefix + 't_service where service_code='+WideStrToDB(AServiceCode);
+  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_code='+WideStrToDB(AServiceCode);
 end;
 
 function TDBMS_Provider.GetSQL_SelectService_ByHost: WideString;
 begin
-  Result := 'select * from ' + FConnection.ForcedSchemaPrefix + 't_service where service_name='+WideStrToDB(InternalGetServiceNameByHost);
+  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_name='+WideStrToDB(InternalGetServiceNameByHost);
 end;
 
 function TDBMS_Provider.GetSQL_SelectTile(
@@ -1769,9 +1800,6 @@ var
   VSQLParts: TSQLParts;
   VReqVersion: TVersionAA;
 begin
-  // %DIV%%ZOOM%%HEAD%_%SERVICE% - table with tiles
-  // u_%SERVICE% - table with common tiles
-
   // заполняем VSQLTile по переданным значениям
   Result := InternalCalcSQLTile(
     ASelectBufferIn^.XYZ,
@@ -1798,7 +1826,7 @@ begin
   *)
 
   // заготовки
-  VSQLParts.SelectSQL := 'select v.id_ver,v.id_contenttype,v.load_date,';
+  VSQLParts.SelectSQL := 'SELECT v.id_ver,v.id_contenttype,v.load_date,';
   VSQLParts.FromSQL := VSQLTile.TileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
@@ -1869,8 +1897,8 @@ begin
 
   // собираем всё вместе
   ASQLTextResult := VSQLParts.SelectSQL +
-                  ' from ' + VSQLParts.FromSQL +
-                 ' where v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
+                  ' FROM ' + VSQLParts.FromSQL +
+                 ' WHERE v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
                    ' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
                     VSQLParts.WhereSQL +
                     VSQLParts.OrderBySQL;
@@ -1878,8 +1906,8 @@ end;
 
 function TDBMS_Provider.GetSQL_SelectVersions: WideString;
 begin
-  // select * from v_%SERVICE%
-  Result := 'select * from ' + FConnection.ForcedSchemaPrefix + 'v_'+InternalGetServiceNameByDB;
+  // тащим всё из таблицы версий для текущего сервиса
+  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
 end;
 
 function TDBMS_Provider.GetVersionAnsiPointer(
@@ -1958,9 +1986,7 @@ function TDBMS_Provider.InternalCalcSQLTile(
 begin
   // сохраняем зум (от 1 до 24)
   ASQLTile^.Zoom := AXYZ^.z;
-  // строим начало имени таблицы для тайлов
-  ASQLTile^.TileTableName := FDBMS_Service_Info.id_div_mode + ASQLTile^.ZoomToTableNameChar;
-
+  
   // определяем маску зума
   case FDBMS_Service_Info.id_div_mode of
     TILE_DIV_1024..TILE_DIV_32768: begin
@@ -1976,8 +2002,14 @@ begin
   // делим XY на "верхнюю" и "нижнюю" части
   InternalDivideXY(AXYZ^.xy, ASQLTile);
 
-  // добавляем "верхнюю" часть XY и внутреннее имя сервиса к имени таблицы
-  ASQLTile^.TileTableName := ASQLTile^.TileTableName + ASQLTile^.GetXYUpperInfix + '_' + InternalGetServiceNameByDB;
+
+  // строим имя таблицы для тайлов
+  ASQLTile^.TileTableName := ASQLTile^.ZoomToTableNameChar +
+                             ASQLTile^.HXToTableNameChar +
+                             FDBMS_Service_Info.id_div_mode +
+                             ASQLTile^.HYToTableNameChar +
+                             '_' +
+                             InternalGetServiceNameByDB;
 
   Result := ETS_RESULT_OK;
 end;
@@ -2311,7 +2343,7 @@ begin
 
   VDataset := FConnection.MakePoolDataset;
   try
-    VVersionsTableName := FConnection.ForcedSchemaPrefix + 'v_' + InternalGetServiceNameByDB;
+    VVersionsTableName := FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
 
     // проверим, а есть ли табличка с версиями сервиса
     if (not TableExists(VVersionsTableName)) then
@@ -2324,8 +2356,8 @@ begin
     // тут проверять бессмысленно, будем считать что таблица создалась
 
     // забацаем SQL для вставки записи о новой версии
-    VDataset.SQL.Text := 'insert into ' + VVersionsTableName +
-              '(id_ver,ver_value,ver_date,ver_number) values (' +
+    VDataset.SQL.Text := 'INSERT INTO ' + VVersionsTableName +
+              '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
               IntToStr(ANewVersionPtr^.id_ver) + ',' +
               WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
               SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
@@ -2442,7 +2474,8 @@ begin
   try
     try
       // проверка существования указанной версии (по идентификатору) для текущего сервиса
-      VDataset.OpenSQL('select id_ver from ' + FConnection.ForcedSchemaPrefix + 'v_' + InternalGetServiceNameByDB + ' where id_ver=' + IntToStr(AIdVersion));
+      VDataset.OpenSQL('SELECT id_ver FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB +
+                       ' WHERE id_ver=' + IntToStr(AIdVersion));
       Result := (not VDataset.IsEmpty) and (not VDataset.FieldByName('id_ver').IsNull);
     except
       Result := FALSE;

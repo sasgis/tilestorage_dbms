@@ -6,8 +6,8 @@ type
   TDBMS_Service_Info = packed record
     id_service: SmallInt;
     id_contenttype: SmallInt; // default contenttype
-    id_ver_comp: AnsiChar; // t_ver_comp identifier ('0' by default)
-    id_div_mode: AnsiChar; // t_div_mode identifier ('D' by default)
+    id_ver_comp: AnsiChar; // Z_VER_COMP identifier ('0' by default)
+    id_div_mode: AnsiChar; // Z_DIV_MODE identifier
     work_mode: AnsiChar; // in ['0','S','R'] ('0' by default)
     use_common_tiles: AnsiChar; // boolean ('0' by default)
   end;

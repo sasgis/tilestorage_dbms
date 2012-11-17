@@ -15,21 +15,43 @@ const
   // расширение для файла результата
   c_SQL_Ext_Out  = '.out';
 
-  // таблица с шаблонами запросов
-  c_Tablename_With_Templates = 't_all_sql';
+  // базовые таблицы
+
+  Z_ALL_SQL     = 'Z_ALL_SQL';
+  Z_OPTIONS     = 'Z_OPTIONS';
+  Z_CONTENTTYPE = 'Z_CONTENTTYPE';
+  Z_DIV_MODE    = 'Z_DIV_MODE';
+  Z_VER_COMP    = 'Z_VER_COMP';
+  Z_SERVICE     = 'Z_SERVICE';
 
   // префикс для разбора скрипта и выполнения потаблично
   c_Template_CreateTable_Prefix = 'create table';
 
-  // шаблон имени для таблицы с версиями для сервиса %SERVICE%
-  c_Templated_Versions    = 'v_%SERVICE%';
-  // шаблон имени для таблицы с часто используемыми тайлами для сервиса %SERVICE%
-  c_Templated_CommonTiles = 'u_%SERVICE%';
-  // шаблон имени для таблицы с тайлами для сервиса %SERVICE%
-  // %DIV%  - способ деления тайлов на таблицы (кодируется одной буквой)
-  // %ZOOM% - зум (от 1 до 24 - кодируется одной буквой)
-  // %HEAD% - "верхняя" часть идентификатора тайла, "ушедшая" в имя таблицы
-  c_Templated_RealTiles   = '%DIV%%ZOOM%%HEAD%_%SERVICE%';
+  // базовые шаблоны
+
+  // шаблон для имени сервиса
+  c_Templated_SVC  = '%SVC%';
+  // шаблон для зума (от 1 до 24 - кодируется одной буквой)
+  c_Templated_Z    = '%Z%';
+  // шаблон для способ деления тайлов на таблицы (кодируется одной буквой вне диапазона 16-ричных символов)
+  c_Templated_DIV  = '%DIV%';
+  // шаблоны для "верхних" частей идентификатора тайла X и Y, "попадающих" в имя таблицы (16-ричный формат)
+  c_Templated_HX   = '%HX%';
+  c_Templated_HY   = '%HY%';
+
+  // производные шаблоны (см. скрипты *.xql)
+
+  // шаблон имени для таблицы с версиями для сервиса (например, X_gsat)
+  c_Prefix_Versions = 'X_';
+  c_Templated_Versions    = c_Prefix_Versions + c_Templated_SVC;
+
+  // шаблон имени для таблицы с часто используемыми тайлами для сервиса (например, Y_yasat)
+  c_Prefix_CommonTiles = 'Y_';
+  c_Templated_CommonTiles = c_Prefix_CommonTiles + c_Templated_SVC;
+
+  // шаблон имени для таблицы с тайлами для сервиса (например, AZ_nmc_recency)
+  c_Templated_RealTiles   = c_Templated_Z + c_Templated_HX + c_Templated_DIV + c_Templated_HY + '_' + c_Templated_SVC;
+
 
   c_Date_Separator = '-';
   c_Time_Separator = ':';
@@ -58,71 +80,14 @@ type
   public
     // convert zoom value to single char (to use in tablename)
     function ZoomToTableNameChar: Char;
-    // get upper part of XY (for tablename)
-    function GetXYUpperInfix: String;
+    // get upper part of X and Y (for tablename)
+    function HXToTableNameChar: String;
+    function HYToTableNameChar: String;
+    // deprecated version (for both XY)
+    function GetXYUpperInfix: String; deprecated;
   end;
   PSQLTile = ^TSQLTile;
 
-
-(*
-
-create table t_all_sql (
-   object_name          sysname                        not null,
-   object_operation     char(1)                        not null
-         constraint CKC_OBJECT_OPERATION_T_ALL_SQ check (object_operation in ('C','S','I','U','D')),
-   index_sql            smallint                       not null,
-   skip_sql             char(1)                        default '0' not null,
-   ignore_errors        char(1)                        default '1' not null,
-   object_sql           text                           null,
-   constraint PK_T_ALL_SQL primary key (object_name, object_operation, index_sql)
-)
-
-create table t_service (
-   id_service           smallint                       not null,
-   service_code         varchar(20)                    not null,
-   service_name         varchar(50)                    not null,
-   id_contenttype       smallint                       not null,
-   id_ver_comp          char(1)                        default '0' not null,
-   id_div_mode          char(1)                        default 'F' not null,
-   work_mode            char(1)                        default '0' not null
-         constraint CKC_WORK_MODE_T_SERVICE check (work_mode in ('0','S','R')),
-   use_common_tiles     char(1)                        default '0' not null,
-   constraint PK_T_SERVICE primary key (id_service)
-)
-
-// table with versions
-create table v_%SERVICE% (
-   id_ver               smallint                       not null,
-   ver_value            varchar(50)                    not null,
-   ver_date             datetime                       not null,
-   ver_number           int                            default 0 not null,
-   ver_comment          varchar(255)                   null,
-   constraint PK_V_%SERVICE% primary key (id_ver)
-)
-
-// table with real tiles
-create table %DIV%%ZOOM%%HEAD%_%SERVICE% (
-   x                    numeric                        not null,
-   y                    numeric                        not null,
-   id_ver               smallint                       not null,
-   tile_size            int                            default 0 not null,
-   id_contenttype       smallint                       not null,
-   load_date            datetime                       default getdate() not null,
-   tile_body            image                          null,
-   constraint PK_%DIV%%ZOOM%%HEAD%_%SERVICE% primary key (x, y, id_ver)
-)
-
-// table with common tiles
-create table u_%SERVICE% (
-   id_common_tile       smallint                       not null,
-   id_common_type       smallint                       not null,
-   common_size          int                            not null,
-   common_body          image                          null,
-   constraint PK_U_%SERVICE% primary key (id_common_tile)
-)
-
-*)
-  
 implementation
 
 { TSQLTile }
@@ -149,6 +114,40 @@ begin
 
   // to string
   Result := IntToHex(VUpperL, 8);
+  while (Length(Result)>1) and (Result[1]='0') do begin
+    System.Delete(Result, 1, 1);
+  end;
+end;
+
+function TSQLTile.HXToTableNameChar: String;
+begin
+  // если одна таблица - значит не делимся - вернём пустую строку
+  if (0=XYMaskWidth) or (Zoom <= (XYMaskWidth+1)) then begin
+    Result:='';
+    Exit;
+  end;
+
+  // конвертируемся
+  Result := IntToHex(XYUpperToTable.X, 8);
+  
+  // оставляем хотя бы один символ
+  while (Length(Result)>1) and (Result[1]='0') do begin
+    System.Delete(Result, 1, 1);
+  end;
+end;
+
+function TSQLTile.HYToTableNameChar: String;
+begin
+  // если одна таблица - значит не делимся - вернём пустую строку
+  if (0=XYMaskWidth) or (Zoom <= (XYMaskWidth+1)) then begin
+    Result:='';
+    Exit;
+  end;
+
+  // конвертируемся
+  Result := IntToHex(XYUpperToTable.Y, 8);
+  
+  // оставляем хотя бы один символ
   while (Length(Result)>1) and (Result[1]='0') do begin
     System.Delete(Result, 1, 1);
   end;
