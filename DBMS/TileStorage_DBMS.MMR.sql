@@ -4,7 +4,7 @@ create view DUAL as select 'MIMER' as ENGINETYPE from SYSTEM.ONEROW
 create table Z_ALL_SQL (
    object_name          varchar(128)                   not null,
    object_oper          char(1)                        not null
-         constraint CKC_OBJECT_OPER_Z_ALL_SQL check (object_operation in ('C','S','I','U','D')),
+         constraint CKC_OBJECT_OPER_Z_ALL_SQL check (object_oper in ('C','S','I','U','D')),
    index_sql            smallint                       not null,
    skip_sql             char(1)                        default '0' not null,
    ignore_errors        char(1)                        default '1' not null,
