@@ -8,6 +8,7 @@ uses
   SysUtils,
   Classes,
   DB,
+  WideStrings,
   t_SQL_types,
   t_ETS_Tiles,
   t_ETS_Path,
@@ -131,6 +132,8 @@ type
     function SQLDateTimeToDBValue(const ADateTime: TDateTime): WideString;
 
     function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
+
+    function PrimaryConstraintViolation(const AException: Exception): Boolean;
   private
     function CreateAllBaseTablesFromScript: Byte;
     
@@ -171,7 +174,7 @@ type
 
     // create table using SQL commands from special table
     function CreateTableByTemplate(
-      const ATemplateName, ATableName: WideString;
+      const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString;
       const AZoom: Byte;
       const ASubstSQLTypes: Boolean
     ): Byte;
@@ -207,8 +210,9 @@ type
       const AInsertBuffer: PETS_INSERT_TILE_IN;
       const AForceTNE: Boolean;
       const AExclusively: Boolean;
-      out AInsertSQLResult, AUpdateSQLResult, ATableName: WideString;
-      out ANeedTileBodyParam: Boolean
+      out AInsertSQLResult, AUpdateSQLResult: WideString;
+      out ANeedTileBodyParam: Boolean;
+      out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString
     ): Byte;
 
     // формирование текста SQL для удаления (DELETE) тайла или маркера TNE
@@ -592,7 +596,7 @@ begin
 end;
 
 function TDBMS_Provider.CreateTableByTemplate(
-  const ATemplateName, ATableName: WideString;
+  const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString;
   const AZoom: Byte;
   const ASubstSQLTypes: Boolean
 ): Byte;
@@ -619,7 +623,7 @@ begin
   end;
 
   // если запрошенная таблица уже есть - валим
-  if (TableExists(ATableName)) then begin
+  if (TableExists(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
@@ -671,7 +675,7 @@ begin
         VSQLText := VSqlTextField.AsWideString;
 
         // а тут надо подменить имя таблицы
-        VSQLText := StringReplace(VSQLText, ATemplateName, ATableName, [rfReplaceAll,rfIgnoreCase]);
+        VSQLText := StringReplace(VSQLText, ATemplateName, AUnquotedTableNameWithoutPrefix, [rfReplaceAll,rfIgnoreCase]);
 
         if ASubstSQLTypes then begin
           // также необходимо подставить нуные типы полей для оптимального хранения XY
@@ -713,7 +717,7 @@ begin
     end;
 
     // проверяем что табла успешно создалась
-    if (TableExists(ATableName)) then begin
+    if (TableExists(AQuotedTableNameWithPrefix)) then begin
       Result := ETS_RESULT_OK;
       Exit;
     end;
@@ -1039,10 +1043,14 @@ function TDBMS_Provider.DBMS_InsertTile(
 var
   VExclusive: Boolean;
   VDataset: TDBMS_Dataset;
-  VInsertSQL, VUpdateSQL, VTableName: WideString;
+  VInsertSQL, VUpdateSQL: WideString;
+  VUnquotedTableNameWithoutPrefix: WideString;
+  VQuotedTableNameWithPrefix: WideString;
   VParam: TParam;
   VNeedUpdate: Boolean;
   VNeedTileBodyParam: Boolean;
+  VCastBodyAsHexLiteral: Boolean;
+  VBodyAsLiteralValue: WideString;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -1066,16 +1074,34 @@ begin
         VExclusive,
         VInsertSQL,
         VUpdateSQL,
-        VTableName,
-        VNeedTileBodyParam
+        VNeedTileBodyParam,
+        VUnquotedTableNameWithoutPrefix,
+        VQuotedTableNameWithPrefix
       );
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
+      if VNeedTileBodyParam then begin
+        // тело тайла есть в запросе
+        VCastBodyAsHexLiteral := c_SQL_CastBlobToHexLiteral[FConnection.GetCheckedEngineType];
+        if VCastBodyAsHexLiteral then
+          VBodyAsLiteralValue := ConvertTileToHexLiteralValue(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize)
+        else
+          VBodyAsLiteralValue := '';
+      end else begin
+        // тело тайла вообще отсутствует в запросе
+        VCastBodyAsHexLiteral := FALSE;
+        VBodyAsLiteralValue := '';
+      end;
+
       // выполним INSERT
       try
+        if VCastBodyAsHexLiteral then begin
+          VInsertSQL := StringReplace(VInsertSQL, ':tile_body', VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
+        end;
+
         VDataset.SQL.Text := VInsertSQL;
-        if VNeedTileBodyParam then begin
+        if VNeedTileBodyParam and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
           VParam := VDataset.Params.FindParam('tile_body');
           if (VParam<>nil) then begin
@@ -1083,37 +1109,53 @@ begin
           end;
         end;
         // исполняем INSERT (если нет VNeedTileBodyParam - то напрямую без "подготовки")
-        VDataset.ExecSQL(not VNeedTileBodyParam);
+        VDataset.ExecSQL(VCastBodyAsHexLiteral or (not VNeedTileBodyParam));
         // готово (вставлено!)
         Result := ETS_RESULT_OK;
       except
         // обломались со вставкой новой записи
         on E: Exception do begin
-          // проверяем, может не было таблицы
-          if (not TableExists(VTableName)) then begin
-            // пробуем создать таблицу по шаблону
-            CreateTableByTemplate(c_Templated_RealTiles, VTableName, AInsertBuffer^.XYZ.z, TRUE);
-            // проверяем существование таблицы
-            if (not TableExists(VTableName)) then begin
-              // не удалось даже создать - валим
-              Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
-              Exit;
-            end;
-          end;
-          // повторяем INSERT
-          try
-            VDataset.ExecSQL(not VNeedTileBodyParam);
-            Result := ETS_RESULT_OK;
-          except
+          // если есть слова про уникальность - уходим на update
+          if PrimaryConstraintViolation(E) then begin
+            // нарушение уникальности - надо обновляться
             VNeedUpdate := TRUE;
+          end else begin
+            // проверяем, может не было таблицы
+            if (not TableExists(VQuotedTableNameWithPrefix)) then begin
+              // пробуем создать таблицу по шаблону
+              CreateTableByTemplate(
+                c_Templated_RealTiles,
+                VUnquotedTableNameWithoutPrefix,
+                VQuotedTableNameWithPrefix,
+                AInsertBuffer^.XYZ.z,
+                TRUE
+              );
+              // проверяем существование таблицы
+              if (not TableExists(VQuotedTableNameWithPrefix)) then begin
+                // не удалось даже создать - валим
+                Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
+                Exit;
+              end;
+            end;
+            // повторяем INSERT
+            try
+              VDataset.ExecSQL(VCastBodyAsHexLiteral or (not VNeedTileBodyParam));
+              Result := ETS_RESULT_OK;
+            except
+              VNeedUpdate := TRUE;
+            end;
           end;
         end;
       end;
 
       if VNeedUpdate then begin
         // пробуем выполнить UPDATE
+        if VCastBodyAsHexLiteral then begin
+          VUpdateSQL := StringReplace(VUpdateSQL, ':tile_body', VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
+        end;
+        
         VDataset.SQL.Text := VUpdateSQL;
-        if VNeedTileBodyParam then begin
+        if VNeedTileBodyParam and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
           VParam := VDataset.Params.FindParam('tile_body');
           if (VParam<>nil) then begin
@@ -1123,7 +1165,7 @@ begin
         // исполняем UPDATE
         try
           // (если нет VNeedTileBodyParam - то напрямую без "подготовки")
-          VDataset.ExecSQL(not VNeedTileBodyParam);
+          VDataset.ExecSQL(VCastBodyAsHexLiteral or (not VNeedTileBodyParam));
           // готово (обновлено!)
           Result := ETS_RESULT_OK;
         except
@@ -1628,7 +1670,7 @@ begin
     Exit;
 
   // забацаем DELETE
-  ADeleteSQLResult := 'delete from ' + FConnection.ForcedSchemaPrefix + VSQLTile.TileTableName +
+  ADeleteSQLResult := 'delete from ' + FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName +
                       ' where x=' + IntToStr(VSQLTile.XYLowerToID.X) +
                         ' and y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
                         ' and id_ver=' + IntToStr(VReqVersion.id_ver);  
@@ -1665,7 +1707,7 @@ begin
 
   // забацаем SELECT
   VSQLParts.SelectSQL := 'select v.id_ver';
-  VSQLParts.FromSQL := FConnection.ForcedSchemaPrefix + VSQLTile.TileTableName + ' v';
+  VSQLParts.FromSQL := FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
 
@@ -1765,8 +1807,9 @@ function TDBMS_Provider.GetSQL_InsertUpdateTile(
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean;
   const AExclusively: Boolean;
-  out AInsertSQLResult, AUpdateSQLResult, ATableName: WideString;
-  out ANeedTileBodyParam: Boolean
+  out AInsertSQLResult, AUpdateSQLResult: WideString;
+  out ANeedTileBodyParam: Boolean;
+  out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString
 ): Byte;
 var
   VSQLTile: TSQLTile;
@@ -1851,8 +1894,9 @@ begin
     Exit;
 
   // отдельно вернём имя таблицы для тайлов (для обработки ошибок)
-  // здесь таблица будет с префиксом схемы
-  ATableName := FConnection.ForcedSchemaPrefix + VSQLTile.TileTableName;
+  AUnquotedTableNameWithoutPrefix := VSQLTile.UnquotedTileTableName;
+  // а здесь таблица будет с префиксом схемы
+  AQuotedTableNameWithPrefix := FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName;
 
   if AForceTNE then begin
     // при вставке маркера TNE не проверяем вхождение тайла в часто используемые
@@ -1891,7 +1935,7 @@ begin
   end;
 
   // соберём выражение INSERT
-  AInsertSQLResult := 'INSERT INTO ' + ATableName + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
+  AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
                       IntToStr(VSQLTile.XYLowerToID.X) + ',' +
                       IntToStr(VSQLTile.XYLowerToID.Y) + ',' +
                       IntToStr(VReqVersion.id_ver) + ',' +
@@ -1900,7 +1944,7 @@ begin
                       IntToStr(VNewTileSize) + VNewTileBody + ')';
 
   // соберём выражение UPDATE
-  AUpdateSQLResult := 'UPDATE ' + ATableName + ' SET id_contenttype=' + IntToStr(VIdContentType) +
+  AUpdateSQLResult := 'UPDATE ' + AQuotedTableNameWithPrefix + ' SET id_contenttype=' + IntToStr(VIdContentType) +
                            ', load_date=' + SQLDateTimeToDBValue(AInsertBuffer^.dtLoadedUTC) +
                            ', tile_size=' + IntToStr(VNewTileSize) +
                            AUpdateSQLResult +
@@ -1961,7 +2005,7 @@ begin
 
   // заготовки
   VSQLParts.SelectSQL := 'SELECT v.id_ver,v.id_contenttype,v.load_date,';
-  VSQLParts.FromSQL := VSQLTile.TileTableName + ' v';
+  VSQLParts.FromSQL := VSQLTile.QuotedTileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
 
@@ -2119,6 +2163,7 @@ function TDBMS_Provider.InternalCalcSQLTile(
 ): Byte;
 var
   VXYMaskWidth: Byte;
+  VNeedToQuote: Boolean;
 begin
   // сохраняем зум (от 1 до 24)
   ASQLTile^.Zoom := AXYZ^.z;
@@ -2129,12 +2174,25 @@ begin
   VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
   
   // строим имя таблицы для тайлов
-  ASQLTile^.TileTableName := ASQLTile^.ZoomToTableNameChar +
-                             ASQLTile^.HXToTableNameChar(VXYMaskWidth) +
-                             FDBMS_Service_Info.id_div_mode +
-                             ASQLTile^.HYToTableNameChar(VXYMaskWidth) +
-                             '_' +
-                             InternalGetServiceNameByDB;
+  ASQLTile^.UnquotedTileTableName := ASQLTile^.ZoomToTableNameChar(VNeedToQuote) +
+                                     ASQLTile^.HXToTableNameChar(VXYMaskWidth) +
+                                     FDBMS_Service_Info.id_div_mode +
+                                     ASQLTile^.HYToTableNameChar(VXYMaskWidth) +
+                                     '_' +
+                                     InternalGetServiceNameByDB;
+
+  if c_SQL_ForceQuotedIdentifier[FConnection.GetCheckedEngineType] then begin
+    ASQLTile^.QuotedTileTableName := '"' + ASQLTile^.UnquotedTileTableName + '"';
+  end else begin
+    ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
+  end;
+  (*
+  if VNeedToQuote then begin
+    ASQLTile^.QuotedTileTableName := '"' + ASQLTile^.UnquotedTileTableName + '"';
+  end else begin
+    ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
+  end;
+  *)
 
   Result := ETS_RESULT_OK;
 end;
@@ -2465,26 +2523,34 @@ function TDBMS_Provider.MakePtrVersionInDB(
 ): Boolean;
 var
   VDataset: TDBMS_Dataset;
-  VVersionsTableName: String;
+  VVersionsTableName_UnquotedWithoutPrefix: String;
+  VVersionsTableName_QuotedWithPrefix: String;
 begin
   Assert(AExclusively);
 
   VDataset := FConnection.MakePoolDataset;
   try
-    VVersionsTableName := FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
+    VVersionsTableName_UnquotedWithoutPrefix := c_Prefix_Versions + InternalGetServiceNameByDB;
+    VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
 
     // проверим, а есть ли табличка с версиями сервиса
-    if (not TableExists(VVersionsTableName)) then
+    if (not TableExists(VVersionsTableName_QuotedWithPrefix)) then
     try
       // создадим
-      CreateTableByTemplate(c_Templated_Versions, VVersionsTableName, 0, FALSE);
+      CreateTableByTemplate(
+        c_Templated_Versions,
+        VVersionsTableName_UnquotedWithoutPrefix,
+        VVersionsTableName_QuotedWithPrefix,
+        0,
+        FALSE
+      );
     except
     end;
 
     // тут проверять бессмысленно, будем считать что таблица создалась
 
     // забацаем SQL для вставки записи о новой версии
-    VDataset.SQL.Text := 'INSERT INTO ' + VVersionsTableName +
+    VDataset.SQL.Text := 'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
               '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
               IntToStr(ANewVersionPtr^.id_ver) + ',' +
               WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
@@ -2500,6 +2566,14 @@ begin
   finally
     FConnection.KillPoolDataset(VDataset);
   end;
+end;
+
+function TDBMS_Provider.PrimaryConstraintViolation(const AException: Exception): Boolean;
+var VMessage: String;
+begin
+  VMessage := LowerCase(AException.Message);
+  Result := (System.Pos('violation', VMessage)>0) and (System.Pos('constraint', VMessage)>0);
+  // FB: 'violation of PRIMARY or UNIQUE KEY constraint "PK_C2I1_NMC_RECENCY" on table "C2I1_nmc_recency"'
 end;
 
 procedure TDBMS_Provider.ReadContentTypesFromDB(const AExclusively: Boolean);
@@ -2521,7 +2595,7 @@ begin
         while (not VDataset.Eof) do begin
           // add record to array
           VNewItem.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
-          VNewItem.contenttype_text := VDataset.FieldByName('contenttype_text').AsString;
+          VNewItem.contenttype_text := Trim(VDataset.FieldByName('contenttype_text').AsString);
           FContentTypeList.AddItem(@VNewItem);
           // next
           VDataset.Next;
@@ -2554,10 +2628,10 @@ begin
         while (not VDataset.Eof) do begin
           // добавляем поштучно
           VNewItem.id_ver := VDataset.FieldByName('id_ver').AsInteger;
-          VNewItem.ver_value := VDataset.FieldByName('ver_value').AsString;
+          VNewItem.ver_value := Trim(VDataset.FieldByName('ver_value').AsString);
           VNewItem.ver_date := VDataset.FieldByName('ver_date').AsDateTime;
           VNewItem.ver_number := VDataset.FieldByName('ver_number').AsInteger;
-          VNewItem.ver_comment := VDataset.FieldByName('ver_comment').AsString;
+          VNewItem.ver_comment := Trim(VDataset.FieldByName('ver_comment').AsString);
           FVersionList.AddItem(@VNewItem);
           // - Следующий!
           VDataset.Next;

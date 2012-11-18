@@ -129,6 +129,36 @@ const
   ''
   );
 
+  // prefix and suffix for identifiers
+  c_SQL_ForceQuotedIdentifier: array [TEngineType] of Boolean = (
+  FALSE,          // MSSQL
+  FALSE,          // ASE
+  FALSE,          // ASA
+  FALSE,          // Oracle
+  FALSE,          // Informix
+  FALSE,          // DB2
+  FALSE,          // MySQL
+  FALSE,          // PostgreSQL
+  FALSE,          // Mimer
+  TRUE,           // Firebird
+  FALSE
+  );
+
+  // cast blob into hex literal and do not use :param
+  c_SQL_CastBlobToHexLiteral: array [TEngineType] of Boolean = (
+  FALSE,          // MSSQL
+  FALSE,          // ASE
+  FALSE,          // ASA
+  FALSE,          // Oracle
+  FALSE,          // Informix
+  FALSE,          // DB2
+  FALSE,          // MySQL
+  FALSE,          // PostgreSQL
+  FALSE,          // Mimer
+  TRUE,           // Firebird
+  FALSE
+  );
+
   // type to store BigInt (8 bytes with sign) from -9223372036854775808 to 9223372036854775807
   c_SQL_INT8_FieldName: array [TEngineType] of String = (
   'BIGINT', // MSSQL
@@ -324,6 +354,9 @@ function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCD
 
 function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
 
+// формирует 16-ричную константу для записи BLOB-а, есть работа через параметры невозможна
+function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): WideString;
+
 implementation
 
 uses
@@ -405,6 +438,29 @@ begin
   end else begin
     // unknown
     Result := FALSE;
+  end;
+end;
+
+function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): WideString;
+var
+  i: Integer;
+  p: PByte;
+begin
+  // FB при работе через параметры возвращает ошибку
+  // DBXCommon.TDBXContext.Error(???,'Incorrect values within SQLDA structure')
+  // так что пишем BLOB через строковый литерал
+  if (ASize<=0) then begin
+    Result := 'NULL';
+  end else begin
+    Result := '';
+    p := ABuffer;
+    for i := 0 to ASize-1 do begin
+      Result := Result + IntToHex(p^,2);
+      Inc(p);
+    end;
+    Result := 'CAST(x''' + Result + ''' as BLOB sub_type binary)';
+    if;
+    // если длина больше чем 32767 - всё равно FB обламывается
   end;
 end;
 

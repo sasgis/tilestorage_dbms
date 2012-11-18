@@ -70,14 +70,15 @@ type
     // зум (от 1 до 24)
     Zoom: Byte;
     // им€ таблицы дл€ тайлов - здесь без возможного префикса схемы
-    TileTableName: WideString;
+    UnquotedTileTableName: WideString;
+    QuotedTileTableName: WideString;
     // "верхн€€" часть идентификатора тайла - в им€ таблицы
     XYUpperToTable: TPoint;
     // "нижн€€" часть идентификатора тайла - в идентификатор (в поле таблицы)
     XYLowerToID: TPoint;
   public
     // convert zoom value to single char (to use in tablename)
-    function ZoomToTableNameChar: Char;
+    function ZoomToTableNameChar(out ANeedToQuote: Boolean): Char;
     // get upper part of X and Y (for tablename)
     function HXToTableNameChar(const AXYMaskWidth: Byte): String;
     function HYToTableNameChar(const AXYMaskWidth: Byte): String;
@@ -154,14 +155,16 @@ begin
   end;
 end;
 
-function TSQLTile.ZoomToTableNameChar: Char;
+function TSQLTile.ZoomToTableNameChar(out ANeedToQuote: Boolean): Char;
 begin
   if (Zoom=0) then begin
     Result := '0';
+    ANeedToQuote := TRUE;
   end else if (Zoom<10) then begin
     // 1='1'
     // 9='9'
     Result := Chr(Ord('1')+Zoom-1);
+    ANeedToQuote := TRUE;
   end else begin
     // 10='A'
     // 16='G'
@@ -169,6 +172,7 @@ begin
     // 24='O'
     // 32='W'
     Result := Chr(Ord('A')+Zoom-10);
+    ANeedToQuote := FALSE;
   end;
 end;
 

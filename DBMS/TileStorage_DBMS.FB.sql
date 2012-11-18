@@ -22,151 +22,43 @@ create table Z_CONTENTTYPE (
 )
 ;
 
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=1))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (1, 'image/png');
-end
-end
+merge into Z_CONTENTTYPE z
+using (
+select 1 as id, 'image/png' as name from rdb$database
+union all
+select 2 as id, 'image/jpeg' as name from rdb$database
+union all
+select 3 as id, 'image/jpg' as name from rdb$database
+union all
+select 4 as id, 'image/gif' as name from rdb$database
+union all
+select 5 as id, 'image/tiff' as name from rdb$database
+union all
+select 6 as id, 'image/svg+xml' as name from rdb$database
+union all
+select 7 as id, 'image/vnd.microsoft.icon' as name from rdb$database
+union all
+select 8 as id, 'image/jp2' as name from rdb$database
+union all
+select 65 as id, 'application/vnd.google-earth.kml+xml' as name from rdb$database
+union all
+select 66 as id, 'application/gpx+xml' as name from rdb$database
+union all
+select 67 as id, 'application/vnd.google-earth.kmz' as name from rdb$database
+union all
+select 68 as id, 'application/xml' as name from rdb$database
+union all
+select 91 as id, 'text/html' as name from rdb$database
+union all
+select 92 as id, 'text/plain' as name from rdb$database
+) c
+on (c.id = z.id_contenttype)
+when matched then update set contenttype_text = c.name
+when not matched then insert (id_contenttype, contenttype_text) values (c.id, c.name)
 ;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=2))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (2, 'image/jpeg');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=3))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (3, 'image/jpg');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=4))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (4, 'image/gif');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=5))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (5, 'image/tiff');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=6))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (6, 'image/svg+xml');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=7))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (7, 'image/vnd.microsoft.icon');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=8))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (8, 'image/jp2');
-end
-end
-;
-
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=65))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (65, 'application/vnd.google-earth.kml+xml');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=66))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (66, 'application/gpx+xml');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=67))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (67, 'application/vnd.google-earth.kmz');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=68))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (68, 'application/xml');
-end
-end
-;
-
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=91))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (91, 'text/html');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_CONTENTTYPE where id_contenttype=92))
-then
-  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
-  values (92, 'text/plain');
-end
-end
-;
-
 
 create unique index Z_CONTENTTYPE_UNIQ on Z_CONTENTTYPE (
-contenttype_text ASC
+contenttype_text
 )
 ;
 
@@ -180,36 +72,18 @@ create table Z_OPTIONS (
 )
 ;
 
-execute block as
-begin
-if (not exists(select 1 from Z_OPTIONS where id_option=1))
-then
-  insert into Z_OPTIONS (id_option,option_descript,option_value)
-  values (1, 'Autocreate services', 0);
-end
-end
+merge into Z_OPTIONS z
+using (
+select 1 as id, 'Autocreate services' as name, 0 as v from rdb$database
+union all
+select 2 as id, 'Autocreate versions' as name, 0 as v from rdb$database
+union all
+select 3 as id, 'Keep TILE for TNE' as name, 0 as v from rdb$database
+) c
+on (c.id = z.id_option)
+when matched then update set option_descript = c.name, option_value = c.v
+when not matched then insert (id_option, option_descript, option_value) values (c.id, c.name, c.v)
 ;
-
-execute block as
-begin
-if (not exists(select 1 from Z_OPTIONS where id_option=2))
-then
-  insert into Z_OPTIONS (id_option,option_descript,option_value)
-  values (2, 'Autocreate versions', 0);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_OPTIONS where id_option=3))
-then
-  insert into Z_OPTIONS (id_option,option_descript,option_value)
-  values (3, 'Keep TILE for TNE', 0);
-end
-end
-;
-
 
 
 
@@ -221,78 +95,29 @@ create table Z_DIV_MODE (
 )
 ;
 
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='Z'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('Z','All-in-One',0);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='I'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('I','Based on 1024',10);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='J'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('J','Based on 2048',11);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='K'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('K','Based on 4096',12);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='L'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('L','Based on 8192',13);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='M'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('M','Based on 16384',14);
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_DIV_MODE where id_div_mode='N'))
-then
-  insert into Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width)
-  values ('N','Based on 32768',15);
-end
-end
+merge into Z_DIV_MODE z
+using (
+select 'Z' as id, 'All-in-One' as name, 0 as v from rdb$database
+union all
+select 'I' as id, 'Based on 1024' as name, 10 as v from rdb$database
+union all
+select 'J' as id, 'Based on 2048' as name, 11 as v from rdb$database
+union all
+select 'K' as id, 'Based on 4096' as name, 12 as v from rdb$database
+union all
+select 'L' as id, 'Based on 8192' as name, 13 as v from rdb$database
+union all
+select 'M' as id, 'Based on 16384' as name, 14 as v from rdb$database
+union all
+select 'N' as id, 'Based on 32768' as name, 15 as v from rdb$database
+) c
+on (c.id = z.id_div_mode)
+when matched then update set div_mode_name = c.name, div_mask_width = c.v
+when not matched then insert (id_div_mode, div_mode_name, div_mask_width) values (c.id, c.name, c.v)
 ;
 
 create unique index Z_DIV_MODE_UNIQ on Z_DIV_MODE (
-div_mode_name ASC
+div_mode_name
 )
 ;
 
@@ -308,63 +133,30 @@ create table Z_VER_COMP (
 )
 ;
 
-execute block as
-begin
-if (not exists(select 1 from Z_VER_COMP where id_ver_comp='0'))
-then
-  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
-  values ('0','-','No');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_VER_COMP where id_ver_comp='I'))
-then
-  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
-  values ('I','id_ver','By id');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_VER_COMP where id_ver_comp='V'))
-then
-  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
-  values ('V','ver_value','By value');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_VER_COMP where id_ver_comp='D'))
-then
-  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
-  values ('D','ver_date','By date');
-end
-end
-;
-
-execute block as
-begin
-if (not exists(select 1 from Z_VER_COMP where id_ver_comp='N'))
-then
-  insert into Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name)
-  values ('N','ver_number','By number');
-end
-end
+merge into Z_VER_COMP z
+using (
+select '0' as id, '-' as name, 'No' as v from rdb$database
+union all
+select 'I' as id, 'id_ver' as name, 'By id' as v from rdb$database
+union all
+select 'V' as id, 'ver_value' as name, 'By value' as v from rdb$database
+union all
+select 'D' as id, 'ver_date' as name, 'By date' as v from rdb$database
+union all
+select 'N' as id, 'ver_number' as name, 'By number' as v from rdb$database
+) c
+on (c.id = z.id_ver_comp)
+when matched then update set ver_comp_field = c.name, ver_comp_name = c.v
+when not matched then insert (id_ver_comp, ver_comp_field, ver_comp_name) values (c.id, c.name, c.v)
 ;
 
 create unique index Z_VER_COMP_F_UNIQ on Z_VER_COMP (
-ver_comp_field ASC
+ver_comp_field
 )
 ;
 
 create unique index Z_VER_COMP_N_UNIQ on Z_VER_COMP (
-ver_comp_name ASC
+ver_comp_name
 )
 ;
 
@@ -387,12 +179,12 @@ create table Z_SERVICE (
 ;
 
 create unique index Z_SERVICE_C_UNIQ on Z_SERVICE (
-service_code ASC
+service_code
 )
 ;
 
 create unique index Z_SERVICE_N_UNIQ on Z_SERVICE (
-service_name ASC
+service_name
 )
 ;
 

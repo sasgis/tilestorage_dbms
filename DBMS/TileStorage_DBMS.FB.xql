@@ -9,7 +9,7 @@ create table X_%SVC% (
 ;
 
 create unique index ZX_%SVC% on X_%SVC% (
-ver_value ASC
+ver_value
 )
 ;
 
@@ -26,15 +26,15 @@ create table Y_%SVC% (
 ;
 
 create index ZY_%SVC% on Y_%SVC% (
-id_common_type ASC,
-common_size ASC
+id_common_type,
+common_size
 )
 ;
 
 
 
 
-create table %Z%%HX%%DIV%%HY%_%SVC% (
+create table "%Z%%HX%%DIV%%HY%_%SVC%" (
    x                    numeric                        not null,
    y                    numeric                        not null,
    id_ver               smallint                       not null,
@@ -46,11 +46,11 @@ create table %Z%%HX%%DIV%%HY%_%SVC% (
 )
 ;
 
-create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on %Z%%HX%%DIV%%HY%_%SVC% (
-x ASC,
-y ASC,
-id_ver ASC,
-tile_size ASC
+create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on "%Z%%HX%%DIV%%HY%_%SVC%" (
+x,
+y,
+id_ver,
+tile_size
 )
 ;
 
