@@ -2209,7 +2209,7 @@ begin
   VEngineType := FConnection.GetCheckedEngineType;
 
   if VNeedToQuote or c_SQL_QuotedIdentifierForcedForTiles[VEngineType] then begin
-    ASQLTile^.QuotedTileTableName := c_SQL_QuotedIdentifierValue[VEngineType] + ASQLTile^.UnquotedTileTableName + c_SQL_QuotedIdentifierValue[VEngineType];
+    ASQLTile^.QuotedTileTableName := c_SQL_QuotedIdentifierValue[VEngineType, qp_Before] + ASQLTile^.UnquotedTileTableName + c_SQL_QuotedIdentifierValue[VEngineType, qp_After];
   end else begin
     ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
   end;
@@ -2682,7 +2682,7 @@ begin
   try
     try
       // простая универсальная проверка существования и доступности таблицы
-      VDataset.OpenSQL('select 1 from ' + ATableName + ' where 0=1');
+      VDataset.OpenSQL('select 1 as a from ' + ATableName + ' where 0=1');
       Result := TRUE;
     except
       Result := FALSE;

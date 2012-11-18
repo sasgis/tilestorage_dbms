@@ -33,6 +33,8 @@ type
     cetm_Force   // force re(check), ignore driver information
   );
 
+  TQuotedPlace = (qp_Before, qp_After);
+
 const
   c_SQLCMD_VERSION_S  = 'SELECT @@VERSION';  // MSSQL+ASE+ASA
   c_SQLCMD_FROM_DUAL  = 'SELECT * FROM DUAL'; // if 'select @@version as v into DUAL' executed from model
@@ -330,17 +332,16 @@ const
 const
   c_RTL_Connection = 'Connection';
   c_RTL_Interbase = 'Interbase'; // for Firebird
-  c_RTL_Trusted_Connection = 'Trusted_Connection';
+  c_RTL_Trusted_Connection = 'OS Authentication';
   c_RTL_Numeric = 'numeric';
 
-  //c_RTL_Tile_Body_Paramsrc = '$1'; // PostgreSQL failed
-  c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL
+  c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL, ASE, MSSQL
   c_RTL_Tile_Body_Paramname = ':' + c_RTL_Tile_Body_Paramsrc;
 
   // prefix and suffix for identifiers for tiles
   c_SQL_QuotedIdentifierForcedForTiles: array [TEngineType] of Boolean = (
     FALSE,  // MSSQL
-    FALSE,  // ASE
+    FALSE,  // ASE // OK with FALSE
     FALSE,  // ASA
     FALSE,  // Oracle
     FALSE,  // Informix
@@ -352,18 +353,18 @@ const
     FALSE
   );
 
-  c_SQL_QuotedIdentifierValue: array [TEngineType] of Char = (
-    '"',  // MSSQL
-    '"',  // ASE
-    '"',  // ASA
-    '"',  // Oracle
-    '"',  // Informix
-    '"',  // DB2
-    '`',  // MySQL
-    '"',  // PostgreSQL // OK with '"'
-    '"',  // Mimer // OK with '"'
-    '"',  // Firebird
-    '"'
+  c_SQL_QuotedIdentifierValue: array [TEngineType, TQuotedPlace] of Char = (
+    ('[',']'),  // MSSQL
+    ('[',']'),  // ASE // OK with '[]'
+    ('"','"'),  // ASA
+    ('"','"'),  // Oracle
+    ('"','"'),  // Informix
+    ('"','"'),  // DB2
+    ('`','`'),  // MySQL
+    ('"','"'),  // PostgreSQL // OK with '"'
+    ('"','"'),  // Mimer // OK with '"'
+    ('"','"'),  // Firebird
+    ('"','"')
   );
 
   // cast blob into hex literal and do not use :param (for dbExpress)

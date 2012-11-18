@@ -482,9 +482,26 @@ begin
   G_ConnectionList.InternalRemoveConnection(Self);
   
   CompactPool;
-  FreeAndNil(FSQLConnection);
 
-  FreeAndNil(FInternalParams);
+  try
+    FSQLConnection.CloseDataSets;
+  except
+  end;
+
+  try
+    FSQLConnection.Close;
+  except
+  end;
+
+  try
+    FreeAndNil(FSQLConnection);
+  except
+  end;
+
+  try
+    FreeAndNil(FInternalParams);
+  except
+  end;
 
   if (FInternalLoadLibrary<>0) then begin
     FreeLibrary(FInternalLoadLibrary);
@@ -630,7 +647,7 @@ var
 begin
   VEngineType := GetCheckedEngineType;
 
-  // מעהוכüםמ ןנמגונטל Trusted_Connection הכÿ MSSQL
+  // מעהוכüםמ ןנמגונטל 'OS Authentication' הכÿ MSSQL
   if (et_MSSQL=VEngineType) then begin
     VValue := FSQLConnection.Params.Values[c_RTL_Trusted_Connection];
     if (0<Length(VValue)) then begin
