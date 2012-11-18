@@ -18,6 +18,7 @@ uses
   t_DBMS_service,
   t_DBMS_Template,
   i_DBMS_Provider,
+  t_DBMS_Connect,
   u_DBMS_Connect,
   u_DBMS_Utils;
 
@@ -61,6 +62,12 @@ type
 
     // настройки формата дл€ дат и чисел
     FFormatSettings: TFormatSettings;
+
+    // препарированные датасеты дл€ вставки и обновлени€
+    (*
+    FInsertDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
+    FUpdateDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
+    *)
   private
     // common work
     procedure DoBeginWork(const AExclusively: Boolean);
@@ -205,13 +212,13 @@ type
     ): Byte;
 
     // формирование текста SQL дл€ вставки (INSERT) и обновлени€ (UPDATE) тайла или маркера TNE
-    // в тексте SQL возможны только параметры :tile_body, остальное подставл€етс€ сразу
+    // в тексте SQL возможны только параметр c_RTL_Tile_Body_Paramname, остальное подставл€етс€ сразу
     function GetSQL_InsertUpdateTile(
       const AInsertBuffer: PETS_INSERT_TILE_IN;
       const AForceTNE: Boolean;
       const AExclusively: Boolean;
       out AInsertSQLResult, AUpdateSQLResult: WideString;
-      out ANeedTileBodyParam: Boolean;
+      out AInsertUpdateSubType: TInsertUpdateSubType;
       out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString
     ): Byte;
 
@@ -583,7 +590,7 @@ begin
   VSQLTemplates := TDBMS_SQLTemplates_File.Create(
     VUniqueEngineType,
     FConnection.ForcedSchemaPrefix,
-    FConnection.GetInternalParameter(ETS_INTERNAL_APPEND_DIVIDER)
+    FConnection.GetInternalParameter(ETS_INTERNAL_SCRIPT_APPENDER)
   );
   try
     // исполним всЄ что есть
@@ -1042,14 +1049,15 @@ function TDBMS_Provider.DBMS_InsertTile(
 ): Byte;
 var
   VExclusive: Boolean;
-  VDataset: TDBMS_Dataset;
+  VInsertDataset, VUpdateDataset: TDBMS_Dataset;
   VInsertSQL, VUpdateSQL: WideString;
   VUnquotedTableNameWithoutPrefix: WideString;
   VQuotedTableNameWithPrefix: WideString;
   VParam: TParam;
   VNeedUpdate: Boolean;
-  VNeedTileBodyParam: Boolean;
+  VInsertUpdateSubType: TInsertUpdateSubType;
   VCastBodyAsHexLiteral: Boolean;
+  VExecDirect: Boolean;
   VBodyAsLiteralValue: WideString;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
@@ -1063,7 +1071,10 @@ begin
       Exit;
 
     // if connected - INSERT tile to DB
-    VDataset := FConnection.MakePoolDataset;
+    // VInsertDataset := FConnection.MakePoolDataset;
+    VInsertDataset := FConnection.MakeNonPooledDataset;
+    // VUpdateDataset := FConnection.MakePoolDataset;
+    VUpdateDataset := FConnection.MakeNonPooledDataset;
     try
       VNeedUpdate := FALSE;
       
@@ -1074,16 +1085,16 @@ begin
         VExclusive,
         VInsertSQL,
         VUpdateSQL,
-        VNeedTileBodyParam,
+        VInsertUpdateSubType,
         VUnquotedTableNameWithoutPrefix,
         VQuotedTableNameWithPrefix
       );
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
-      if VNeedTileBodyParam then begin
+      if (iust_TILE=VInsertUpdateSubType) then begin
         // тело тайла есть в запросе
-        VCastBodyAsHexLiteral := c_SQL_CastBlobToHexLiteral[FConnection.GetCheckedEngineType];
+        VCastBodyAsHexLiteral := c_DBX_CastBlobToHexLiteral[FConnection.GetCheckedEngineType];
         if VCastBodyAsHexLiteral then
           VBodyAsLiteralValue := ConvertTileToHexLiteralValue(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize)
         else
@@ -1094,22 +1105,31 @@ begin
         VBodyAsLiteralValue := '';
       end;
 
+      // запрос напр€мую или нет
+      VExecDirect := VCastBodyAsHexLiteral or (iust_TILE<>VInsertUpdateSubType);
+      //VExecDirect := TRUE;
+
       // выполним INSERT
       try
+        // может BLOB надо писать как 16-ричный литерал
         if VCastBodyAsHexLiteral then begin
-          VInsertSQL := StringReplace(VInsertSQL, ':tile_body', VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
+          VInsertSQL := StringReplace(VInsertSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
         end;
 
-        VDataset.SQL.Text := VInsertSQL;
-        if VNeedTileBodyParam and (not VCastBodyAsHexLiteral) then begin
+        VInsertDataset.SQL.Text := VInsertSQL;
+        if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
-          VParam := VDataset.Params.FindParam('tile_body');
+          VParam := VInsertDataset.Params.FindParam(c_RTL_Tile_Body_Paramsrc);
           if (VParam<>nil) then begin
+            //VParam.ParamType := ptInput;
             VParam.SetBlobData(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
           end;
         end;
-        // исполн€ем INSERT (если нет VNeedTileBodyParam - то напр€мую без "подготовки")
-        VDataset.ExecSQL(VCastBodyAsHexLiteral or (not VNeedTileBodyParam));
+
+        // исполн€ем INSERT
+        //VInsertDataset.PrepareStatement;
+        VInsertDataset.ExecSQL(VExecDirect);
+        
         // готово (вставлено!)
         Result := ETS_RESULT_OK;
       except
@@ -1139,7 +1159,7 @@ begin
             end;
             // повтор€ем INSERT
             try
-              VDataset.ExecSQL(VCastBodyAsHexLiteral or (not VNeedTileBodyParam));
+              VInsertDataset.ExecSQL(VExecDirect);
               Result := ETS_RESULT_OK;
             except
               VNeedUpdate := TRUE;
@@ -1151,21 +1171,22 @@ begin
       if VNeedUpdate then begin
         // пробуем выполнить UPDATE
         if VCastBodyAsHexLiteral then begin
-          VUpdateSQL := StringReplace(VUpdateSQL, ':tile_body', VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
+          VUpdateSQL := StringReplace(VUpdateSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
         end;
         
-        VDataset.SQL.Text := VUpdateSQL;
-        if VNeedTileBodyParam and (not VCastBodyAsHexLiteral) then begin
+        VUpdateDataset.SQL.Text := VUpdateSQL;
+        if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
-          VParam := VDataset.Params.FindParam('tile_body');
+          VParam := VUpdateDataset.Params.FindParam(c_RTL_Tile_Body_Paramsrc);
           if (VParam<>nil) then begin
+            VParam.ParamType := ptInput;
             VParam.SetBlobData(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
           end;
         end;
         // исполн€ем UPDATE
         try
-          // (если нет VNeedTileBodyParam - то напр€мую без "подготовки")
-          VDataset.ExecSQL(VCastBodyAsHexLiteral or (not VNeedTileBodyParam));
+          // испускаем запрос
+          VUpdateDataset.ExecSQL(VExecDirect);
           // готово (обновлено!)
           Result := ETS_RESULT_OK;
         except
@@ -1174,7 +1195,10 @@ begin
         end;
       end;
     finally
-      FConnection.KillPoolDataset(VDataset);
+      // FConnection.KillPoolDataset(VInsertDataset);
+      FreeAndNil(VInsertDataset);
+      // FConnection.KillPoolDataset(VUpdateDataset);
+      FreeAndNil(VUpdateDataset);
     end;
   finally
     DoEndWork(VExclusive);
@@ -1808,7 +1832,7 @@ function TDBMS_Provider.GetSQL_InsertUpdateTile(
   const AForceTNE: Boolean;
   const AExclusively: Boolean;
   out AInsertSQLResult, AUpdateSQLResult: WideString;
-  out ANeedTileBodyParam: Boolean;
+  out AInsertUpdateSubType: TInsertUpdateSubType;
   out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString
 ): Byte;
 var
@@ -1915,23 +1939,23 @@ begin
     // маркер TNE - нет тела тайла (пол€ не указываем вообще)
     // ¬Ќ»ћјЌ»≈! здесь если был TILE и залетает TNE - будет tile_size=0, а тело тайла останетс€!
     // сделано как реализаци€ раздельного хранени€ тайла и маркера TNE с приоритетом TNE
-    // TODO: сделать хранимый признак на уровне сервиса
+    // TODO: учитывать хранимый признак (опцию)
     AUpdateSQLResult := ''; // ', tile_body=null';
     AInsertSQLResult := '';
     VNewTileBody := '';
-    ANeedTileBodyParam := FALSE;
+    AInsertUpdateSubType := iust_TNE;
   end else if VUseCommonTiles then begin
     // часто используемый тайл - сохраним ссылку на него
     AUpdateSQLResult := ', tile_body=null';
     AInsertSQLResult := ',tile_body';
     VNewTileBody := ',null';
-    ANeedTileBodyParam := FALSE;
+    AInsertUpdateSubType := iust_COMMON;
   end else begin
     // обычный тайл (не маркер TNE и не часто используемый)
-    AUpdateSQLResult := ', tile_body=:tile_body';
+    AUpdateSQLResult := ', tile_body=' + c_RTL_Tile_Body_Paramname;
     AInsertSQLResult := ',tile_body';
-    VNewTileBody := ',:tile_body';
-    ANeedTileBodyParam := TRUE;
+    VNewTileBody := ',' + c_RTL_Tile_Body_Paramname;
+    AInsertUpdateSubType := iust_TILE;
   end;
 
   // соберЄм выражение INSERT
@@ -2164,6 +2188,7 @@ function TDBMS_Provider.InternalCalcSQLTile(
 var
   VXYMaskWidth: Byte;
   VNeedToQuote: Boolean;
+  VEngineType: TEngineType;
 begin
   // сохран€ем зум (от 1 до 24)
   ASQLTile^.Zoom := AXYZ^.z;
@@ -2181,18 +2206,13 @@ begin
                                      '_' +
                                      InternalGetServiceNameByDB;
 
-  if c_SQL_ForceQuotedIdentifier[FConnection.GetCheckedEngineType] then begin
-    ASQLTile^.QuotedTileTableName := '"' + ASQLTile^.UnquotedTileTableName + '"';
+  VEngineType := FConnection.GetCheckedEngineType;
+
+  if VNeedToQuote or c_SQL_QuotedIdentifierForcedForTiles[VEngineType] then begin
+    ASQLTile^.QuotedTileTableName := c_SQL_QuotedIdentifierValue[VEngineType] + ASQLTile^.UnquotedTileTableName + c_SQL_QuotedIdentifierValue[VEngineType];
   end else begin
     ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
   end;
-  (*
-  if VNeedToQuote then begin
-    ASQLTile^.QuotedTileTableName := '"' + ASQLTile^.UnquotedTileTableName + '"';
-  end else begin
-    ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
-  end;
-  *)
 
   Result := ETS_RESULT_OK;
 end;
@@ -2589,7 +2609,9 @@ begin
       VDataset.OpenSQL(GetSQL_SelectContentTypes);
       if (not VDataset.IsEmpty) then begin
         // set capacity
-        FContentTypeList.SetCapacity(VDataset.RecordCount);
+        if (not VDataset.IsUniDirectional) then begin
+          FContentTypeList.SetCapacity(VDataset.RecordCount);
+        end;
         // enum
         VDataset.First;
         while (not VDataset.Eof) do begin
@@ -2622,7 +2644,9 @@ begin
       VDataset.OpenSQL(GetSQL_SelectVersions);
       if (not VDataset.IsEmpty) then begin
         // сразу установим размер по числу записей в датасете
-        FVersionList.SetCapacity(VDataset.RecordCount);
+        if (not VDataset.IsUniDirectional) then begin
+          FVersionList.SetCapacity(VDataset.RecordCount);
+        end;
         // перечисл€ем
         VDataset.First;
         while (not VDataset.Eof) do begin

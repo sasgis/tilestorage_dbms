@@ -20,7 +20,7 @@ create table Y_%SVC% (
    id_common_tile       smallint                       not null,
    id_common_type       smallint                       not null,
    common_size          int                            not null,
-   common_body          bytea                          null,
+   common_body          lo                             null,
    constraint PK_Y_%SVC% primary key (id_common_tile)
 )
 ;
@@ -34,19 +34,19 @@ common_size ASC
 
 
 
-create table %Z%%HX%%DIV%%HY%_%SVC% (
+create table "%Z%%HX%%DIV%%HY%_%SVC%" (
    x                    numeric                        not null,
    y                    numeric                        not null,
    id_ver               smallint                       not null,
    tile_size            int                            default 0 not null,
    id_contenttype       smallint                       not null,
    load_date            TIMESTAMP                      default CURRENT_TIMESTAMP not null,
-   tile_body            bytea                          null,
+   tile_body            lo                             null,
    constraint PK_%Z%%HX%%DIV%%HY%_%SVC% primary key (x, y, id_ver)
 )
 ;
 
-create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on %Z%%HX%%DIV%%HY%_%SVC% (
+create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on "%Z%%HX%%DIV%%HY%_%SVC%" (
 x ASC,
 y ASC,
 id_ver ASC,

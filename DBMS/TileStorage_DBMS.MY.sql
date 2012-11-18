@@ -1,7 +1,6 @@
 create table IF NOT EXISTS Z_ALL_SQL (
    object_name          varchar(64)                    not null,
-   object_oper          char(1)                        not null
-         constraint CKC_OBJECT_OPER_Z_ALL_SQL check (object_oper in ('C','S','I','U','D')),
+   object_oper          ENUM('C','S','I','U','D')      not null,
    index_sql            smallint                       not null,
    skip_sql             char(1)                        default '0' not null,
    ignore_errors        char(1)                        default '1' not null,
@@ -120,8 +119,7 @@ create table IF NOT EXISTS Z_SERVICE (
    id_contenttype       smallint                       not null,
    id_ver_comp          char(1)                        default '0' not null,
    id_div_mode          char(1)                        default 'I' not null,
-   work_mode            char(1)                        default '0' not null
-         constraint CKC_WORK_MODE_Z_SERVICE check (work_mode in ('0','S','R')),
+   work_mode            ENUM('0','S','R')              default '0' not null,
    use_common_tiles     char(1)                        default '0' not null,
    constraint PK_Z_SERVICE primary key (id_service)
 )

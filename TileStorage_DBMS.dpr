@@ -18,7 +18,8 @@ uses
   u_DBMS_Utils in 'u_DBMS_Utils.pas',
   t_DBMS_Template in 't_DBMS_Template.pas',
   u_DBMS_Template in 'u_DBMS_Template.pas',
-  t_SQL_types in 't_SQL_types.pas';
+  t_SQL_types in 't_SQL_types.pas',
+  t_DBMS_Connect in 't_DBMS_Connect.pas';
 
 {$R *.res}
 

@@ -34,7 +34,7 @@ common_size ASC
 
 
 
-create table %Z%%HX%%DIV%%HY%_%SVC% (
+create table `%Z%%HX%%DIV%%HY%_%SVC%` (
    x                    numeric                        not null,
    y                    numeric                        not null,
    id_ver               smallint                       not null,
@@ -46,7 +46,7 @@ create table %Z%%HX%%DIV%%HY%_%SVC% (
 )
 ;
 
-create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on %Z%%HX%%DIV%%HY%_%SVC% (
+create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on `%Z%%HX%%DIV%%HY%_%SVC%` (
 x ASC,
 y ASC,
 id_ver ASC,

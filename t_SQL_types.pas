@@ -129,36 +129,6 @@ const
   ''
   );
 
-  // prefix and suffix for identifiers
-  c_SQL_ForceQuotedIdentifier: array [TEngineType] of Boolean = (
-  FALSE,          // MSSQL
-  FALSE,          // ASE
-  FALSE,          // ASA
-  FALSE,          // Oracle
-  FALSE,          // Informix
-  FALSE,          // DB2
-  FALSE,          // MySQL
-  FALSE,          // PostgreSQL
-  FALSE,          // Mimer
-  TRUE,           // Firebird
-  FALSE
-  );
-
-  // cast blob into hex literal and do not use :param
-  c_SQL_CastBlobToHexLiteral: array [TEngineType] of Boolean = (
-  FALSE,          // MSSQL
-  FALSE,          // ASE
-  FALSE,          // ASA
-  FALSE,          // Oracle
-  FALSE,          // Informix
-  FALSE,          // DB2
-  FALSE,          // MySQL
-  FALSE,          // PostgreSQL
-  FALSE,          // Mimer
-  TRUE,           // Firebird
-  FALSE
-  );
-
   // type to store BigInt (8 bytes with sign) from -9223372036854775808 to 9223372036854775807
   c_SQL_INT8_FieldName: array [TEngineType] of String = (
   'BIGINT', // MSSQL
@@ -307,6 +277,19 @@ Select first 10 * from systables
 select skip 10 limit 10 * systables;
 
 MySQL:
+
+DBXCommon.TDBXContext.Error(
+  ???,
+  'Cannot load LIBMYSQL.dll library (error code 126).  The LIBMYSQL.dll library may be missing from the system path'
+)
+
+исключение внутри function TDBXDynalinkCommand.DerivedExecuteQuery: TDBXReader;
+на строке CheckResult(FMethodTable.FDBXCommand_Execute(FCommandHandle, ReaderHandle));
+Access violation at address 0B85E258 in module 'dbxmys30.dll'.
+Read of address 00000000
+
+
+
 select version() from DUAL - works ('5.5.28-MariaDB')
 select * from DUAL - failes (SQL Error (1096): No tables used)
 select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - works
@@ -349,6 +332,54 @@ const
   c_RTL_Interbase = 'Interbase'; // for Firebird
   c_RTL_Trusted_Connection = 'Trusted_Connection';
   c_RTL_Numeric = 'numeric';
+
+  //c_RTL_Tile_Body_Paramsrc = '$1'; // PostgreSQL failed
+  c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL
+  c_RTL_Tile_Body_Paramname = ':' + c_RTL_Tile_Body_Paramsrc;
+
+  // prefix and suffix for identifiers for tiles
+  c_SQL_QuotedIdentifierForcedForTiles: array [TEngineType] of Boolean = (
+    FALSE,  // MSSQL
+    FALSE,  // ASE
+    FALSE,  // ASA
+    FALSE,  // Oracle
+    FALSE,  // Informix
+    FALSE,  // DB2
+    TRUE,   // MySQL
+    TRUE,   // PostgreSQL // OK with TRUE
+    FALSE,  // Mimer // OK with FALSE
+    TRUE,   // Firebird
+    FALSE
+  );
+
+  c_SQL_QuotedIdentifierValue: array [TEngineType] of Char = (
+    '"',  // MSSQL
+    '"',  // ASE
+    '"',  // ASA
+    '"',  // Oracle
+    '"',  // Informix
+    '"',  // DB2
+    '`',  // MySQL
+    '"',  // PostgreSQL // OK with '"'
+    '"',  // Mimer // OK with '"'
+    '"',  // Firebird
+    '"'
+  );
+
+  // cast blob into hex literal and do not use :param (for dbExpress)
+  c_DBX_CastBlobToHexLiteral: array [TEngineType] of Boolean = (
+  FALSE,          // MSSQL
+  FALSE,          // ASE
+  FALSE,          // ASA
+  FALSE,          // Oracle
+  FALSE,          // Informix
+  FALSE,          // DB2
+  FALSE,          // MySQL
+  FALSE,          // PostgreSQL
+  FALSE,          // Mimer
+  TRUE,           // Firebird // DBXCommon.TDBXContext.Error(???,'Incorrect values within SQLDA structure')
+  FALSE
+  );
 
 function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
 
@@ -442,25 +473,65 @@ begin
 end;
 
 function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): WideString;
+const
+  c_max_len = 32760;
 var
-  i: Integer;
-  p: PByte;
+  VCurPos: PByte;
+
+  function _CopyUpToBytes(ABytesToCopy: LongInt): WideString;
+  begin
+    Result := '';
+    while (ABytesToCopy>0) do begin
+      Result := Result + IntToHex(VCurPos^,2);
+      Inc(VCurPos);
+      Dec(ABytesToCopy);
+    end;
+  end;
+
+  function _MakeCast(const ASrc: WideString): WideString;
+  begin
+    Result := 'CAST(x''' + ASrc + ''' as BLOB)';
+  end;
+
+  procedure _AppendPart(var ATotal: WideString; const ASrc: WideString);
+  begin
+    if (0<Length(ATotal)) then begin
+      ATotal := ATotal + ' || ';
+    end;
+    ATotal := ATotal + ASrc;
+  end;
+
+var
+  VBytesToCopy: LongInt;
 begin
   // FB при работе через параметры возвращает ошибку
   // DBXCommon.TDBXContext.Error(???,'Incorrect values within SQLDA structure')
   // так что пишем BLOB через строковый литерал
+  // но всё равно если длина больше чем примерно 32765 - всё равно FB обламывается
   if (ASize<=0) then begin
+    // пусто
     Result := 'NULL';
+  end else if (ASize<=c_max_len) then begin
+    // один литерал
+    VCurPos := ABuffer;
+    VBytesToCopy := ASize;
+    Result := _MakeCast(_CopyUpToBytes(VBytesToCopy));
   end else begin
+    // кучка литералов, так как блоб слишком длинный
+    VCurPos := ABuffer;
+    VBytesToCopy := ASize;
     Result := '';
-    p := ABuffer;
-    for i := 0 to ASize-1 do begin
-      Result := Result + IntToHex(p^,2);
-      Inc(p);
+
+    // пока длинные - откусываем по максимуму
+    while (VBytesToCopy>=c_max_len) do begin
+      _AppendPart(Result, _MakeCast(_CopyUpToBytes(c_max_len)));
+      VBytesToCopy := VBytesToCopy - c_max_len;
     end;
-    Result := 'CAST(x''' + Result + ''' as BLOB sub_type binary)';
-    if;
-    // если длина больше чем 32767 - всё равно FB обламывается
+
+    // пропихнём остаток
+    if (VBytesToCopy>0) then begin
+      _AppendPart(Result, _MakeCast(_CopyUpToBytes(VBytesToCopy)));
+    end;
   end;
 end;
 

@@ -15,6 +15,13 @@ const
   // расширение для файла результата
   c_SQL_Ext_Out  = '.out';
 
+  // список настроеных серверов
+  c_SQL_Ext_Ini = '.ini';
+  // префиксы ini-шек для разделения настроек по типам используемых транспортов для подключения
+  c_SQL_DBX_Prefix_Ini = '_DBX_';
+  c_SQL_ZEOS_Prefix_Ini = '_ZEOS_';
+  c_SQL_SQLDB_Prefix_Ini = '_SQLDB_';
+
   // базовые таблицы
 
   Z_ALL_SQL     = 'Z_ALL_SQL';
@@ -65,6 +72,16 @@ type
     SelectSQL, FromSQL, WhereSQL, OrderBySQL: WideString;
   end;
   PSQLParts = ^TSQLParts;
+
+  // типы запросов INSERT и UPDATE с разными текстами
+  TInsertUpdateSubType = (
+    // вставка или обновление TNE - нет tile_body и common tiles
+    iust_TNE,
+    // вставка или обновление TILE - есть tile_body, но нет common tiles
+    iust_TILE,
+    // вставка или обновление COMMON TILE - нет tile_body, но есть common tiles
+    iust_COMMON
+  );
 
   TSQLTile = record
     // зум (от 1 до 24)

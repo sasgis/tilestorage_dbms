@@ -1,3 +1,27 @@
+CREATE FUNCTION lo_in(cstring)
+   RETURNS lo
+   AS 'int4in'
+   LANGUAGE 'internal' WITH (ISCACHABLE, ISSTRICT)
+;
+
+CREATE FUNCTION lo_out(lo)
+   RETURNS cstring
+   AS 'int4out'
+   LANGUAGE 'internal' WITH (ISCACHABLE, ISSTRICT)
+;
+
+CREATE TYPE lo (
+   internallength = 4,
+   externallength=10,
+   input = lo_in,
+   output = lo_out,
+   alignment = int4,
+   default = '',
+   passedbyvalue
+)
+;
+
+
 create view DUAL as select version() as ENGINE_VERSION
 ;
 

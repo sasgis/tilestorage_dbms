@@ -4,15 +4,18 @@ interface
 
 uses
   SysUtils,
+  Windows,
   Classes,
   t_SQL_types,
   t_DBMS_Template,
+  t_DBMS_Connect,
 {$if defined(ETS_USE_ZEOS)}
 
 {$else}
   DB,
   DBXCommon,
   DBXDynaLink,
+  //DBX34Drv,
   SQLExpr,
 {$ifend}
   t_ETS_Path,
@@ -36,6 +39,7 @@ type
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
+    function MakeNonPooledDataset: TDBMS_Dataset;
     function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
     // тип сервера БД
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
@@ -52,7 +56,10 @@ type
     FSQLConnection: TSQLConnection;
     FEngineType: TEngineType;
     FODBCDescription: WideString;
+    // внутренние параметры из ini
     FInternalParams: TStringList;
+    // если будет более одной DLL - переделать на TStringList
+    FInternalLoadLibrary: THandle;
   private
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     function ApplyAuthenticationInfo: Byte;
@@ -68,6 +75,7 @@ type
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
+    function MakeNonPooledDataset: TDBMS_Dataset;
     function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
     function GetCheckedEngineType: TEngineType;
@@ -237,7 +245,7 @@ begin
 
   // здесь нет добавок в имя файла, потому что настройки определяются ДО подключения к СУБД
   // для визуального отличия от остальных файлов добавляем подчёркивание в начало имени
-  VFilename := GetModuleFileNameWithoutExt(TRUE, TRUE, '')+'.ini';
+  VFilename := GetModuleFileNameWithoutExt(TRUE, c_SQL_DBX_Prefix_Ini, '')+c_SQL_Ext_Ini;
   if FileExists(VFilename) then begin
     VIni:=TIniFile.Create(VFilename);
     try
@@ -275,6 +283,25 @@ end;
 
 procedure TDBMS_Connection.SaveInternalParameter(const AParamName, AParamValue: String);
 begin
+  // если запрошенная DLL загрузится - не будет её добавлять в список внутренних параметров
+  if SameText(ETS_INTERNAL_LOAD_LIBRARY, AParamName) and (FInternalLoadLibrary=0) and (0<Length(AParamValue)) then begin
+    FInternalLoadLibrary := LoadLibrary(PChar(AParamValue));
+    if (FInternalLoadLibrary<>0) then
+      Exit;
+  end;
+
+  // если это параметры для свойств драйвера DBX - сразу и пропихнём их
+  if SameText(ETS_INTERNAL_DBX_LibraryName, AParamName) then begin
+    FSQLConnection.LibraryName := AParamValue;
+    Exit;
+  end else if SameText(ETS_INTERNAL_DBX_GetDriverFunc, AParamName) then begin
+    FSQLConnection.GetDriverFunc := AParamValue;
+    Exit;
+  end else if SameText(ETS_INTERNAL_DBX_VendorLib, AParamName) then begin
+    FSQLConnection.VendorLib := AParamValue;
+    Exit;
+  end;
+
   if (nil=FInternalParams) then
     FInternalParams := TStringList.Create;
   // просто складываем параметры в список
@@ -292,7 +319,6 @@ begin
   // set drivername and clear all params
   FSQLConnection.ConnectionName := '';
   FSQLConnection.DriverName := c_ODBC_DriverName;
-  // FSQLConnection.Params.Clear;
   FSQLConnection.LibraryName := c_SQL_SubFolder + c_ODBC_LibraryName;
   FSQLConnection.GetDriverFunc := c_ODBC_GetDriverFunc;
   FSQLConnection.VendorLib := c_ODBC_VendorLib;
@@ -347,7 +373,7 @@ begin
     if (not VUseODBC) then
     if (not WideSameText(VNewValue, VOldValue)) then begin
       // set new DriverName
-      FSQLConnection.LoadParamsOnConnect := FALSE;
+      FSQLConnection.LoadParamsOnConnect := (AParams.Values[ETS_INTERNAL_LOAD_PARAMS_ON_CONNECT]='1');
       FSQLConnection.DriverName := VNewValue;
       FSQLConnection.ConnectionName := VNewValue + c_RTL_Connection;
       // default params
@@ -387,21 +413,29 @@ begin
   if (AParams.Count>0) then
   for i := 0 to AParams.Count-1 do begin
     VCurItem := AParams.Names[i];
-    VNewValue := AParams.ValueFromIndex[i];
-    // current value
-    VOldValue := FSQLConnection.Params.Values[VCurItem];
-    // compare
-    if (not WideSameText(VOldValue, VNewValue)) then begin
-      // set new value
-      FSQLConnection.Params.Values[VCurItem] := VNewValue;
+    if SameText(Copy(VCurItem,1,Length(ETS_INTERNAL_PARAMS_PREFIX)),ETS_INTERNAL_PARAMS_PREFIX) then begin
+      // исключительно внутренний параметр
+      SaveInternalParameter(VCurItem, AParams.ValueFromIndex[i]);
+    end else begin
+      // пропихиваем в БД
+      VNewValue := AParams.ValueFromIndex[i];
+      // current value
+      VOldValue := FSQLConnection.Params.Values[VCurItem];
+      // compare
+      if (not WideSameText(VOldValue, VNewValue)) then begin
+        // set new value
+        FSQLConnection.Params.Values[VCurItem] := VNewValue;
+      end;
     end;
   end;
 
-  // set connection name
-  VCurItem := FSQLConnection.DriverName + c_RTL_Connection + Format('%p',[Pointer(FSQLConnection)]);
-  if (not SameText(FSQLConnection.ConnectionName,VCurItem)) then begin
-    // set or replace
-    FSQLConnection.ConnectionName := VCurItem;
+  // set connection name (skip if set params on connect!)
+  if (not FSQLConnection.LoadParamsOnConnect) then begin
+    VCurItem := FSQLConnection.DriverName + c_RTL_Connection + Format('%p',[Pointer(FSQLConnection)]);
+    if (not SameText(FSQLConnection.ConnectionName,VCurItem)) then begin
+      // set or replace
+      FSQLConnection.ConnectionName := VCurItem;
+    end;
   end;
 
   Result := ETS_RESULT_OK;
@@ -438,6 +472,7 @@ begin
   inherited Create;
   FSyncPool := MakeSync_Tiny(Self);
   FSQLConnection := TSQLConnection.Create(nil);
+  FInternalLoadLibrary := 0;
   FInternalParams := nil;
 end;
 
@@ -450,6 +485,11 @@ begin
   FreeAndNil(FSQLConnection);
 
   FreeAndNil(FInternalParams);
+
+  if (FInternalLoadLibrary<>0) then begin
+    FreeLibrary(FInternalLoadLibrary);
+    FInternalLoadLibrary:=0;
+  end;
 
   FSyncPool := nil;
 
@@ -675,6 +715,12 @@ begin
   end;
 end;
 
+function TDBMS_Connection.MakeNonPooledDataset: TDBMS_Dataset;
+begin
+  Result := TDBMS_Dataset.Create(nil);
+  Result.SQLConnection := FSQLConnection;
+end;
+
 function TDBMS_Connection.MakePoolDataset: TDBMS_Dataset;
 var
   i: Integer;
@@ -843,6 +889,7 @@ procedure TDBMS_Dataset.OpenSQL(const ASQLText: WideString);
 begin
   if Active then
     Close;
+  // Params.Clear;
   Self.CommandText := ASQLText;
   Self.Open;
 end;
