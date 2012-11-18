@@ -2,6 +2,8 @@ unit u_DBMS_Connect;
 
 interface
 
+{$include i_DBMS.inc}
+
 uses
   SysUtils,
   Windows,
@@ -10,7 +12,8 @@ uses
   t_DBMS_Template,
   t_DBMS_Connect,
 {$if defined(ETS_USE_ZEOS)}
-
+  ZConnection,
+  ZDataset,
 {$else}
   DB,
   DBXCommon,
@@ -22,7 +25,9 @@ uses
 
 type
   // base dataset
-  TDBMS_Dataset = class(TSQLQuery)
+  TDBMS_Dataset = class(
+    TSQLQuery
+  )
   public
     // set SQL text and open it
     procedure OpenSQL(const ASQLText: WideString);

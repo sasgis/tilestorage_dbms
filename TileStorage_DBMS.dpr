@@ -1,5 +1,7 @@
 library TileStorage_DBMS;
 
+{$include i_DBMS.inc}
+
 uses
   SysUtils,
   Classes,
@@ -9,9 +11,13 @@ uses
   u_DBMS_Provider in 'u_DBMS_Provider.pas',
   u_DBMS_Connect in 'u_DBMS_Connect.pas',
   u_ODBC_DSN in 'u_ODBC_DSN.pas',
+{$if defined(ETS_USE_ZEOS)}
+
+{$else}
   OdbcApi in 'dbxoodbc\OdbcApi.pas',
   DbxOpenOdbcTypes in 'dbxoodbc\DbxOpenOdbcTypes.pas',
   DbxOpenOdbcFuncs in 'dbxoodbc\DbxOpenOdbcFuncs.pas',
+{$ifend}
   t_DBMS_version in 't_DBMS_version.pas',
   t_DBMS_contenttype in 't_DBMS_contenttype.pas',
   t_DBMS_service in 't_DBMS_service.pas',
