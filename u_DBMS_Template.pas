@@ -5,7 +5,6 @@ interface
 uses
   SysUtils,
   Classes,
-  SqlExpr,
   t_ETS_Tiles,
   t_DBMS_Template,
   u_DBMS_Connect;
@@ -32,13 +31,13 @@ type
 
     procedure ExecuteAuxSQL(
       const AErrors: TStrings;
-      const ADataset: TSQLQuery;
+      const ADataset: TDBMS_Dataset;
       const ATemplatedTableName: String
     );
 
     procedure ExecSQLFromStrings(
       const ASrcLines: TStrings;
-      const ADataset: TSQLQuery;
+      const ADataset: TDBMS_Dataset;
       const AErrors: TStrings;
       const AInsertIntoTableForTemplated: String
     );
@@ -52,7 +51,7 @@ type
     destructor Destroy; override;
     
     // выполнение всех имеющихся команд SQL из скрипта
-    function ExecuteAllSQLs(const ADataset: TSQLQuery): Byte;
+    function ExecuteAllSQLs(const ADataset: TDBMS_Dataset): Byte;
   end;
 
 implementation
@@ -112,7 +111,7 @@ end;
 
 procedure TDBMS_SQLTemplates_File.ExecSQLFromStrings(
   const ASrcLines: TStrings;
-  const ADataset: TSQLQuery;
+  const ADataset: TDBMS_Dataset;
   const AErrors: TStrings;
   const AInsertIntoTableForTemplated: String
 );
@@ -177,7 +176,7 @@ begin
   end;
 end;
 
-function TDBMS_SQLTemplates_File.ExecuteAllSQLs(const ADataset: TSQLQuery): Byte;
+function TDBMS_SQLTemplates_File.ExecuteAllSQLs(const ADataset: TDBMS_Dataset): Byte;
 var
   VErrors: TStrings;
 begin
@@ -205,7 +204,7 @@ end;
 
 procedure TDBMS_SQLTemplates_File.ExecuteAuxSQL(
   const AErrors: TStrings;
-  const ADataset: TSQLQuery;
+  const ADataset: TDBMS_Dataset;
   const ATemplatedTableName: String
 );
 var

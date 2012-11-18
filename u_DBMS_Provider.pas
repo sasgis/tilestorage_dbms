@@ -7,8 +7,6 @@ uses
   Windows,
   SysUtils,
   Classes,
-  DB,
-  WideStrings,
   t_SQL_types,
   t_ETS_Tiles,
   t_ETS_Path,
@@ -609,7 +607,6 @@ function TDBMS_Provider.CreateTableByTemplate(
 ): Byte;
 var
   VDataset, VExecSQL: TDBMS_Dataset;
-  VSqlTextField: TField;
   VSQLText: WideString;
   //VSQLAnsi: AnsiString;
   Vignore_errors: AnsiChar;
@@ -654,33 +651,9 @@ begin
     while (not VDataset.Eof) do begin
       // тащим текст SQL для исполнения в порядке очерёдности
       Vignore_errors := VDataset.GetAnsiCharFlag('ignore_errors', ETS_UCT_YES);
-      VSqlTextField := VDataset.FieldByName('object_sql');
-      if (not VSqlTextField.IsNull) then
+      // если есть текст
+      if VDataset.ClobAsWideString('object_sql', VSQLText) then
       try
-        (*
-        if VSqlTextField.IsBlob then begin
-          // CLOB
-          VMemStream:=TMemoryStream.Create;
-          try
-            (VSqlTextField as TBlobField).SaveToStream(VMemStream);
-            if (VMemStream.Size=(VSqlTextField as TBlobField).BlobSize) then begin
-              SetString(VSQLAnsi, PAnsiChar(VMemStream.Memory), VMemStream.Size);
-              VSQLText := VSQLAnsi;
-            end else begin
-              SetString(VSQLText, PWideChar(VMemStream.Memory), VMemStream.Size);
-            end;
-          finally
-            FreeAndNil(VMemStream);
-          end;
-        end else begin
-          // varchar
-          VSQLText := VSqlTextField.AsWideString;
-        end;
-        *)
-
-        // работает и по-тупому
-        VSQLText := VSqlTextField.AsWideString;
-
         // а тут надо подменить имя таблицы
         VSQLText := StringReplace(VSQLText, ATemplateName, AUnquotedTableNameWithoutPrefix, [rfReplaceAll,rfIgnoreCase]);
 
@@ -1053,7 +1026,6 @@ var
   VInsertSQL, VUpdateSQL: WideString;
   VUnquotedTableNameWithoutPrefix: WideString;
   VQuotedTableNameWithPrefix: WideString;
-  VParam: TParam;
   VNeedUpdate: Boolean;
   VInsertUpdateSubType: TInsertUpdateSubType;
   VCastBodyAsHexLiteral: Boolean;
@@ -1119,11 +1091,11 @@ begin
         VInsertDataset.SQL.Text := VInsertSQL;
         if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
-          VParam := VInsertDataset.Params.FindParam(c_RTL_Tile_Body_Paramsrc);
-          if (VParam<>nil) then begin
-            //VParam.ParamType := ptInput;
-            VParam.SetBlobData(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
-          end;
+          VInsertDataset.SetParamBlobData(
+            c_RTL_Tile_Body_Paramsrc,
+            AInsertBuffer^.ptTileBuffer,
+            AInsertBuffer^.dwTileSize
+          );
         end;
 
         // исполняем INSERT
@@ -1177,11 +1149,11 @@ begin
         VUpdateDataset.SQL.Text := VUpdateSQL;
         if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
-          VParam := VUpdateDataset.Params.FindParam(c_RTL_Tile_Body_Paramsrc);
-          if (VParam<>nil) then begin
-            VParam.ParamType := ptInput;
-            VParam.SetBlobData(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
-          end;
+          VUpdateDataset.SetParamBlobData(
+            c_RTL_Tile_Body_Paramsrc,
+            AInsertBuffer^.ptTileBuffer,
+            AInsertBuffer^.dwTileSize
+          );
         end;
         // исполняем UPDATE
         try
@@ -1264,7 +1236,7 @@ begin
           // tile
           VOut.dwOptionsOut := VOut.dwOptionsOut or ETS_ROO_TILE_EXISTS;
           // get body
-          VStream := VDataset.CreateBlobStream(VDataset.FieldByName('tile_body'), bmRead);
+          VStream := VDataset.CreateFieldBlobReadStream('tile_body');
           VOut.ptTileBuffer := (VStream as TCustomMemoryStream).Memory;
         end;
 
@@ -1298,9 +1270,8 @@ begin
           @VOut
         );
       end;
-
     finally
-      VStream.Free;
+      FreeAndNil(VStream);
       FConnection.KillPoolDataset(VDataset);
     end;
   finally

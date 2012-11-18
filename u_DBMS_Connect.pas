@@ -15,7 +15,6 @@ uses
   DB,
   DBXCommon,
   DBXDynaLink,
-  //DBX34Drv,
   SQLExpr,
 {$ifend}
   t_ETS_Path,
@@ -23,15 +22,32 @@ uses
 
 type
   // base dataset
-  TDBMS_Dataset = class(TSQLQuery) // TSQLQuery  // TSQLDataSet
+  TDBMS_Dataset = class(TSQLQuery)
   public
     // set SQL text and open it
     procedure OpenSQL(const ASQLText: WideString);
+
     // get value as ansichar
     function GetAnsiCharFlag(
       const AFieldName: WideString;
       const ADefaultValue: AnsiChar
     ): AnsiChar;
+
+    // get CLOB value, returns (NOT NULL)
+    function ClobAsWideString(
+      const AFieldName: WideString;
+      out AResult: WideString
+    ): Boolean;
+
+    // set BLOB buffer to param (if exists)
+    procedure SetParamBlobData(
+      const AParamName: WideString;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt
+    );
+
+    // reads BLOB from field via stream
+    function CreateFieldBlobReadStream(const AFieldName: WideString): TStream;
   end;
 
   IDBMS_Connection = interface
@@ -869,6 +885,25 @@ end;
 
 { TDBMS_Dataset }
 
+function TDBMS_Dataset.ClobAsWideString(
+  const AFieldName: WideString;
+  out AResult: WideString
+): Boolean;
+var
+  VSqlTextField: TField;
+begin
+  VSqlTextField := Self.FieldByName(AFieldName);
+  Result := (not VSqlTextField.IsNull);
+  if Result then begin
+    AResult := VSqlTextField.AsWideString;
+  end;
+end;
+
+function TDBMS_Dataset.CreateFieldBlobReadStream(const AFieldName: WideString): TStream;
+begin
+  Result := Self.CreateBlobStream(Self.FieldByName(AFieldName), bmRead);
+end;
+
 function TDBMS_Dataset.GetAnsiCharFlag(
   const AFieldName: WideString;
   const ADefaultValue: AnsiChar
@@ -906,9 +941,25 @@ procedure TDBMS_Dataset.OpenSQL(const ASQLText: WideString);
 begin
   if Active then
     Close;
-  // Params.Clear;
   Self.CommandText := ASQLText;
   Self.Open;
+end;
+
+procedure TDBMS_Dataset.SetParamBlobData(
+  const AParamName: WideString;
+  const ABufferAddr: Pointer;
+  const ABufferSize: Integer
+);
+var
+  VParam: TParam;
+begin
+  VParam := Self.Params.FindParam(AParamName);
+  if (VParam<>nil) then begin
+    if (ABufferSize>0) then
+      VParam.SetBlobData(ABufferAddr, ABufferSize)
+    else
+      VParam.Clear;
+  end;
 end;
 
 initialization
