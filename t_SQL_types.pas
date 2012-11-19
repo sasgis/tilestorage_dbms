@@ -299,6 +299,11 @@ Select first 10 * from systables
 Ñ IDS10.00.xC3
 select skip 10 limit 10 * systables;
 
+
+MSSQL via ZEOS (dblib):
+'None of the dynamic libraries can be found: ntwdblib.dll'
+['{408A0899-6692-4F6F-9649-80FC4EA668AC}']
+
 MySQL:
 
 BLOB DATA TYPE:

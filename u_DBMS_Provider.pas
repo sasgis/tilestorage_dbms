@@ -817,7 +817,12 @@ begin
       try
         VDataset.OpenSQL(VSQLText);
       except
-        // failed to select - no table - no versions
+        on E: Exception do begin
+          // проверка разрыва соединения
+          Result := DBMS_HandleGlobalException(E);
+          if FReconnectPending then
+            Exit;
+        end;
       end;
 
       // get values
@@ -829,7 +834,11 @@ begin
         Result := ETS_RESULT_OK;
       end else begin
         // enum all items
-        VEnumOut.ResponseCount := VDataset.RecordCount;
+        if (not VDataset.IsUniDirectional) then begin
+          VEnumOut.ResponseCount := VDataset.RecordCount;
+        end else begin
+          VEnumOut.ResponseCount := -1; // unknown count
+        end;
         VDataset.First;
         while (not VDataset.Eof) do begin
           // find selected version
@@ -958,7 +967,11 @@ begin
         Result := ETS_RESULT_OK;
       end else begin
         // enum all items
-        VEnumOut.ResponseCount := VDataset.RecordCount;
+        if (not VDataset.IsUniDirectional) then begin
+          VEnumOut.ResponseCount := VDataset.RecordCount;
+        end else begin
+          VEnumOut.ResponseCount := -1; // unknown count
+        end;
         VDataset.First;
         while (not VDataset.Eof) do begin
           // find selected version
