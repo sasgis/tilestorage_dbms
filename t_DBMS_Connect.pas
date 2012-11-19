@@ -8,6 +8,12 @@ const
   // префикс для внутренних параметров, которые не пролетают в драйвер подключения к БД
   ETS_INTERNAL_PARAMS_PREFIX   = '$';
 
+  // синхронный режим выполнения всех запросов (включать только в случае ошибок)
+  ETS_INTERNAL_SYNC_SQL_MODE   = ETS_INTERNAL_PARAMS_PREFIX + 'SYNC_SQL_MODE';
+  // если 0 - нет дополнительной синхронизации
+  // если 1 - синхронизируются запросы полностью
+  // если 2 - только внутри OpenSQL и ExecSQL
+
   // схема для всех таблиц
   ETS_INTERNAL_SCHEMA          = ETS_INTERNAL_PARAMS_PREFIX + 'SCHEMA';
 

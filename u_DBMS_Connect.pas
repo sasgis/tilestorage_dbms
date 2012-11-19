@@ -25,6 +25,24 @@ uses
   t_ETS_Tiles;
 
 type
+  TDBMS_Custom_Connection = class(
+{$if defined(ETS_USE_ZEOS)}
+    TZConnection
+{$else}
+    TSQLConnection
+{$ifend}
+  )
+  protected
+    FETS_INTERNAL_SYNC_SQL_MODE: Integer;
+    FSYNC_SQL_MODE_CS: TRTLCriticalSection;
+  protected
+    procedure BeforeSQL(out ALocked: Boolean);
+    procedure AfterSQL(const ALocked: Boolean);
+  public
+    constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
+  end;
+
   // base dataset
   TDBMS_Dataset = class(
 {$if defined(ETS_USE_ZEOS)}
@@ -33,6 +51,10 @@ type
     TSQLQuery
 {$ifend}
   )
+  private
+{$if defined(ETS_USE_ZEOS)}
+    FUsePingServer: Boolean;
+{$ifend}
   public
     // set SQL text and open it
     procedure OpenSQL(const ASQLText: TDBMS_String);
@@ -60,15 +82,10 @@ type
     function CreateFieldBlobReadStream(const AFieldName: WideString): TStream;
 
     // reassign both modes
-    procedure ExecSQLDirect; inline;
-    procedure ExecSQLParsed; inline;
-    procedure ExecSQLSpecified(const ADirectExec: Boolean); inline;
+    procedure ExecSQLDirect;
+    procedure ExecSQLParsed;
+    procedure ExecSQLSpecified(const ADirectExec: Boolean);
   end;
-
-{$if defined(ETS_USE_ZEOS)}
-  TSQLConnection = class(TZConnection)
-  end;
-{$ifend}
 
   IDBMS_Connection = interface
   ['{D5809427-36C7-49D7-83ED-72C567BD6E08}']
@@ -83,17 +100,19 @@ type
     // внутренние параметры
     function GetInternalParameter(const AInternalParameterName: String): String;
     function ForcedSchemaPrefix: String;
+    function FullSyncronizeSQL: Boolean;
   end;
 
   TDBMS_Connection = class(TInterfacedObject, IDBMS_Connection)
   private
     FSyncPool: IReadWriteSync;
     FPath: TETS_Path_Divided_W;
-    FSQLConnection: TSQLConnection;
+    FSQLConnection: TDBMS_Custom_Connection;
     FEngineType: TEngineType;
     FODBCDescription: WideString;
     // внутренние параметры из ini
     FInternalParams: TStringList;
+    FETS_INTERNAL_SCHEMA: String;
     // если будет более одной DLL - переделать на TStringList
     FInternalLoadLibrary: THandle;
   protected
@@ -116,6 +135,7 @@ type
     function GetCheckedEngineType: TEngineType;
     function GetInternalParameter(const AInternalParameterName: String): String;
     function ForcedSchemaPrefix: String;
+    function FullSyncronizeSQL: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -333,6 +353,17 @@ begin
     FInternalLoadLibrary := LoadLibrary(PChar(AParamValue));
     if (FInternalLoadLibrary<>0) then
       Exit;
+  end else if SameText(ETS_INTERNAL_SCHEMA, AParamName) then begin
+    // для более быстрого доступа
+    FETS_INTERNAL_SCHEMA := AParamValue;
+    if (0<Length(FETS_INTERNAL_SCHEMA)) then begin
+      FETS_INTERNAL_SCHEMA := FETS_INTERNAL_SCHEMA + '.';
+    end;
+    Exit;
+  end else if SameText(ETS_INTERNAL_SYNC_SQL_MODE, AParamName) then begin
+    // для более быстрого доступа
+    FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE := StrToIntDef(AParamValue, 0);
+    Exit;
   end;
 
 {$if defined(ETS_USE_ZEOS)}
@@ -570,9 +601,10 @@ begin
   FODBCDescription := '';
   inherited Create;
   FSyncPool := MakeSync_Tiny(Self);
-  FSQLConnection := TSQLConnection.Create(nil);
+  FSQLConnection := TDBMS_Custom_Connection.Create(nil);
   FInternalLoadLibrary := 0;
   FInternalParams := nil;
+  FETS_INTERNAL_SCHEMA := '';
 end;
 
 destructor TDBMS_Connection.Destroy;
@@ -658,10 +690,13 @@ end;
 
 function TDBMS_Connection.ForcedSchemaPrefix: String;
 begin
-  Result := GetInternalParameter(ETS_INTERNAL_SCHEMA);
-  if (0<Length(Result)) then begin
-    Result := Result + '.';
-  end;
+  Result := FETS_INTERNAL_SCHEMA;
+end;
+
+function TDBMS_Connection.FullSyncronizeSQL: Boolean;
+begin
+  // если 1 - синхронизируются запросы полностью
+  Result := (FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE=1) or (not FSQLConnection.Connected);
 end;
 
 function TDBMS_Connection.GetInternalParameter(const AInternalParameterName: String): String;
@@ -866,6 +901,7 @@ begin
   Result := TDBMS_Dataset.Create(nil);
 {$if defined(ETS_USE_ZEOS)}
   Result.Connection := FSQLConnection;
+  Result.FUsePingServer := c_ZEOS_Use_PingServer[GetCheckedEngineType];
 {$else}
   Result.SQLConnection := FSQLConnection;
 {$ifend}
@@ -899,6 +935,7 @@ begin
     TDBMS_Pooled_Dataset(Result).FUsedInPool := TRUE;
 {$if defined(ETS_USE_ZEOS)}
     Result.Connection := FSQLConnection;
+    Result.FUsePingServer := c_ZEOS_Use_PingServer[GetCheckedEngineType];
 {$else}
     Result.SQLConnection := FSQLConnection;
 {$ifend}
@@ -1026,30 +1063,57 @@ begin
 end;
 
 procedure TDBMS_Dataset.ExecSQLDirect;
+var VLocked: Boolean;
 begin
+  TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
+  try
 {$if defined(ETS_USE_ZEOS)}
-  ExecSQL;
+    if FUsePingServer then begin
+      Connection.PingServer;
+    end;
+    ExecSQL;
 {$else}
-  ExecSQL(TRUE);
+    ExecSQL(TRUE);
 {$ifend}
+  finally
+    TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
+  end;
 end;
 
 procedure TDBMS_Dataset.ExecSQLParsed;
+var VLocked: Boolean;
 begin
+  TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
+  try
 {$if defined(ETS_USE_ZEOS)}
-  ExecSQL;
+    if FUsePingServer then begin
+      Connection.PingServer;
+    end;
+    ExecSQL;
 {$else}
-  ExecSQL(FALSE);
+    ExecSQL(FALSE);
 {$ifend}
+  finally
+    TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
+  end;
 end;
 
 procedure TDBMS_Dataset.ExecSQLSpecified(const ADirectExec: Boolean);
+var VLocked: Boolean;
 begin
+  TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
+  try
 {$if defined(ETS_USE_ZEOS)}
-  ExecSQL;
+    if FUsePingServer then begin
+      Connection.PingServer;
+    end;
+    ExecSQL;
 {$else}
-  ExecSQL(ADirectExec);
+    ExecSQL(ADirectExec);
 {$ifend}
+  finally
+    TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
+  end;
 end;
 
 function TDBMS_Dataset.GetAnsiCharFlag(
@@ -1086,15 +1150,34 @@ begin
 end;
 
 procedure TDBMS_Dataset.OpenSQL(const ASQLText: TDBMS_String);
+var VLocked: Boolean;
 begin
   if Active then
     Close;
+
 {$if defined(ETS_USE_ZEOS)}
   Self.SQL.Text := ASQLText;
 {$else}
   Self.CommandText := ASQLText;
 {$ifend}
-  Self.Open;
+
+{$if defined(ETS_USE_ZEOS)}
+  if FUsePingServer then begin
+    Connection.PingServer;
+  end;
+{$ifend}
+
+  TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
+  try
+    Self.Open;
+{$if defined(ETS_USE_ZEOS)}
+    if VLocked then begin
+      FetchAll;
+    end;
+{$ifend}
+  finally
+    TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
+  end;
 end;
 
 procedure TDBMS_Dataset.SetParamBlobData(
@@ -1112,6 +1195,35 @@ begin
     else
       VParam.Clear;
   end;
+end;
+
+{ TDBMS_Custom_Connection }
+
+procedure TDBMS_Custom_Connection.AfterSQL(const ALocked: Boolean);
+begin
+  if ALocked then begin
+    LeaveCriticalSection(FSYNC_SQL_MODE_CS);
+  end;
+end;
+
+procedure TDBMS_Custom_Connection.BeforeSQL(out ALocked: Boolean);
+begin
+  ALocked := (FETS_INTERNAL_SYNC_SQL_MODE=2);
+  if ALocked then begin
+    EnterCriticalSection(FSYNC_SQL_MODE_CS);
+  end;
+end;
+
+constructor TDBMS_Custom_Connection.Create(AOwner: TComponent);
+begin
+  inherited;
+  InitializeCriticalSection(FSYNC_SQL_MODE_CS);
+end;
+
+destructor TDBMS_Custom_Connection.Destroy;
+begin
+  DeleteCriticalSection(FSYNC_SQL_MODE_CS);
+  inherited;
 end;
 
 initialization

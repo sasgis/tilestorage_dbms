@@ -9,10 +9,6 @@ uses
   Windows,
   SysUtils,
   Classes,
-{$if defined(ETS_USE_ZEOS)}
-{$else}
-  SqlExpr,
-{$ifend}
   t_types,
   t_SQL_types,
   t_ETS_Tiles,
@@ -42,6 +38,10 @@ type
 
     // flag
     FCompleted: Boolean;
+
+    // признак необходимости переподключиться
+    // поднимается при разрыве соединения сервером
+    FReconnectPending: Boolean;
 
     // callbacks
     FHostCallbacks: TDBMS_INFOCLASS_Callbacks;
@@ -75,8 +75,12 @@ type
     *)
   private
     // common work
-    procedure DoBeginWork(const AExclusively: Boolean);
-    procedure DoEndWork(const AExclusively: Boolean);
+    procedure DoBeginWork(
+      const AExclusively: Boolean;
+      const AOperation: TSqlOperation;
+      out AExclusivelyLocked: Boolean
+    );
+    procedure DoEndWork(const AExclusivelyLocked: Boolean);
     // work with guides
     procedure GuidesBeginWork(const AExclusively: Boolean);
     procedure GuidesEndWork(const AExclusively: Boolean);
@@ -260,6 +264,8 @@ type
     ): Byte;
     
   private
+    function DBMS_HandleGlobalException(const E: Exception): Byte;
+
     function DBMS_Complete(const AFlags: LongWord): Byte;
 
     // sync provider
@@ -556,6 +562,7 @@ begin
   FFormatSettings.TimeSeparator    := c_Time_Separator;
 
   FCompleted := FALSE;
+  FReconnectPending := FALSE;
   
   // initialization
   FStatusBuffer := AStatusBuffer;
@@ -730,10 +737,11 @@ var
   VExclusive: Boolean;
   VDataset: TDBMS_Dataset;
   VDeleteSQL: TDBMS_String;
+  VExclusivelyLocked: Boolean;
 begin
   VExclusive := ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive);
+  DoBeginWork(VExclusive, so_Delete, VExclusivelyLocked);
   try
     // connect (if not connected)
     Result := InternalProv_Connect(VExclusive);
@@ -753,23 +761,29 @@ begin
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
-      // execute INSERT statement
+      // execute DELETE statement
       try
         VDataset.SQL.Text := VDeleteSQL;
         // exec (do not prepare statement)
         VDataset.ExecSQLDirect;
-        // done (successfully INSERTed)
+        // done (successfully DELETEed)
         Result := ETS_RESULT_OK;
       except
-        // no table - no tile - OK
-        Result := ETS_RESULT_OK;
+        on E: Exception do begin
+          // проверка разрыва соединения
+          Result := DBMS_HandleGlobalException(E);
+          if FReconnectPending then
+            Exit;
+          // нет таблицы - нет и тайлов
+          Result := ETS_RESULT_OK;
+        end;
       end;
 
     finally
       FConnection.KillPoolDataset(VDataset);
     end;
   finally
-    DoEndWork(VExclusive);
+    DoEndWork(VExclusivelyLocked);
   end;
 end;
 
@@ -786,10 +800,11 @@ var
   VVersionAA: TVersionAA;
   VSQLText: TDBMS_String;
   VVersionValueW, VVersionCommentW: WideString; // keep wide
+  VExclusivelyLocked: Boolean;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive);
+  DoBeginWork(VExclusive, so_EnumVersions, VExclusivelyLocked);
   try
     // connect (if not connected)
     Result := InternalProv_Connect(VExclusive);
@@ -894,7 +909,7 @@ begin
       FConnection.KillPoolDataset(VDataset);
     end;
   finally
-    DoEndWork(VExclusive);
+    DoEndWork(VExclusivelyLocked);
   end;
 end;
 
@@ -1023,6 +1038,25 @@ begin
 *)
 end;
 
+function TDBMS_Provider.DBMS_HandleGlobalException(const E: Exception): Byte;
+begin
+{$if defined(ETS_USE_ZEOS)}
+  // обрабатываем разрыв соединения сервером
+  if (E<>nil) and (System.Pos('ServerDisconnected', E.Classname)>0) then begin
+    // разорвалось соединение
+    Result := ETS_RESULT_DISCONNECTED;
+    // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
+    FReconnectPending := TRUE;
+  end else begin
+    // все прочие глобальные ошибки
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
+  end;
+{$else}
+  // для DBX не обрабатываем разрыв соединения сервером
+  Result := ETS_RESULT_PROVIDER_EXCEPTION;
+{$ifend}
+end;
+
 function TDBMS_Provider.DBMS_InsertTile(
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean
@@ -1038,10 +1072,11 @@ var
   VCastBodyAsHexLiteral: Boolean;
   VExecDirect: Boolean;
   VBodyAsLiteralValue: TDBMS_String;
+  VExclusivelyLocked: Boolean;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive);
+  DoBeginWork(VExclusive, so_Insert, VExclusivelyLocked);
   try
     // connect (if not connected)
     Result := InternalProv_Connect(VExclusive);
@@ -1050,10 +1085,10 @@ begin
       Exit;
 
     // if connected - INSERT tile to DB
-    // VInsertDataset := FConnection.MakePoolDataset;
-    VInsertDataset := FConnection.MakeNonPooledDataset;
-    // VUpdateDataset := FConnection.MakePoolDataset;
-    VUpdateDataset := FConnection.MakeNonPooledDataset;
+    VInsertDataset := FConnection.MakePoolDataset;
+    //VInsertDataset := FConnection.MakeNonPooledDataset;
+    VUpdateDataset := FConnection.MakePoolDataset;
+    //VUpdateDataset := FConnection.MakeNonPooledDataset;
     try
       VNeedUpdate := FALSE;
       
@@ -1140,7 +1175,13 @@ begin
               VInsertDataset.ExecSQLSpecified(VExecDirect);
               Result := ETS_RESULT_OK;
             except
-              VNeedUpdate := TRUE;
+              on E: Exception do begin
+                // проверка разрыва соединения
+                Result := DBMS_HandleGlobalException(E);
+                if FReconnectPending then
+                  Exit;
+                VNeedUpdate := TRUE;
+              end;
             end;
           end;
         end;
@@ -1168,18 +1209,24 @@ begin
           // готово (обновлено!)
           Result := ETS_RESULT_OK;
         except
-          // общая ошибка структуры, тут уже автоматически не разобраться
-          Result := ETS_RESULT_INVALID_STRUCTURE;
+          on E: Exception do begin
+            // проверка разрыва соединения
+            Result := DBMS_HandleGlobalException(E);
+            if FReconnectPending then
+              Exit;
+            // общая ошибка структуры, тут уже автоматически не разобраться
+            Result := ETS_RESULT_INVALID_STRUCTURE;
+          end;
         end;
       end;
     finally
-      // FConnection.KillPoolDataset(VInsertDataset);
-      FreeAndNil(VInsertDataset);
-      // FConnection.KillPoolDataset(VUpdateDataset);
-      FreeAndNil(VUpdateDataset);
+      FConnection.KillPoolDataset(VInsertDataset);
+      //FreeAndNil(VInsertDataset);
+      FConnection.KillPoolDataset(VUpdateDataset);
+      //FreeAndNil(VUpdateDataset);
     end;
   finally
-    DoEndWork(VExclusive);
+    DoEndWork(VExclusivelyLocked);
   end;
 end;
 
@@ -1195,10 +1242,11 @@ var
   Vid_ver, Vid_contenttype: SmallInt;
   VSQLText: TDBMS_String;
   VVersionW, VContentTypeW: WideString; // keep wide
+  VExclusivelyLocked: Boolean;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive);
+  DoBeginWork(VExclusive, so_Select, VExclusivelyLocked);
   try
     // connect (if not connected)
     Result := InternalProv_Connect(VExclusive);
@@ -1221,7 +1269,13 @@ begin
       try
         VDataset.OpenSQL(VSQLText);
       except
-        // failed to select - no table - tile not found
+        on E: Exception do begin
+          // проверка разрыва соединения
+          Result := DBMS_HandleGlobalException(E);
+          if FReconnectPending then
+            Exit;
+          // тут могут быть разные ошибки, типа таблица не найдена
+        end;
       end;
 
       // get values
@@ -1282,7 +1336,7 @@ begin
       FConnection.KillPoolDataset(VDataset);
     end;
   finally
-    DoEndWork(VExclusive);
+    DoEndWork(VExclusivelyLocked);
   end;
 end;
 
@@ -1330,28 +1384,31 @@ end;
 function TDBMS_Provider.DBMS_Sync(const AFlags: LongWord): Byte;
 var
   VExclusively: Boolean;
+  VExclusivelyLocked: Boolean;
 begin
   VExclusively := ((AFlags and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusively);
+  DoBeginWork(VExclusively, so_Sync, VExclusivelyLocked);
   try
     if (nil<>FConnection) then begin
       FConnection.CompactPool;
     end;
   finally
-    DoEndWork(VExclusively);
+    DoEndWork(VExclusivelyLocked);
   end;
 
   Result := ETS_RESULT_OK;
 end;
 
 destructor TDBMS_Provider.Destroy;
+var
+  VExclusivelyLocked: Boolean;
 begin
-  DoBeginWork(TRUE);
+  DoBeginWork(TRUE, so_Destroy, VExclusivelyLocked);
   try
     InternalProv_Disconnect;
   finally
-    DoEndWork(TRUE);
+    DoEndWork(VExclusivelyLocked);
   end;
 
   GuidesBeginWork(TRUE);
@@ -1370,17 +1427,29 @@ begin
   inherited;
 end;
 
-procedure TDBMS_Provider.DoBeginWork(const AExclusively: Boolean);
+procedure TDBMS_Provider.DoBeginWork(
+  const AExclusively: Boolean;
+  const AOperation: TSqlOperation;
+  out AExclusivelyLocked: Boolean
+);
 begin
-  if AExclusively then
+{$if defined(ETS_USE_ZEOS)}
+  AExclusivelyLocked := AExclusively OR
+                        (FConnection=nil) OR
+                        (FConnection.FullSyncronizeSQL);
+{$else}
+  AExclusivelyLocked := AExclusively;
+{$ifend}
+
+  if AExclusivelyLocked then
     FProvSync.BeginWrite
   else
     FProvSync.BeginRead;
 end;
 
-procedure TDBMS_Provider.DoEndWork(const AExclusively: Boolean);
+procedure TDBMS_Provider.DoEndWork(const AExclusivelyLocked: Boolean);
 begin
-  if AExclusively then
+  if AExclusivelyLocked then
     FProvSync.EndWrite
   else
     FProvSync.EndRead;
@@ -2316,6 +2385,18 @@ begin
     Exit;
   end;
 
+  // разрыв соединения
+  if (nil<>FConnection) and (FReconnectPending) then begin
+    if (not AExclusively) then begin
+      // переподключаемся только в эксклюзивном режиме
+      Result := ETS_RESULT_NEED_EXCLUSIVE;
+      Exit;
+    end;
+    // грохаемся и по новой
+    InternalProv_Disconnect;
+    FReconnectPending := FALSE;
+  end;
+
   // safe create connection object
   if (nil=FConnection) then begin
     // check exclusive mode
@@ -2661,7 +2742,7 @@ begin
     try
       // простая универсальная проверка существования и доступности таблицы
       VDataset.OpenSQL('select 1 as a from ' + ATableName + ' where 0=1');
-      Result := TRUE;
+      Result := VDataset.Active;
     except
       Result := FALSE;
     end;

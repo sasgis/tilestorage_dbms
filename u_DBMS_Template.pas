@@ -7,10 +7,6 @@ interface
 uses
   SysUtils,
   Classes,
-{$if defined(ETS_USE_ZEOS)}
-{$else}
-  SqlExpr,
-{$ifend}
   t_ETS_Tiles,
   t_DBMS_Template,
   u_DBMS_Connect;
