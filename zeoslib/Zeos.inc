@@ -219,14 +219,14 @@
 {$ENDIF}
 
 // Enables Interbase/Firebird support in TZConnection/TZDataset
-{$IFNDEF ZEOS_DISABLE_INTERBASE}
-{$DEFINE ENABLE_INTERBASE}
-{$ENDIF}
+//{$IFNDEF ZEOS_DISABLE_INTERBASE}
+//{$DEFINE ENABLE_INTERBASE}
+//{$ENDIF}
 
 // Enables SQLite support in TZConnection/TZDataset
-{$IFNDEF ZEOS_DISABLE_SQLITE}
-{$DEFINE ENABLE_SQLITE}
-{$ENDIF}
+//{$IFNDEF ZEOS_DISABLE_SQLITE}
+//{$DEFINE ENABLE_SQLITE}
+//{$ENDIF}
 
 // Enables Oracle support in TZConnection/TZDataset
 {$IFNDEF ZEOS_DISABLE_ORACLE}
