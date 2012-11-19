@@ -1,13 +1,18 @@
 unit u_DBMS_Utils;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses
   Windows,
-  SysUtils;
+  SysUtils,
+  t_types;
 
 function AnsiStrToDB(const S: AnsiString): AnsiString;
 function WideStrToDB(const S: WideString): WideString;
+
+function DBMSStrToDB(const S: TDBMS_String): TDBMS_String; inline;
 
 function GetModuleFileNameWithoutExt(
   const AInSqlSubFolder: Boolean;
@@ -35,6 +40,15 @@ begin
   for I := Length(Result) downto 1 do
     if Result[I] = '''' then Insert('''', Result, I);
   Result := '''' + Result + '''';
+end;
+
+function DBMSStrToDB(const S: TDBMS_String): TDBMS_String; inline;
+begin
+{$if defined(ETS_USE_ZEOS)}
+  Result := QuotedStr(S);
+{$else}
+  Result := WideStrToDB(S);
+{$ifend}
 end;
 
 function GetModuleFileNameWithoutExt(

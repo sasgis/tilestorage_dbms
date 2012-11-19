@@ -1,5 +1,7 @@
 unit i_DBMS_Provider;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses

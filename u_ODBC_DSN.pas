@@ -1,5 +1,7 @@
 unit u_ODBC_DSN;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses

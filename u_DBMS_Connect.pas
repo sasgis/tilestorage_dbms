@@ -1,21 +1,22 @@
 unit u_DBMS_Connect;
 
-interface
-
 {$include i_DBMS.inc}
+
+interface
 
 uses
   SysUtils,
   Windows,
   Classes,
+  t_types,
   t_SQL_types,
   t_DBMS_Template,
   t_DBMS_Connect,
+  DB, // common unit
 {$if defined(ETS_USE_ZEOS)}
   ZConnection,
   ZDataset,
 {$else}
-  DB,
   DBXCommon,
   DBXDynaLink,
   SQLExpr,
@@ -26,22 +27,26 @@ uses
 type
   // base dataset
   TDBMS_Dataset = class(
+{$if defined(ETS_USE_ZEOS)}
+    TZQuery
+{$else}
     TSQLQuery
+{$ifend}
   )
   public
     // set SQL text and open it
-    procedure OpenSQL(const ASQLText: WideString);
+    procedure OpenSQL(const ASQLText: TDBMS_String);
 
     // get value as ansichar
     function GetAnsiCharFlag(
-      const AFieldName: WideString;
+      const AFieldName: TDBMS_String;
       const ADefaultValue: AnsiChar
     ): AnsiChar;
 
     // get CLOB value, returns (NOT NULL)
     function ClobAsWideString(
-      const AFieldName: WideString;
-      out AResult: WideString
+      const AFieldName: TDBMS_String;
+      out AResult: TDBMS_String
     ): Boolean;
 
     // set BLOB buffer to param (if exists)
@@ -53,7 +58,17 @@ type
 
     // reads BLOB from field via stream
     function CreateFieldBlobReadStream(const AFieldName: WideString): TStream;
+
+    // reassign both modes
+    procedure ExecSQLDirect; inline;
+    procedure ExecSQLParsed; inline;
+    procedure ExecSQLSpecified(const ADirectExec: Boolean); inline;
   end;
+
+{$if defined(ETS_USE_ZEOS)}
+  TSQLConnection = class(TZConnection)
+  end;
+{$ifend}
 
   IDBMS_Connection = interface
   ['{D5809427-36C7-49D7-83ED-72C567BD6E08}']
@@ -81,14 +96,13 @@ type
     FInternalParams: TStringList;
     // если будет более одной DLL - переделать на TStringList
     FInternalLoadLibrary: THandle;
-  private
+  protected
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     function ApplyAuthenticationInfo: Byte;
     procedure KeepAuthenticationInfo;
     function ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
     function ApplyConnectionParams: Byte;
     function ApplyParamsToConnection(const AParams: TStrings): Byte;
-  private
     function IsTrustedConnection: Boolean;
     function GetEngineTypeUsingSQL: TEngineType;
   private
@@ -130,9 +144,9 @@ type
   TDBMS_Server = class(TObjectList)
   private
     // credentials
-    FServerName: WideString;
-    FUsername: WideString;
-    FPassword: WideString;
+    FServerName: TDBMS_String;
+    FUsername: TDBMS_String;
+    FPassword: TDBMS_String;
     FAuthDefined: Boolean;
     FAuthOK: Boolean;
     FAuthFailed: Boolean;
@@ -266,7 +280,17 @@ begin
 
   // здесь нет добавок в имя файла, потому что настройки определяются ДО подключения к СУБД
   // для визуального отличия от остальных файлов добавляем подчёркивание в начало имени
-  VFilename := GetModuleFileNameWithoutExt(TRUE, c_SQL_DBX_Prefix_Ini, '')+c_SQL_Ext_Ini;
+  VFilename :=
+  GetModuleFileNameWithoutExt(
+    TRUE,
+{$if defined(ETS_USE_ZEOS)}
+    c_SQL_ZEOS_Prefix_Ini,
+{$else}
+    c_SQL_DBX_Prefix_Ini,
+{$ifend}
+    ''
+  ) + c_SQL_Ext_Ini;
+  
   if FileExists(VFilename) then begin
     VIni:=TIniFile.Create(VFilename);
     try
@@ -311,6 +335,9 @@ begin
       Exit;
   end;
 
+{$if defined(ETS_USE_ZEOS)}
+
+{$else}
   // если это параметры для свойств драйвера DBX - сразу и пропихнём их
   if SameText(ETS_INTERNAL_DBX_LibraryName, AParamName) then begin
     FSQLConnection.LibraryName := AParamValue;
@@ -322,6 +349,7 @@ begin
     FSQLConnection.VendorLib := AParamValue;
     Exit;
   end;
+{$ifend}
 
   if (nil=FInternalParams) then
     FInternalParams := TStringList.Create;
@@ -330,10 +358,16 @@ begin
 end;
 
 function TDBMS_Connection.ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
+{$if defined(ETS_USE_ZEOS)}
+{$else}
 var
   i: Integer;
   VParamName: String;
+{$ifend}
 begin
+{$if defined(ETS_USE_ZEOS)}
+  Result := ETS_RESULT_OK;
+{$else}
   FSQLConnection.LoginPrompt := FALSE;
   FSQLConnection.LoadParamsOnConnect := FALSE;
 
@@ -357,7 +391,7 @@ begin
       // исключительно внутренний параметр
       SaveInternalParameter(VParamName, AOptionalList.ValueFromIndex[i]);
     end else begin
-      // даже и ту тне все пропихиваем
+      // даже и тут не все пропихиваем
       if (not SameText(VParamName,TDBXPropertyNames.DriverName)) then begin
         FSQLConnection.Params.Values[VParamName] := AOptionalList.ValueFromIndex[i];
       end;
@@ -368,16 +402,59 @@ begin
   FSQLConnection.ConnectionName := FSQLConnection.DriverName + c_RTL_Connection + Format('%p',[Pointer(FSQLConnection)]);
 
   Result := ETS_RESULT_OK;
+{$ifend}
 end;
 
 function TDBMS_Connection.ApplyParamsToConnection(const AParams: TStrings): Byte;
+{$if defined(ETS_USE_ZEOS)}
+var
+  i: Integer;
+  VNewValue, VCurItem: String; // String from TStrings
+{$else}
 var
   i: Integer;
   VNewValue, VCurItem: String; // String from TStrings
   VOldValue: WideString;
   VDBXProperties: TDBXProperties;
   VUseODBC: Boolean;
+{$ifend}
 begin
+{$if defined(ETS_USE_ZEOS)}
+  // тут всё просто - одна часть параметров в свойства, другая часть - в другие свойства )):
+
+  // apply other params
+  if (AParams.Count>0) then
+  for i := 0 to AParams.Count-1 do begin
+    VCurItem := AParams.Names[i];
+    VNewValue := AParams.ValueFromIndex[i];
+    if SameText(Copy(VCurItem,1,Length(ETS_INTERNAL_PARAMS_PREFIX)),ETS_INTERNAL_PARAMS_PREFIX) then begin
+      // исключительно внутренний параметр
+      SaveInternalParameter(VCurItem, VNewValue);
+    end else begin
+      // сравниваем куда пихать
+      if SameText(VCurItem, c_ZEOS_Protocol) then
+        FSQLConnection.Protocol := VNewValue
+      else if SameText(VCurItem, c_ZEOS_HostName) then
+        FSQLConnection.HostName := VNewValue
+      else if SameText(VCurItem, c_ZEOS_Port) then
+        FSQLConnection.Port := StrToIntDef(VNewValue,0)
+      else if SameText(VCurItem, c_ZEOS_Database) then
+        FSQLConnection.Database := VNewValue
+      else if SameText(VCurItem, c_ZEOS_Catalog) then
+        FSQLConnection.Catalog  := VNewValue
+      else if SameText(VCurItem, c_ZEOS_User) then
+        FSQLConnection.User     := VNewValue
+      else if SameText(VCurItem, c_ZEOS_Password) then
+        FSQLConnection.Password := VNewValue
+      else // остатки - в список свойств
+        FSQLConnection.Properties.Values[VCurItem] := VNewValue;
+    end;
+  end;
+
+  // done
+  FSQLConnection.LoginPrompt := FALSE;
+  Result := ETS_RESULT_OK;
+{$else}
   // вытащим имя драйвера из прочитанных параметров
   i := AParams.IndexOfName(TDBXPropertyNames.DriverName);
   if (i>=0) then begin
@@ -460,6 +537,7 @@ begin
   end;
 
   Result := ETS_RESULT_OK;
+{$ifend}
 end;
 
 procedure TDBMS_Connection.CompactPool;
@@ -505,12 +583,21 @@ begin
   CompactPool;
 
   try
+{$if defined(ETS_USE_ZEOS)}
+    FSQLConnection.CloseAllDataSets;
+    //FSQLConnection.CloseAllSequences;
+{$else}
     FSQLConnection.CloseDataSets;
+{$ifend}
   except
   end;
 
   try
+{$if defined(ETS_USE_ZEOS)}
+    FSQLConnection.Disconnect;
+{$else}
     FSQLConnection.Close;
+{$ifend}
   except
   end;
 
@@ -599,7 +686,11 @@ begin
       // check if not checked
       // allow get info from driver
       if (et_Unknown=FEngineType) then begin
+{$if defined(ETS_USE_ZEOS)}
+        FEngineType := GetEngineTypeByZEOSLibProtocol(FSQLConnection.Protocol);
+{$else}
         FEngineType := GetEngineTypeByDBXDriverName(FSQLConnection.DriverName, FODBCDescription);
+{$ifend}
         if (et_Unknown=FEngineType) then begin
           // use sql requests
           FEngineType := GetEngineTypeUsingSQL;
@@ -616,10 +707,14 @@ begin
 end;
 
 function TDBMS_Connection.GetEngineTypeUsingSQL: TEngineType;
+(*
 var
   VDataset: TDBMS_Dataset;
   VText: String;
+*)
 begin
+  Result := et_Unknown;
+(*
   if (EnsureConnected(FALSE) <> ETS_RESULT_OK) then begin
     // not connected
     Result := et_Unknown;
@@ -658,14 +753,21 @@ begin
       KillPoolDataset(VDataset);
     end;
   end;
+*)
 end;
 
 function TDBMS_Connection.IsTrustedConnection: Boolean;
+{$if defined(ETS_USE_ZEOS)}
+{$else}
 var
   VEngineType: TEngineType;
   VDriverParam: String;
   VValue: WideString;
+{$ifend}
 begin
+{$if defined(ETS_USE_ZEOS)}
+  Result := (0=Length(FSQLConnection.User));
+{$else}
   VEngineType := GetCheckedEngineType;
 
   // отдельно проверим 'OS Authentication' для MSSQL
@@ -686,6 +788,7 @@ begin
 
   VValue := FSQLConnection.Params.Values[VDriverParam];
   Result := (0<Length(VValue)) and (WideSameText(VValue, 'true') or WideSameText(VValue, 'yes'));
+{$ifend}
 
   // www.connectionstrings.com
 
@@ -723,8 +826,13 @@ begin
     VServer := G_ConnectionList.InternalGetServerObject(FPath.Path_Items[0]);
     if (VServer<>nil) then begin
       if (not VServer.FAuthDefined) then begin
+{$if defined(ETS_USE_ZEOS)}
+        VServer.FUsername := FSQLConnection.User;
+        VServer.FPassword := FSQLConnection.Password;
+{$else}
         VServer.FUsername := FSQLConnection.Params.Values[TDBXPropertyNames.UserName];
         VServer.FPassword := FSQLConnection.Params.Values[TDBXPropertyNames.Password];
+{$ifend}
       end;
       VServer.FAuthFailed := FALSE;
       VServer.FAuthOK := TRUE;
@@ -756,7 +864,11 @@ end;
 function TDBMS_Connection.MakeNonPooledDataset: TDBMS_Dataset;
 begin
   Result := TDBMS_Dataset.Create(nil);
+{$if defined(ETS_USE_ZEOS)}
+  Result.Connection := FSQLConnection;
+{$else}
   Result.SQLConnection := FSQLConnection;
+{$ifend}
 end;
 
 function TDBMS_Connection.MakePoolDataset: TDBMS_Dataset;
@@ -785,7 +897,11 @@ begin
     // no unused objects - make new object
     Result := TDBMS_Pooled_Dataset.Create(FSQLConnection);
     TDBMS_Pooled_Dataset(Result).FUsedInPool := TRUE;
+{$if defined(ETS_USE_ZEOS)}
+    Result.Connection := FSQLConnection;
+{$else}
     Result.SQLConnection := FSQLConnection;
+{$ifend}
   finally
     FSyncPool.EndWrite;
   end;
@@ -891,8 +1007,8 @@ end;
 { TDBMS_Dataset }
 
 function TDBMS_Dataset.ClobAsWideString(
-  const AFieldName: WideString;
-  out AResult: WideString
+  const AFieldName: TDBMS_String;
+  out AResult: TDBMS_String
 ): Boolean;
 var
   VSqlTextField: TField;
@@ -909,8 +1025,35 @@ begin
   Result := Self.CreateBlobStream(Self.FieldByName(AFieldName), bmRead);
 end;
 
+procedure TDBMS_Dataset.ExecSQLDirect;
+begin
+{$if defined(ETS_USE_ZEOS)}
+  ExecSQL;
+{$else}
+  ExecSQL(TRUE);
+{$ifend}
+end;
+
+procedure TDBMS_Dataset.ExecSQLParsed;
+begin
+{$if defined(ETS_USE_ZEOS)}
+  ExecSQL;
+{$else}
+  ExecSQL(FALSE);
+{$ifend}
+end;
+
+procedure TDBMS_Dataset.ExecSQLSpecified(const ADirectExec: Boolean);
+begin
+{$if defined(ETS_USE_ZEOS)}
+  ExecSQL;
+{$else}
+  ExecSQL(ADirectExec);
+{$ifend}
+end;
+
 function TDBMS_Dataset.GetAnsiCharFlag(
-  const AFieldName: WideString;
+  const AFieldName: TDBMS_String;
   const ADefaultValue: AnsiChar
 ): AnsiChar;
 var
@@ -942,11 +1085,15 @@ begin
   Result := ADefaultValue;
 end;
 
-procedure TDBMS_Dataset.OpenSQL(const ASQLText: WideString);
+procedure TDBMS_Dataset.OpenSQL(const ASQLText: TDBMS_String);
 begin
   if Active then
     Close;
+{$if defined(ETS_USE_ZEOS)}
+  Self.SQL.Text := ASQLText;
+{$else}
   Self.CommandText := ASQLText;
+{$ifend}
   Self.Open;
 end;
 

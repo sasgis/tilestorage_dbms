@@ -1,5 +1,7 @@
 unit t_DBMS_contenttype;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses

@@ -1,5 +1,7 @@
 unit t_DBMS_version;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses

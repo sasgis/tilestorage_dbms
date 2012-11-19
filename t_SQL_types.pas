@@ -1,5 +1,7 @@
 unit t_SQL_types;
 
+{$include i_DBMS.inc}
+
 interface
 
 (*
@@ -10,6 +12,8 @@ interface
   
 *)
 
+uses
+  t_types;
 
 type
   // list of _ALL_ supported SQL servers
@@ -290,7 +294,8 @@ DBXCommon.TDBXContext.Error(
 Access violation at address 0B85E258 in module 'dbxmys30.dll'.
 Read of address 00000000
 
-
+Для ZEOS - Exception class Exception with message:
+None of the dynamic libraries can be found: libmysql51.dll, libmysql50.dll, libmysql.dll
 
 select version() from DUAL - works ('5.5.28-MariaDB')
 select * from DUAL - failes (SQL Error (1096): No tables used)
@@ -338,6 +343,17 @@ const
   c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL, ASE, MSSQL
   c_RTL_Tile_Body_Paramname = ':' + c_RTL_Tile_Body_Paramsrc;
 
+  // for ZEOS
+  c_ZEOS_Protocol = 'Protocol';
+  c_ZEOS_HostName = 'HostName';
+  c_ZEOS_Port     = 'Port';
+  c_ZEOS_Database = 'Database';
+  c_ZEOS_Catalog  = 'Catalog';
+  c_ZEOS_User     = 'User';
+  c_ZEOS_Password = 'Password';
+
+
+
   // prefix and suffix for identifiers for tiles
   c_SQL_QuotedIdentifierForcedForTiles: array [TEngineType] of Boolean = (
     FALSE,  // MSSQL
@@ -384,10 +400,12 @@ const
 
 function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
 
+function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngineType;
+
 function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
 
 // формирует 16-ричную константу для записи BLOB-а, есть работа через параметры невозможна
-function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): WideString;
+function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
 
 implementation
 
@@ -454,6 +472,55 @@ begin
   end;
 end;
 
+function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngineType;
+var V3: String;
+begin
+  V3 := System.Copy(AZEOSLibProtocol,1,3);
+  if (3=Length(V3)) then begin
+    // check names below
+    // do not support interbase and sqlite
+    V3 := LowerCase(V3);
+    if (V3='db2') then
+      Result := et_DB2
+    else if (V3='fir') then
+      Result := et_Firebird
+    else if (V3='mss') then
+      Result := et_MSSQL
+    else if (V3='mys') then
+      Result := et_MySQL
+    else if (V3='ora') then
+      Result := et_Oracle
+    else if (V3='pos') then
+      Result := et_PostgreSQL
+    else if (V3='syb') then
+      Result := et_ASE
+    else
+      Result := et_Unknown;
+  end else begin
+    Result := et_Unknown;
+  end;
+
+(*
+'db2'
+'firebird-1.0'
+'firebird-1.5'
+'firebird-2.0'
+'interbase-5'
+'interbase-6'
+'mssql'
+'mysql'
+'mysql-4.0'
+'mysql-4.1'
+'oracle'
+'postgresql'
+'postgresql-8.0'
+'postgresql-8.1'
+'sqlite-2.8'
+'sqlite-3'
+'sybase'
+*)
+end;
+
 function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
 begin
   if (System.Pos('microsoft', AText)>0) then begin
@@ -473,13 +540,13 @@ begin
   end;
 end;
 
-function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): WideString;
+function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
 const
   c_max_len = 32760;
 var
   VCurPos: PByte;
 
-  function _CopyUpToBytes(ABytesToCopy: LongInt): WideString;
+  function _CopyUpToBytes(ABytesToCopy: LongInt): TDBMS_String;
   begin
     Result := '';
     while (ABytesToCopy>0) do begin
@@ -489,12 +556,12 @@ var
     end;
   end;
 
-  function _MakeCast(const ASrc: WideString): WideString;
+  function _MakeCast(const ASrc: TDBMS_String): TDBMS_String;
   begin
     Result := 'CAST(x''' + ASrc + ''' as BLOB)';
   end;
 
-  procedure _AppendPart(var ATotal: WideString; const ASrc: WideString);
+  procedure _AppendPart(var ATotal: TDBMS_String; const ASrc: TDBMS_String);
   begin
     if (0<Length(ATotal)) then begin
       ATotal := ATotal + ' || ';

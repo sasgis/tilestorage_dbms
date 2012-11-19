@@ -1,10 +1,16 @@
 unit u_DBMS_Template;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses
   SysUtils,
   Classes,
+{$if defined(ETS_USE_ZEOS)}
+{$else}
+  SqlExpr,
+{$ifend}
   t_ETS_Tiles,
   t_DBMS_Template,
   u_DBMS_Connect;
@@ -151,13 +157,13 @@ begin
             ADataset.SQL.Text := Trim(VLines.Text) + FAppendDivider;
           end;
           // исполняем
-          ADataset.ExecSQL(FALSE);
+          ADataset.ExecSQLDirect;
         end else begin
           // make insert SQL statement for special table
           ADataset.SQL.Text := 'insert into ' + FForcedSchemaPrefix + Z_ALL_SQL+
                               ' (object_name,object_oper,index_sql,object_sql)'+
                               ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')';
-          ADataset.ExecSQL(TRUE);
+          ADataset.ExecSQLDirect;
         end;
       except
         on E: Exception do begin

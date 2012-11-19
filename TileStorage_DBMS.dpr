@@ -11,13 +11,9 @@ uses
   u_DBMS_Provider in 'u_DBMS_Provider.pas',
   u_DBMS_Connect in 'u_DBMS_Connect.pas',
   u_ODBC_DSN in 'u_ODBC_DSN.pas',
-{$if defined(ETS_USE_ZEOS)}
-
-{$else}
   OdbcApi in 'dbxoodbc\OdbcApi.pas',
   DbxOpenOdbcTypes in 'dbxoodbc\DbxOpenOdbcTypes.pas',
   DbxOpenOdbcFuncs in 'dbxoodbc\DbxOpenOdbcFuncs.pas',
-{$ifend}
   t_DBMS_version in 't_DBMS_version.pas',
   t_DBMS_contenttype in 't_DBMS_contenttype.pas',
   t_DBMS_service in 't_DBMS_service.pas',
@@ -25,7 +21,8 @@ uses
   t_DBMS_Template in 't_DBMS_Template.pas',
   u_DBMS_Template in 'u_DBMS_Template.pas',
   t_SQL_types in 't_SQL_types.pas',
-  t_DBMS_Connect in 't_DBMS_Connect.pas';
+  t_DBMS_Connect in 't_DBMS_Connect.pas',
+  t_types in 't_types.pas';
 
 {$R *.res}
 

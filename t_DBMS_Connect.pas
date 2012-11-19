@@ -1,5 +1,7 @@
 unit t_DBMS_Connect;
 
+{$include i_DBMS.inc}
+
 interface
 
 const

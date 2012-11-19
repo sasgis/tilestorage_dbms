@@ -1,5 +1,7 @@
 unit u_DBMS_Provider;
 
+{$include i_DBMS.inc}
+
 interface
 
 uses
@@ -7,6 +9,11 @@ uses
   Windows,
   SysUtils,
   Classes,
+{$if defined(ETS_USE_ZEOS)}
+{$else}
+  SqlExpr,
+{$ifend}
+  t_types,
   t_SQL_types,
   t_ETS_Tiles,
   t_ETS_Path,
@@ -92,9 +99,9 @@ type
     procedure InternalProv_ClearGuides;
 
     // возвращает имя сервиса, используемое в БД (внутреннее)
-    function InternalGetServiceNameByDB: WideString;
+    function InternalGetServiceNameByDB: TDBMS_String;
     // возвращает имя сервиса, используемое в хосте (внешнее)
-    function InternalGetServiceNameByHost: WideString;
+    function InternalGetServiceNameByHost: TDBMS_String;
 
     // get version from cache (if not found - read from server)
     function InternalGetVersionAnsiValues(
@@ -117,24 +124,24 @@ type
     function GetVersionAnsiPointer(
       const Aid_ver: SmallInt;
       const AExclusively: Boolean
-    ): PAnsiChar;
+    ): PAnsiChar;  // keep ansi
     function GetVersionWideString(
       const Aid_ver: SmallInt;
       const AExclusively: Boolean
-    ): WideString;
+    ): WideString; // keep wide
 
     // for cached contenttype
     function GetContentTypeAnsiPointer(
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean
-    ): PAnsiChar;
+    ): PAnsiChar;  // keep ansi
     function GetContentTypeWideString(
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean
-    ): WideString;
+    ): WideString; // keep wide
 
   private
-    function SQLDateTimeToDBValue(const ADateTime: TDateTime): WideString;
+    function SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
 
     function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
 
@@ -175,11 +182,11 @@ type
     ): Boolean;
 
     // check if table exists
-    function TableExists(const ATableName: WideString): Boolean;
+    function TableExists(const ATableName: TDBMS_String): Boolean;
 
     // create table using SQL commands from special table
     function CreateTableByTemplate(
-      const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString;
+      const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String;
       const AZoom: Byte;
       const ASubstSQLTypes: Boolean
     ): Byte;
@@ -206,7 +213,7 @@ type
     function GetSQL_SelectTile(
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
       const AExclusively: Boolean;
-      out ASQLTextResult: WideString
+      out ASQLTextResult: TDBMS_String
     ): Byte;
 
     // формирование текста SQL для вставки (INSERT) и обновления (UPDATE) тайла или маркера TNE
@@ -215,41 +222,41 @@ type
       const AInsertBuffer: PETS_INSERT_TILE_IN;
       const AForceTNE: Boolean;
       const AExclusively: Boolean;
-      out AInsertSQLResult, AUpdateSQLResult: WideString;
+      out AInsertSQLResult, AUpdateSQLResult: TDBMS_String;
       out AInsertUpdateSubType: TInsertUpdateSubType;
-      out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString
+      out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String
     ): Byte;
 
     // формирование текста SQL для удаления (DELETE) тайла или маркера TNE
     function GetSQL_DeleteTile(
       const ADeleteBuffer: PETS_DELETE_TILE_IN;
-      out ADeleteSQLResult: WideString
+      out ADeleteSQLResult: TDBMS_String
     ): Byte;
 
     // формирование текста SQL для получения (SELECT) списка существующих версий тайла (XYZ)
     function GetSQL_EnumTileVersions(
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
       const AExclusively: Boolean;
-      out ASQLTextResult: WideString
+      out ASQLTextResult: TDBMS_String
     ): Byte;
 
 
     // формирует SQL для получения списка версий для текущего сервиса
-    function GetSQL_SelectVersions: WideString;
+    function GetSQL_SelectVersions: TDBMS_String;
 
     // формирует SQL для получения списка типов тайлов
-    function GetSQL_SelectContentTypes: WideString;
+    function GetSQL_SelectContentTypes: TDBMS_String;
 
     // формирует SQL для чтения параметров сервиса по его внешнему коду
     // этот уникальный внешний код передаётся при инициализации с хоста
-    function GetSQL_SelectService_ByHost: WideString;
+    function GetSQL_SelectService_ByHost: TDBMS_String;
 
     // формирует SQL для чтения параметров сервиса по его внутреннему коду (код в БД)
-    function GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): WideString;
+    function GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): TDBMS_String;
 
     function GetSQL_InsertIntoService(
       const AExclusively: Boolean;
-      out ASQLTextResult: WideString
+      out ASQLTextResult: TDBMS_String
     ): Byte;
     
   private
@@ -313,7 +320,7 @@ procedure TDBMS_Provider.AddVersionOrderBy(
   const ACutOnVersion: Boolean
 );
 
-  procedure _AddWithoutFieldValue(const AFieldName: WideString);
+  procedure _AddWithoutFieldValue(const AFieldName: TDBMS_String);
   begin
     ASQLParts^.SelectSQL := ASQLParts^.SelectSQL + ',w.' + AFieldName;
 
@@ -325,7 +332,7 @@ procedure TDBMS_Provider.AddVersionOrderBy(
     ASQLParts^.WhereSQL := ASQLParts^.WhereSQL + ' and v.id_ver=w.id_ver';
   end;
 
-  procedure _AddWithFieldValue(const AFieldName, AGreatestValueForDB: WideString);
+  procedure _AddWithFieldValue(const AFieldName, AGreatestValueForDB: TDBMS_String);
   begin
     _AddWithoutFieldValue(AFieldName);
 
@@ -378,7 +385,7 @@ end;
 function TDBMS_Provider.AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
 var
   VDataset: TDBMS_Dataset;
-  VSQLText: WideString;
+  VSQLText: TDBMS_String;
 begin
   // регистрация картосервиса в БД выполняется только в эксклюзивном режиме
   if (not AExclusively) then begin
@@ -396,7 +403,7 @@ begin
     // исполняем INSERT (вставляем запись о сервисе)
     try
       VDataset.SQL.Text := VSQLText;
-      VDataset.ExecSQL(TRUE);
+      VDataset.ExecSQLDirect;
       Result := ETS_RESULT_OK;
     except
       // обломались
@@ -601,13 +608,13 @@ begin
 end;
 
 function TDBMS_Provider.CreateTableByTemplate(
-  const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString;
+  const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String;
   const AZoom: Byte;
   const ASubstSQLTypes: Boolean
 ): Byte;
 var
   VDataset, VExecSQL: TDBMS_Dataset;
-  VSQLText: WideString;
+  VSQLText: TDBMS_String;
   //VSQLAnsi: AnsiString;
   Vignore_errors: AnsiChar;
   //VStream: TStream;
@@ -668,7 +675,7 @@ begin
         VExecSQL.SQL.Text := VSQLText;
 
         // исполняем (напрямую)
-        VExecSQL.ExecSQL(FALSE);
+        VExecSQL.ExecSQLDirect;
 
         //(VDataset.FieldByName('object_sql') as TBlobField).BlobSize;
 
@@ -722,7 +729,7 @@ function TDBMS_Provider.DBMS_DeleteTile(
 var
   VExclusive: Boolean;
   VDataset: TDBMS_Dataset;
-  VDeleteSQL: WideString;
+  VDeleteSQL: TDBMS_String;
 begin
   VExclusive := ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -750,7 +757,7 @@ begin
       try
         VDataset.SQL.Text := VDeleteSQL;
         // exec (do not prepare statement)
-        VDataset.ExecSQL(TRUE);
+        VDataset.ExecSQLDirect;
         // done (successfully INSERTed)
         Result := ETS_RESULT_OK;
       except
@@ -777,8 +784,8 @@ var
   VETS_VERSION_W: TETS_VERSION_W;
   VETS_VERSION_A: TETS_VERSION_A;
   VVersionAA: TVersionAA;
-  VSQLText: WideString;
-  VVersionValueW, VVersionCommentW: WideString;
+  VSQLText: TDBMS_String;
+  VVersionValueW, VVersionCommentW: WideString; // keep wide
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -903,8 +910,8 @@ var
   VETS_VERSION_W: TETS_VERSION_W;
   VETS_VERSION_A: TETS_VERSION_A;
   VVersionAA: TVersionAA;
-  VSQLText: WideString;
-  VVersionValueW, VVersionCommentW: WideString;
+  VSQLText: TDBMS_String;
+  VVersionValueW, VVersionCommentW: WideString; // keep wide
   *)
 begin
   Result := ETS_RESULT_NOT_IMPLEMENTED;
@@ -1023,14 +1030,14 @@ function TDBMS_Provider.DBMS_InsertTile(
 var
   VExclusive: Boolean;
   VInsertDataset, VUpdateDataset: TDBMS_Dataset;
-  VInsertSQL, VUpdateSQL: WideString;
-  VUnquotedTableNameWithoutPrefix: WideString;
-  VQuotedTableNameWithPrefix: WideString;
+  VInsertSQL, VUpdateSQL: TDBMS_String;
+  VUnquotedTableNameWithoutPrefix: TDBMS_String;
+  VQuotedTableNameWithPrefix: TDBMS_String;
   VNeedUpdate: Boolean;
   VInsertUpdateSubType: TInsertUpdateSubType;
   VCastBodyAsHexLiteral: Boolean;
   VExecDirect: Boolean;
-  VBodyAsLiteralValue: WideString;
+  VBodyAsLiteralValue: TDBMS_String;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -1099,8 +1106,7 @@ begin
         end;
 
         // исполняем INSERT
-        //VInsertDataset.PrepareStatement;
-        VInsertDataset.ExecSQL(VExecDirect);
+        VInsertDataset.ExecSQLSpecified(VExecDirect);
         
         // готово (вставлено!)
         Result := ETS_RESULT_OK;
@@ -1131,7 +1137,7 @@ begin
             end;
             // повторяем INSERT
             try
-              VInsertDataset.ExecSQL(VExecDirect);
+              VInsertDataset.ExecSQLSpecified(VExecDirect);
               Result := ETS_RESULT_OK;
             except
               VNeedUpdate := TRUE;
@@ -1158,7 +1164,7 @@ begin
         // исполняем UPDATE
         try
           // испускаем запрос
-          VUpdateDataset.ExecSQL(VExecDirect);
+          VUpdateDataset.ExecSQLSpecified(VExecDirect);
           // готово (обновлено!)
           Result := ETS_RESULT_OK;
         except
@@ -1187,7 +1193,8 @@ var
   VOut: TETS_SELECT_TILE_OUT;
   VStream: TStream;
   Vid_ver, Vid_contenttype: SmallInt;
-  VSQLText, VVersionW, VContentTypeW: WideString;
+  VSQLText: TDBMS_String;
+  VVersionW, VContentTypeW: WideString; // keep wide
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -1437,7 +1444,7 @@ function TDBMS_Provider.GetMaxNextVersionInts(
 ): Boolean;
 var
   VDataset: TDBMS_Dataset;
-  VSQLText: WideString;
+  VSQLText: TDBMS_String;
 begin
   VDataset := FConnection.MakePoolDataset;
   try
@@ -1631,7 +1638,7 @@ end;
 
 function TDBMS_Provider.GetSQL_DeleteTile(
   const ADeleteBuffer: PETS_DELETE_TILE_IN;
-  out ADeleteSQLResult: WideString
+  out ADeleteSQLResult: TDBMS_String
 ): Byte;
 var
   VSQLTile: TSQLTile;
@@ -1674,7 +1681,7 @@ end;
 function TDBMS_Provider.GetSQL_EnumTileVersions(
   const ASelectBufferIn: PETS_SELECT_TILE_IN;
   const AExclusively: Boolean;
-  out ASQLTextResult: WideString
+  out ASQLTextResult: TDBMS_String
 ): Byte;
 var
   VSQLTile: TSQLTile;
@@ -1720,14 +1727,14 @@ end;
 
 function TDBMS_Provider.GetSQL_InsertIntoService(
   const AExclusively: Boolean;
-  out ASQLTextResult: WideString
+  out ASQLTextResult: TDBMS_String
 ): Byte;
 var
   VDataset: TDBMS_Dataset;
   VNewIdService: SmallInt;
   VNewIdContentType: SmallInt;
   VNewServiceCode: AnsiString;
-  VSQLText: WideString;
+  VSQLText: TDBMS_String;
 begin
   // id_service = max(id_service)+1
   // service_code = Trunc(Name,20)
@@ -1802,9 +1809,9 @@ function TDBMS_Provider.GetSQL_InsertUpdateTile(
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean;
   const AExclusively: Boolean;
-  out AInsertSQLResult, AUpdateSQLResult: WideString;
+  out AInsertSQLResult, AUpdateSQLResult: TDBMS_String;
   out AInsertUpdateSubType: TInsertUpdateSubType;
-  out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: WideString
+  out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String
 ): Byte;
 var
   VSQLTile: TSQLTile;
@@ -1813,7 +1820,7 @@ var
   VReqVersion: TVersionAA;
   VUseCommonTiles: Boolean;
   VNewTileSize: LongInt;
-  VNewTileBody: WideString;
+  VNewTileBody: TDBMS_String;
 begin
   // смотрим что за версию подсунули
   if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
@@ -1948,17 +1955,17 @@ begin
                         ' and id_ver=' + IntToStr(VReqVersion.id_ver);
 end;
 
-function TDBMS_Provider.GetSQL_SelectContentTypes: WideString;
+function TDBMS_Provider.GetSQL_SelectContentTypes: TDBMS_String;
 begin
   Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_CONTENTTYPE;
 end;
 
-function TDBMS_Provider.GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): WideString;
+function TDBMS_Provider.GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): TDBMS_String;
 begin
   Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_code='+WideStrToDB(AServiceCode);
 end;
 
-function TDBMS_Provider.GetSQL_SelectService_ByHost: WideString;
+function TDBMS_Provider.GetSQL_SelectService_ByHost: TDBMS_String;
 begin
   Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_name='+WideStrToDB(InternalGetServiceNameByHost);
 end;
@@ -1966,7 +1973,7 @@ end;
 function TDBMS_Provider.GetSQL_SelectTile(
   const ASelectBufferIn: PETS_SELECT_TILE_IN;
   const AExclusively: Boolean;
-  out ASQLTextResult: WideString
+  out ASQLTextResult: TDBMS_String
 ): Byte;
 var
   VSQLTile: TSQLTile;
@@ -2077,7 +2084,7 @@ begin
                     VSQLParts.OrderBySQL;
 end;
 
-function TDBMS_Provider.GetSQL_SelectVersions: WideString;
+function TDBMS_Provider.GetSQL_SelectVersions: TDBMS_String;
 begin
   // тащим всё из таблицы версий для текущего сервиса
   Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
@@ -2244,12 +2251,12 @@ begin
   end;
 end;
 
-function TDBMS_Provider.InternalGetServiceNameByDB: WideString;
+function TDBMS_Provider.InternalGetServiceNameByDB: TDBMS_String;
 begin
   Result := FDBMS_Service_Code;
 end;
 
-function TDBMS_Provider.InternalGetServiceNameByHost: WideString;
+function TDBMS_Provider.InternalGetServiceNameByHost: TDBMS_String;
 begin
   Result := FPath.Path_Items[2];
 end;
@@ -2364,7 +2371,7 @@ end;
 function TDBMS_Provider.InternalProv_ReadServiceInfo(const AExclusively: Boolean): Byte;
 var
   VDataset: TDBMS_Dataset;
-  VSelectCurrentServiceSQL: WideString;
+  VSelectCurrentServiceSQL: TDBMS_String;
 begin
   FillChar(FDBMS_Service_Info, SizeOf(FDBMS_Service_Info), 0);
   VDataset := FConnection.MakePoolDataset;
@@ -2446,7 +2453,7 @@ function TDBMS_Provider.InternalProv_SetStorageIdentifier(
   const AInfoResult: PLongWord
 ): Byte;
 var
-  VGlobalStorageIdentifier, VServiceName: WideString;
+  VGlobalStorageIdentifier, VServiceName: WideString; // keep wide
 begin
   // проверим буфер
   if (nil = AInfoData) or (AInfoSize < Sizeof(AInfoData^)) then begin
@@ -2549,7 +2556,7 @@ begin
               IntToStr(ANewVersionPtr^.ver_number) + ')';
     try
       // выполним (напрямую)
-      VDataset.ExecSQL(TRUE);
+      VDataset.ExecSQLDirect;
       Result := TRUE;
     except
       Result := FALSE;
@@ -2639,13 +2646,13 @@ begin
   end;
 end;
 
-function TDBMS_Provider.SQLDateTimeToDBValue(const ADateTime: TDateTime): WideString;
+function TDBMS_Provider.SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
 begin
   Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
-            WideStrToDB(FormatDateTime(c_DateTimeToDBFormat, ADateTime, FFormatSettings));
+            DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat, ADateTime, FFormatSettings));
 end;
 
-function TDBMS_Provider.TableExists(const ATableName: WideString): Boolean;
+function TDBMS_Provider.TableExists(const ATableName: TDBMS_String): Boolean;
 var
   VDataset: TDBMS_Dataset;
 begin

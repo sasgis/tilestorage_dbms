@@ -1,5 +1,7 @@
 unit t_DBMS_service;
 
+{$include i_DBMS.inc}
+
 interface
 
 type
