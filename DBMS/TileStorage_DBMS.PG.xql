@@ -20,7 +20,7 @@ create table Y_%SVC% (
    id_common_tile       smallint                       not null,
    id_common_type       smallint                       not null,
    common_size          int                            not null,
-   common_body          lo                             null,
+   common_body          bytea                          null,
    constraint PK_Y_%SVC% primary key (id_common_tile)
 )
 ;
@@ -41,7 +41,7 @@ create table "%Z%%HX%%DIV%%HY%_%SVC%" (
    tile_size            int                            default 0 not null,
    id_contenttype       smallint                       not null,
    load_date            TIMESTAMP                      default CURRENT_TIMESTAMP not null,
-   tile_body            lo                             null,
+   tile_body            bytea                          null,
    constraint PK_%Z%%HX%%DIV%%HY%_%SVC% primary key (x, y, id_ver)
 )
 ;

@@ -2,7 +2,7 @@ create table X_%SVC% (
    id_ver               smallint                       not null,
    ver_value            varchar(50)                    not null,
    ver_date             DATETIME                       not null,
-   ver_number           int                            default 0 not null,
+   ver_number           int                            not null default 0,
    ver_comment          varchar(255),
    constraint PK_X_%SVC% primary key (id_ver)
 )
@@ -20,7 +20,7 @@ create table Y_%SVC% (
    id_common_tile       smallint                       not null,
    id_common_type       smallint                       not null,
    common_size          int                            not null,
-   common_body          BLOB,
+   common_body          MEDIUMBLOB,
    constraint PK_Y_%SVC% primary key (id_common_tile)
 )
 ;
@@ -38,10 +38,10 @@ create table `%Z%%HX%%DIV%%HY%_%SVC%` (
    x                    numeric                        not null,
    y                    numeric                        not null,
    id_ver               smallint                       not null,
-   tile_size            int                            default 0 not null,
+   tile_size            int                            not null default 0,
    id_contenttype       smallint                       not null,
-   load_date            DATETIME                       default SYSDATE() not null,
-   tile_body            BLOB,
+   load_date            DATETIME                       not null,
+   tile_body            MEDIUMBLOB,
    constraint PK_%Z%%HX%%DIV%%HY%_%SVC% primary key (x, y, id_ver)
 )
 ;
