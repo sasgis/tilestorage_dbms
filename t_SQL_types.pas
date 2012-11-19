@@ -301,30 +301,6 @@ select skip 10 limit 10 * systables;
 
 MySQL:
 
-DBXCommon.TDBXContext.Error(
-  ???,
-  'Cannot load LIBMYSQL.dll library (error code 126).  The LIBMYSQL.dll library may be missing from the system path'
-)
-
-исключение внутри function TDBXDynalinkCommand.DerivedExecuteQuery: TDBXReader;
-на строке CheckResult(FMethodTable.FDBXCommand_Execute(FCommandHandle, ReaderHandle));
-Access violation at address 0B85E258 in module 'dbxmys30.dll'.
-Read of address 00000000
-
-Для ZEOS - Exception class Exception with message:
-None of the dynamic libraries can be found: libmysql51.dll, libmysql50.dll, libmysql.dll
-2013: 'Lost connection to MySQL server during query'
-2006: 'MySQL server has gone away'
-2047: 'Wrong or unknown protocol'
-1064: 'You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near 'SYSDATE() not null,'#$D#$A'tile_body            BLOB,'#$D#$A'constraint PK_C1I0_nmc_recency ' at line 7'
-1292: 'Incorrect datetime value: '1899-12-30 00:00:00' for column 'ver_date' at row 1'
-
-select version() from DUAL - works ('5.5.28-MariaDB')
-select * from DUAL - failes (SQL Error (1096): No tables used)
-select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - works
-create view V_DUAL as select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - works
-create view DUAL as select 'MYSQL' as ENGINETYPE, version() as ENGINE_VERSION - failes
-
 BLOB DATA TYPE:
 A BLOB is a binary large object that can hold a variable amount of data.
 The four BLOB types are TINYBLOB, BLOB, MEDIUMBLOB, and LONGBLOB.
@@ -332,36 +308,34 @@ These differ only in the maximum length of the values they can hold.
 The four TEXT types are TINYTEXT, TEXT, MEDIUMTEXT, and LONGTEXT.
 These correspond to the four BLOB types and have the same maximum lengths and storage requirements.
 http://dev.mysql.com/doc/refman/5.5/en/storage-requirements.html
+http://dev.mysql.com/doc/refman/5.5/en/string-type-overview.html
 http://dev.mysql.com/doc/refman/5.5/en/blob.html
 
 MEDIUMBLOB:
 A BLOB column with a maximum length of 16,777,215 (2^24 - 1) bytes.
 Each MEDIUMBLOB value is stored using a 3-byte length prefix that indicates the number of bytes in the value.
-http://dev.mysql.com/doc/refman/5.5/en/string-type-overview.html
 
 LONGBLOB:
 A BLOB column with a maximum length of 4,294,967,295 or 4GB (2^32 - 1) bytes.
 The effective maximum length of LONGBLOB columns depends on the
 configured maximum packet size in the client/server protocol and available memory.
 Each LONGBLOB value is stored using a 4-byte length prefix that indicates the number of bytes in the value.
-http://dev.mysql.com/doc/refman/5.5/en/string-type-overview.html
 
 BLOB[(M)]:
 A BLOB column with a maximum length of 65,535 (2^16 - 1) bytes.
 Each BLOB value is stored using a 2-byte length prefix that indicates the number of bytes in the value.
 An optional length M can be given for this type. If this is done, MySQL creates the column as
 the smallest BLOB type large enough to hold values M bytes long.
-http://dev.mysql.com/doc/refman/5.5/en/string-type-overview.html
 
 TINYBLOB:
 A BLOB column with a maximum length of 255 (2^8 - 1) bytes.
 Each TINYBLOB value is stored using a 1-byte length prefix that indicates the number of bytes in the value.
-http://dev.mysql.com/doc/refman/5.5/en/string-type-overview.html
 
 
 ASE via DBLIB:
 'Cannot perform more than one read There is no OS level error '#$D'Net-Library operation terminated due to disconnect There is no OS level error '
 'Attempt to initiate a new SQL Server operation with results pending.  '#$D'Attempt to initiate a new SQL Server operation with results pending.  '
+AFAIK - CT-LIB wanted ))
 
 *)
 

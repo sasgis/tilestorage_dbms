@@ -683,25 +683,6 @@ begin
 
         // исполняем (напрямую)
         VExecSQL.ExecSQLDirect;
-
-        //(VDataset.FieldByName('object_sql') as TBlobField).BlobSize;
-
-        (*
-        VStream := VDataset.CreateBlobStream(VDataset.FieldByName('object_sql'), bmRead);
-        try
-          VExecSQL.SQL.LoadFromStream(VStream);
-          VSQLText := VExecSQL.SQL.Text;
-          // а тут надо подменить имя таблицы
-          // TODO: также необходимо подставить нуные типы полей для оптимального хранения XY
-          VSQLText := StringReplace(VSQLText, ATemplateName, ATableName, [rfReplaceAll,rfIgnoreCase]);
-          // готово
-          VExecSQL.SQL.Text := VSQLText;
-          // исполняем (напрямую)
-          VExecSQL.ExecSQL(TRUE);
-        finally
-          FreeAndNil(VStream);
-        end;
-        *)
       except
         if (Vignore_errors=ETS_UCT_NO) then
           raise;

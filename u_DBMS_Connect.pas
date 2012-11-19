@@ -114,7 +114,8 @@ type
     FInternalParams: TStringList;
     FETS_INTERNAL_SCHEMA: String;
     // если будет более одной DLL - переделать на TStringList
-    FInternalLoadLibrary: THandle;
+    FInternalLoadLibraryStd: THandle;
+    FInternalLoadLibraryAlt: THandle;
   protected
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     function ApplyAuthenticationInfo: Byte;
@@ -349,9 +350,13 @@ end;
 procedure TDBMS_Connection.SaveInternalParameter(const AParamName, AParamValue: String);
 begin
   // если запрошенная DLL загрузится - не будет её добавлять в список внутренних параметров
-  if SameText(ETS_INTERNAL_LOAD_LIBRARY, AParamName) and (FInternalLoadLibrary=0) and (0<Length(AParamValue)) then begin
-    FInternalLoadLibrary := LoadLibrary(PChar(AParamValue));
-    if (FInternalLoadLibrary<>0) then
+  if SameText(ETS_INTERNAL_LOAD_LIBRARY, AParamName) and (FInternalLoadLibraryStd=0) and (0<Length(AParamValue)) then begin
+    FInternalLoadLibraryStd := LoadLibrary(PChar(AParamValue));
+    if (FInternalLoadLibraryStd<>0) then
+      Exit;
+  end else if SameText(ETS_INTERNAL_LOAD_LIBRARY_ALT, AParamName) and (FInternalLoadLibraryAlt=0) and (0<Length(AParamValue)) then begin
+    FInternalLoadLibraryAlt := LoadLibraryEx(PChar(AParamValue), 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (FInternalLoadLibraryAlt<>0) then
       Exit;
   end else if SameText(ETS_INTERNAL_SCHEMA, AParamName) then begin
     // для более быстрого доступа
@@ -602,7 +607,8 @@ begin
   inherited Create;
   FSyncPool := MakeSync_Tiny(Self);
   FSQLConnection := TDBMS_Custom_Connection.Create(nil);
-  FInternalLoadLibrary := 0;
+  FInternalLoadLibraryStd := 0;
+  FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
   FETS_INTERNAL_SCHEMA := '';
 end;
@@ -643,9 +649,13 @@ begin
   except
   end;
 
-  if (FInternalLoadLibrary<>0) then begin
-    FreeLibrary(FInternalLoadLibrary);
-    FInternalLoadLibrary:=0;
+  if (FInternalLoadLibraryAlt<>0) then begin
+    FreeLibrary(FInternalLoadLibraryAlt);
+    FInternalLoadLibraryAlt:=0;
+  end;
+  if (FInternalLoadLibraryStd<>0) then begin
+    FreeLibrary(FInternalLoadLibraryStd);
+    FInternalLoadLibraryStd:=0;
   end;
 
   FSyncPool := nil;
@@ -1058,62 +1068,92 @@ begin
 end;
 
 function TDBMS_Dataset.CreateFieldBlobReadStream(const AFieldName: WideString): TStream;
+var
+  F: TField;
+  //S: String;
 begin
-  Result := Self.CreateBlobStream(Self.FieldByName(AFieldName), bmRead);
+  F := Self.FieldByName(AFieldName);
+(*
+  if (F is TVarBytesField) then begin
+    // бинарное хранилище
+    S := TVarBytesField(F).AsString;
+    Result := TMemoryStream.Create;
+    Result.Write(PChar(S)^, Length(S));
+    Result.Position := 0;
+  end else begin
+*)
+    // просто BLOB
+    Result := Self.CreateBlobStream(F, bmRead);
+//  end;
 end;
 
 procedure TDBMS_Dataset.ExecSQLDirect;
 var VLocked: Boolean;
 begin
+{$if defined(ETS_USE_ZEOS)}
   TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
   try
-{$if defined(ETS_USE_ZEOS)}
     if FUsePingServer then begin
       Connection.PingServer;
     end;
     ExecSQL;
-{$else}
-    ExecSQL(TRUE);
-{$ifend}
   finally
     TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
   end;
+{$else}
+  TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
+  try
+    ExecSQL(TRUE);
+  finally
+    TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
+  end;
+{$ifend}
 end;
 
 procedure TDBMS_Dataset.ExecSQLParsed;
 var VLocked: Boolean;
 begin
+{$if defined(ETS_USE_ZEOS)}
   TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
   try
-{$if defined(ETS_USE_ZEOS)}
     if FUsePingServer then begin
       Connection.PingServer;
     end;
     ExecSQL;
-{$else}
-    ExecSQL(FALSE);
-{$ifend}
   finally
     TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
   end;
+{$else}
+  TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
+  try
+    ExecSQL(FALSE);
+  finally
+    TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
+  end;
+{$ifend}
 end;
 
 procedure TDBMS_Dataset.ExecSQLSpecified(const ADirectExec: Boolean);
 var VLocked: Boolean;
 begin
+{$if defined(ETS_USE_ZEOS)}
   TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
   try
-{$if defined(ETS_USE_ZEOS)}
     if FUsePingServer then begin
       Connection.PingServer;
     end;
     ExecSQL;
-{$else}
-    ExecSQL(ADirectExec);
-{$ifend}
   finally
     TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
   end;
+{$else}
+  TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
+  try
+    ExecSQL(ADirectExec);
+  finally
+    TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
+  end;
+{$ifend}
 end;
 
 function TDBMS_Dataset.GetAnsiCharFlag(
@@ -1152,32 +1192,38 @@ end;
 procedure TDBMS_Dataset.OpenSQL(const ASQLText: TDBMS_String);
 var VLocked: Boolean;
 begin
+  // закроем если датасет активен
   if Active then
     Close;
 
 {$if defined(ETS_USE_ZEOS)}
+  // пропихнём текст запроса
   Self.SQL.Text := ASQLText;
-{$else}
-  Self.CommandText := ASQLText;
-{$ifend}
-
-{$if defined(ETS_USE_ZEOS)}
-  if FUsePingServer then begin
-    Connection.PingServer;
-  end;
-{$ifend}
 
   TDBMS_Custom_Connection(Connection).BeforeSQL(VLocked);
   try
+    if FUsePingServer then begin
+      Connection.PingServer;
+    end;
+
     Self.Open;
-{$if defined(ETS_USE_ZEOS)}
+    
     if VLocked then begin
       FetchAll;
     end;
-{$ifend}
   finally
     TDBMS_Custom_Connection(Connection).AfterSQL(VLocked);
   end;
+{$else}
+  Self.CommandText := ASQLText;
+
+  TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
+  try
+    Self.Open;
+  finally
+    TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
+  end;
+{$ifend}
 end;
 
 procedure TDBMS_Dataset.SetParamBlobData(
