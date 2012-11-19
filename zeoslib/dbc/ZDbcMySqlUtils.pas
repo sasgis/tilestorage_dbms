@@ -373,6 +373,17 @@ end;
   @param LogCategory a logging category.
   @param LogMessage a logging message.
 }
+
+{ vasketsov begin }
+type
+  // to ignore some exceptions
+  // access to not exists
+  // create already existing
+  EZSQLTableNotExistsException = class(EZSQLException);
+  // server drops the connection
+  EZSQLServerDisconnectedException = class(EZSQLException);
+{ vasketsov end }
+
 procedure CheckMySQLError(PlainDriver: IZMySQLPlainDriver;
   Handle: PZMySQLConnect; LogCategory: TZLoggingCategory; const LogMessage: string);
 var
@@ -388,6 +399,15 @@ begin
 
     DriverManager.LogError(LogCategory, PlainDriver.GetProtocol, LogMessage,
       ErrorCode, ErrorMessage);
+
+{ vasketsov begin }
+    if (System.Pos('exist',ErrorMessage)>0) then
+      raise EZSQLTableNotExistsException.CreateWithCode(ErrorCode, Format(SSQLError1, [ErrorMessage]))
+    else
+    if (ErrorCode=2006) or (ErrorCode=2013) then
+      raise EZSQLServerDisconnectedException.CreateWithCode(ErrorCode, Format(SSQLError1, [ErrorMessage]))
+    else
+{ vasketsov end }
     raise EZSQLException.CreateWithCode(ErrorCode,
       Format(SSQLError1, [ErrorMessage]));
   end;
