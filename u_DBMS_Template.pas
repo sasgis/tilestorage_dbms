@@ -108,7 +108,7 @@ destructor TDBMS_SQLTemplates_File.Destroy;
 begin
   FreeAndNil(FAux);
   FreeAndNil(FSQL);
-  inherited;
+  inherited Destroy;
 end;
 
 procedure TDBMS_SQLTemplates_File.ExecSQLFromStrings(
@@ -146,19 +146,20 @@ begin
           // если не в таблицу - значит просто исполняем команды SQL
           if (0=Length(FAppendDivider)) then begin
             // просто дообавляем строки
-            ADataset.SQL.Clear;
-            ADataset.SQL.AddStrings(VLines);
+            ADataset.SetSQLTextAsStrings(VLines);
           end else begin
             // кроме строк добавляем окончание команды
-            ADataset.SQL.Text := Trim(VLines.Text) + FAppendDivider;
+            ADataset.SetSQLTextAsString(Trim(VLines.Text) + FAppendDivider);
           end;
           // исполняем
           ADataset.ExecSQLDirect;
         end else begin
           // make insert SQL statement for special table
-          ADataset.SQL.Text := 'insert into ' + FForcedSchemaPrefix + Z_ALL_SQL+
-                              ' (object_name,object_oper,index_sql,object_sql)'+
-                              ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')';
+          ADataset.SetSQLTextAsString(
+            'insert into ' + FForcedSchemaPrefix + Z_ALL_SQL+
+                  ' (object_name,object_oper,index_sql,object_sql)'+
+                  ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')'
+          );
           ADataset.ExecSQLDirect;
         end;
       except
@@ -210,11 +211,12 @@ procedure TDBMS_SQLTemplates_File.ExecuteAuxSQL(
   const ATemplatedTableName: String
 );
 var
-  VLine, VDivider, VUppercased: String;
+  VLine, VUppercased: String;
+  //VDivider: String;
   VLines: TStrings;
   VNextCreateTable: Integer;
 begin
-  VDivider := GetSQLDivider(FAux);
+  //VDivider := GetSQLDivider(FAux);
   VUppercased := UpperCase(ATemplatedTableName);
 
   VLines := TStringList.Create;

@@ -6,10 +6,10 @@ interface
 
 (*
 
-  1. dbExpress for Delphi - implementing
-  2. ZeosLib for Delphi   - not yet
-  3. SQLdb for Lazarus    - not yet
-  
+  1. dbExpress for Delphi - implemented
+  2. ZeosLib for Delphi   - implemented
+  3. mODBC for Delphi     - implemented
+
 *)
 
 uses
@@ -391,7 +391,17 @@ const
   c_ZEOS_User     = 'User';
   c_ZEOS_Password = 'Password';
 
-
+  // for SQLDB
+  c_SQLDB_Password       = 'Password';
+  c_SQLDB_UserName       = 'UserName';
+  c_SQLDB_CharSet        = 'CharSet';
+  c_SQLDB_HostName       = 'HostName';
+  c_SQLDB_Role           = 'Role';
+  c_SQLDB_DatabaseName   = 'DatabaseName';
+  c_SQLDB_Directory      = 'Directory';
+  c_SQLDB_KeepConnection = 'KeepConnection';
+  c_SQLDB_ConnectorType  = 'ConnectorType';
+  // Port - â Params
 
   // prefix and suffix for identifiers for tiles
   c_SQL_QuotedIdentifierForcedForTiles: array [TEngineType] of Boolean = (
@@ -440,6 +450,8 @@ const
 function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
 
 function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngineType;
+
+function GetEngineTypeByODBCDescription(const AODBCDescription: WideString): TEngineType;
 
 function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
 

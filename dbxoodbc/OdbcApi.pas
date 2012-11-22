@@ -69,6 +69,8 @@ unit OdbcApi;
 //
 //**************************************************************************
 
+{$include i_DBMS.inc}
+
 {$INCLUDE DbxOpenOdbc.inc} // <-: define option "DynamicOdbcImport".
 
 // Conditional defines can be hard-coded in here, or set using project options dialog
@@ -110,9 +112,11 @@ uses
   DbxOpenOdbcTypes,
 {$IFNDEF DynamicOdbcImport}
   DbxOpenOdbcFuncs, DbxOpenOdbcUtils,
+{$ELSE}
+  DbxOpenOdbcFuncs,
 {$ENDIF}
-  SysUtils, SysConst, SyncObjs,
-  DbxOpenOdbcFuncs;
+  SysUtils, SysConst,
+  SyncObjs;
 
 {$DEFINE ODBC_STDCALL}  // stdcall
 {$IFDEF LINUX}
@@ -248,7 +252,7 @@ type
 {$EXTERNALSYM SWORD}
   SWord = Smallint;
 {$EXTERNALSYM UDWORD}
-  UDWord = Longint;
+  UDWord = LongWord;
 {$EXTERNALSYM UWORD}
   UWord = Word;
   PUWord = ^UWord;
@@ -1054,9 +1058,9 @@ function SQLColumns(
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
 {$IFDEF DynamicOdbcImport}
-TSQLConnect = function(
+TSQLConnectA = function(
 {$ELSE}
-function SQLConnect(
+function SQLConnectA(
 {$ENDIF}
   ConnectionHandle: SqlHDbc;
   ServerName: PAnsiChar;
@@ -1068,6 +1072,20 @@ function SQLConnect(
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
 {$IFDEF DynamicOdbcImport}
+TSQLConnectW = function(
+{$ELSE}
+function SQLConnectW(
+{$ENDIF}
+  ConnectionHandle: SqlHDbc;
+  ServerName: PWideChar;
+  NameLength1: SqlSmallint;
+  UserName: PWideChar;
+  NameLength2: SqlSmallint;
+  Authentication: PWideChar;
+  NameLength3: SqlSmallint
+  ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
+  
+{$IFDEF DynamicOdbcImport}
 TSQLCopyDesc = function(
 {$ELSE}
 function SQLCopyDesc(
@@ -1077,9 +1095,9 @@ function SQLCopyDesc(
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
 {$IFDEF DynamicOdbcImport}
-TSQLDataSources = function(
+TSQLDataSourcesA = function(
 {$ELSE}
-function SQLDataSources(
+function SQLDataSourcesA(
 {$ENDIF}
   EnvironmentHandle: SqlHEnv;
   Direction: SqlUSmallint;
@@ -1092,9 +1110,24 @@ function SQLDataSources(
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
 {$IFDEF DynamicOdbcImport}
-TSQLDescribeCol = function(
+TSQLDataSourcesW = function(
 {$ELSE}
-function SQLDescribeCol(
+function SQLDataSourcesW(
+{$ENDIF}
+  EnvironmentHandle: SqlHEnv;
+  Direction: SqlUSmallint;
+  var ServerName: SqlChar;
+  BufferLength1: SqlSmallint;
+  var NameLength1: SqlSmallint;
+  var Description: SqlChar;
+  BufferLength2: SqlSmallint;
+  var NameLength2: SqlSmallint
+  ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
+  
+{$IFDEF DynamicOdbcImport}
+TSQLDescribeColA = function(
+{$ELSE}
+function SQLDescribeColA(
 {$ENDIF}
   StatementHandle: SqlHStmt;
   ColumnNumber: SqlUSmallint;
@@ -1102,7 +1135,23 @@ function SQLDescribeCol(
   BufferLength: SqlSmallint;
   var NameLength: SqlSmallint;
   var DataType: SqlSmallint;
-  var ColumnSize: SqlUInteger;
+  var ColumnSize: SQLULEN;
+  var DecimalDigits: SqlSmallint;
+  var Nullable: SqlSmallint
+  ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
+
+{$IFDEF DynamicOdbcImport}
+TSQLDescribeColW = function(
+{$ELSE}
+function SQLDescribeColW(
+{$ENDIF}
+  StatementHandle: SqlHStmt;
+  ColumnNumber: SqlUSmallint;
+  ColumnName: PWideChar;
+  BufferLength: SqlSmallint;
+  var NameLength: SqlSmallint;
+  var DataType: SqlSmallint;
+  var ColumnSize: SQLULEN;
   var DecimalDigits: SqlSmallint;
   var Nullable: SqlSmallint
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
@@ -1141,15 +1190,25 @@ function SQLError(
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
 {$IFDEF DynamicOdbcImport}
-TSQLExecDirect = function(
+TSQLExecDirectA = function(
 {$ELSE}
-function SQLExecDirect(
+function SQLExecDirectA(
 {$ENDIF}
   StatementHandle: SqlHStmt;
   StatementText: PAnsiChar;
   TextLength: SqlInteger
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
+{$IFDEF DynamicOdbcImport}
+TSQLExecDirectW = function(
+{$ELSE}
+function SQLExecDirectW(
+{$ENDIF}
+  StatementHandle: SqlHStmt;
+  StatementText: PWideChar;
+  TextLength: SqlInteger
+  ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
+  
 {$IFDEF DynamicOdbcImport}
 TSQLExecute = function(
 {$ELSE}
@@ -1454,15 +1513,25 @@ function SQLParamData(
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
 {$IFDEF DynamicOdbcImport}
-TSQLPrepare = function(
+TSQLPrepareA = function(
 {$ELSE}
-function SQLPrepare(
+function SQLPrepareA(
 {$ENDIF}
   StatementHandle: SqlHStmt;
   StatementText: PAnsiChar;
   TextLength: SqlInteger
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
+{$IFDEF DynamicOdbcImport}
+TSQLPrepareW = function(
+{$ELSE}
+function SQLPrepareW(
+{$ENDIF}
+  StatementHandle: SqlHStmt;
+  StatementText: PWideChar;
+  TextLength: SqlInteger
+  ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
+  
 {$IFDEF DynamicOdbcImport}
 TSQLPutData = function(
 {$ELSE}
@@ -1721,6 +1790,8 @@ const
   {$EXTERNALSYM SQL_OV_ODBC2}
   SQL_OV_ODBC3 = ULong(3);
   {$EXTERNALSYM SQL_OV_ODBC3}
+  SQL_OV_ODBC3_51 = 351;
+  {$EXTERNALSYM SQL_OV_ODBC3_51}
   SQL_OV_ODBC3_80 = 380;
   {$EXTERNALSYM SQL_OV_ODBC3_80}
 
@@ -2125,6 +2196,27 @@ const
 
   SQL_TYPE_NULL = 0;
   SQL_C_VARBOOKMARK = SQL_C_BINARY;
+
+
+  // for DB2
+  SQL_GRAPHIC           = -95;
+  SQL_VARGRAPHIC        = -96;
+  SQL_LONGVARGRAPHIC    = -97;
+  SQL_BLOB              = -98;
+  SQL_CLOB              = -99;
+  SQL_DBCLOB            = -350;
+  SQL_XML               = -370;
+  SQL_DATALINK          = -400;
+  SQL_USER_DEFINED_TYPE = -450;
+  SQL_BLOB_LOCATOR      = 31;
+  SQL_CLOB_LOCATOR      = 41;
+  SQL_DBCLOB_LOCATOR    = -351;
+
+  // for MSSQL
+  SQL_VARIANT    = -150;
+
+  // for Oracle
+  SQL_REFCURSOR    = -403;
 
   // define for SQL_DIAG_ROW_NUMBER and SQL_DIAG_COLUMN_NUMBER
   SQL_NO_ROW_NUMBER = (-1);
@@ -3155,9 +3247,9 @@ const
 
 {$IFDEF DynamicOdbcImport}
 type
-  TSQLDriverConnect = function(
+  TSQLDriverConnectA = function(
 {$ELSE}
-function SQLDriverConnect(
+function SQLDriverConnectA(
 {$ENDIF}
   HDbc: SqlHDbc;
   hwnd: SqlHWnd;
@@ -3169,6 +3261,22 @@ function SQLDriverConnect(
   fDriverCompletion: SqlUSmallint
   ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
 
+{$IFDEF DynamicOdbcImport}
+type
+  TSQLDriverConnectW = function(
+{$ELSE}
+function SQLDriverConnectW(
+{$ENDIF}
+  HDbc: SqlHDbc;
+  hwnd: SqlHWnd;
+  szConnStrIn: PWideChar;
+  cbConnStrIn: SqlSmallint;
+  szConnStrOut: PWideChar;
+  cbConnStrOutMax: SqlSmallint;
+  var pcbConnStrOut: SqlSmallint;
+  fDriverCompletion: SqlUSmallint
+  ): SqlReturn; {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF};
+  
 // Level 2 Functions
 
 // SQLExtendedFetch "fFetchType" values
@@ -3737,14 +3845,14 @@ type
     SQLCloseCursorA: TSQLCloseCursor;
     SQLColAttributeA: TSQLColAttribute;
     SQLColumnsA: TSQLColumns;
-    SQLConnectA: TSQLConnect;
+    SQLConnectA: TSQLConnectA;
     SQLCopyDescA: TSQLCopyDesc;
-    SQLDataSourcesA: TSQLDataSources;
-    SQLDescribeColA: TSQLDescribeCol;
+    SQLDataSourcesA: TSQLDataSourcesA;
+    SQLDescribeColA: TSQLDescribeColA;
     SQLDisconnectA: TSQLDisconnect;
     SQLEndTranA: TSQLEndTran;
     SQLErrorA: TSQLError;
-    SQLExecDirectA: TSQLExecDirect;
+    SQLExecDirectA: TSQLExecDirectA;
     SQLExecuteA: TSQLExecute;
     SQLFetchA: TSQLFetch;
     SQLFetchScrollA: TSQLFetchScroll;
@@ -3768,7 +3876,7 @@ type
     SQLGetTypeInfoA: TSQLGetTypeInfo;
     SQLNumResultColsA: TSQLNumResultCols;
     SQLParamDataA: TSQLParamData;
-    SQLPrepareA: TSQLPrepare;
+    SQLPrepareA: TSQLPrepareA;
     SQLPutDataA: TSQLPutData;
     SQLRowCountA: TSQLRowCount;
     SQLSetConnectAttrA: TSQLSetConnectAttr;
@@ -3785,7 +3893,7 @@ type
     SQLTablesA: TSQLTables;
     SQLTransactA: TSQLTransact;
     // sqlext.h
-    SQLDriverConnectA: TSQLDriverConnect;
+    SQLDriverConnectA: TSQLDriverConnectA;
     SQLBrowseConnectA: TSQLBrowseConnect;
     SQLBulkOperationsA: TSQLBulkOperations;
     SQLColAttributesA: TSQLColAttributes;
@@ -3820,11 +3928,11 @@ type
     // sql.h
     SQLColAttributeW: TSQLColAttribute;
     SQLColumnsW: TSQLColumns;
-    SQLConnectW: TSQLConnect;
-    SQLDataSourcesW: TSQLDataSources;
-    SQLDescribeColW: TSQLDescribeCol;
+    SQLConnectW: TSQLConnectW;
+    SQLDataSourcesW: TSQLDataSourcesW;
+    SQLDescribeColW: TSQLDescribeColW;
     SQLErrorW: TSQLError;
-    SQLExecDirectW: TSQLExecDirect;
+    SQLExecDirectW: TSQLExecDirectW;
     SQLGetConnectAttrW: TSQLGetConnectAttr;
     SQLGetConnectOptionW: TSQLGetConnectOption;
     SQLGetCursorNameW: TSQLGetCursorName;
@@ -3835,7 +3943,7 @@ type
     SQLGetInfoW: TSQLGetInfo;
     SQLGetStmtAttrW: TSQLGetStmtAttr;
     SQLGetTypeInfoW: TSQLGetTypeInfo;
-    SQLPrepareW: TSQLPrepare;
+    SQLPrepareW: TSQLPrepareW;
     SQLRowCountW: TSQLRowCount;
     SQLSetConnectAttrW: TSQLSetConnectAttr;
     SQLSetConnectOptionW: TSQLSetConnectOption;
@@ -3846,7 +3954,7 @@ type
     SQLStatisticsW: TSQLStatistics;
     SQLTablesW: TSQLTables;
     // sqlext.h
-    SQLDriverConnectW: TSQLDriverConnect;
+    SQLDriverConnectW: TSQLDriverConnectW;
     SQLBrowseConnectW: TSQLBrowseConnect;
     SQLColAttributesW: TSQLColAttributes;
     SQLColumnPrivilegesW: TSQLColumnPrivileges;
@@ -5946,7 +6054,7 @@ const
 
 const
 {$IFDEF MSWINDOWS}
-  sysodbclib: AnsiString = 'odbc32.dll';
+  sysodbclib = 'odbc32.dll';
 {$ELSE}
 {$IFDEF MACOS}
   sysodbclib: AnsiString = '/usr/lib/libiodbc.dylib';
@@ -6013,16 +6121,25 @@ function SQLColAttributeInt;
 function SQLColumns;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
-function SQLConnect;
+function SQLConnectA;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
+function SQLConnectW;
+   {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
+   
 function SQLCopyDesc;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
-function SQLDataSources;
+function SQLDataSourcesA;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
-function SQLDescribeCol;
+function SQLDataSourcesW;
+   {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
+
+function SQLDescribeColA;
+   {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
+
+function SQLDescribeColW;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
 function SQLDisconnect;
@@ -6034,7 +6151,10 @@ function SQLEndTran;
 function SQLError;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
-function SQLExecDirect;
+function SQLExecDirectA;
+   {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
+
+function SQLExecDirectW;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
 function SQLExecute;
@@ -6126,9 +6246,12 @@ function SQLNumResultCols;
 function SQLParamData;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
-function SQLPrepare;
+function SQLPrepareA;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
+function SQLPrepareW;
+   {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
+   
 function SQLPutData;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
@@ -6276,7 +6399,10 @@ function SQLColumnPrivileges;
 function SQLDescribeParam;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
-function SQLDriverConnect;
+function SQLDriverConnectA;
+   {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
+
+function SQLDriverConnectW;
    {$IFDEF ODBC_STDCALL}stdcall{$ELSE}cdecl{$ENDIF}; external sysodbclib;
 
 function SQLDrivers;
@@ -7448,7 +7574,7 @@ begin
     begin
       wszServerName := WideString(StrPas(ServerName));
       //NameLength1 := SQL_NTS; // or Length(wszServerName) +1;
-      ServerName := PAnsiChar(PWideChar(wszServerName));
+      //ServerName := PAnsiChar(PWideChar(wszServerName));
     end
     else
       NameLength1 := 0;
@@ -7456,7 +7582,7 @@ begin
     begin
       wszUserName := WideString(StrPas(UserName));
       //NameLength2 := Length(wszUserName) +1;
-      UserName := PAnsiChar(PWideChar(wszUserName));
+      //UserName := PAnsiChar(PWideChar(wszUserName));
     end
     else
       NameLength2 := 0;
@@ -7464,15 +7590,15 @@ begin
     begin
       wszAuthentication := WideString(StrPas(Authentication));
       //NameLength3 := Length(wszAuthentication) +1;
-      Authentication := PAnsiChar(PWideChar(wszAuthentication));
+      //Authentication := PAnsiChar(PWideChar(wszAuthentication));
     end
     else
       NameLength3 := 0;
 
     Result := SQLConnectW(ConnectionHandle,
-      ServerName, NameLength1,
-      UserName, NameLength2,
-      Authentication, NameLength3);
+      PWideChar(wszServerName), NameLength1,
+      PWideChar(wszUserName), NameLength2,
+      PWideChar(wszAuthentication), NameLength3);
   end
   else
     NotImplemented('SQLConnect');
@@ -7571,7 +7697,7 @@ begin
       FillChar(PAnsiChar(PWideChar(wszColumnName))^, BufferLength*2, 0);
     NameLength := 0;
     Result := SQLDescribeColW(StatementHandle, ColumnNumber,
-      PAnsiChar(PWideChar(wszColumnName)), BufferLength, NameLength,
+      PWideChar(wszColumnName), BufferLength, NameLength,
       DataType, ColumnSize, DecimalDigits, Nullable);
     if {(Result in [SQL_SUCCESS, SQL_SUCCESS_WITH_INFO]) and}
       (NameLength >= 0) {and (ColumnName<>nil)} then
@@ -7641,8 +7767,8 @@ begin
     SetLength(wszConnStrOut, cbConnStrOutMax * 4);
     FillChar(PAnsiChar(PWideChar(wszConnStrOut))^, Length(wszConnStrOut)*2, #0);
 
-    Result := SQLDriverConnectW(HDbc, hwnd, PAnsiChar(PWideChar(wszConnStrIn)), cbConnStrIn,
-      PAnsiChar(PWideChar(wszConnStrOut)), cbConnStrOutMax, pcbConnStrOut, fDriverCompletion);
+    Result := SQLDriverConnectW(HDbc, hwnd, PWideChar(wszConnStrIn), cbConnStrIn,
+      PWideChar(wszConnStrOut), cbConnStrOutMax, pcbConnStrOut, fDriverCompletion);
     if {(Result in [SQL_SUCCESS, SQL_SUCCESS_WITH_INFO]) and}
       Assigned(szConnStrOut) and (pcbConnStrOut > 0) then
     begin
@@ -7794,7 +7920,7 @@ begin
   begin
     //ANSI to Unicode mappings:
     wszStatementText := WideString(StrPas(StatementText));
-    Result := SQLExecDirectW(StatementHandle, PAnsiChar(PWideChar(wszStatementText)), TextLength);
+    Result := SQLExecDirectW(StatementHandle, PWideChar(wszStatementText), TextLength);
   end
   else
     NotImplemented('SQLExecDirect');
@@ -8965,7 +9091,7 @@ begin
   begin
     //ANSI to Unicode mappings:
     wszStatementText := WideString(StrPas(StatementText));
-    Result := SQLPrepareW(StatementHandle, PAnsiChar(PWideChar(wszStatementText)), TextLength);
+    Result := SQLPrepareW(StatementHandle, PWideChar(wszStatementText), TextLength);
   end
   else
     NotImplemented('SQLPrepare');
@@ -10103,7 +10229,7 @@ begin
     Result := fOdbcApiProxy.SQLConnect(ConnectionHandle, ServerName, NameLength1, UserName,
       NameLength2, Authentication, NameLength3);
   {$ELSE}
-    Result := OdbcApi.SQLConnect(ConnectionHandle, ServerName, NameLength1, UserName,
+    Result := OdbcApi.SQLConnectA(ConnectionHandle, ServerName, NameLength1, UserName,
       NameLength2, Authentication, NameLength3);
   {$ENDIF}
 end;
@@ -10129,7 +10255,7 @@ begin
     Result := fOdbcApiProxy.SQLDataSources(EnvironmentHandle, Direction, ServerName, BufferLength1,
       NameLength1, Description, BufferLength2, NameLength2);
   {$ELSE}
-    Result := OdbcApi.SQLDataSources(EnvironmentHandle, Direction, ServerName, BufferLength1,
+    Result := OdbcApi.SQLDataSourcesA(EnvironmentHandle, Direction, ServerName, BufferLength1,
       NameLength1, Description, BufferLength2, NameLength2);
   {$ENDIF}
 end;
@@ -10145,7 +10271,7 @@ begin
     Result := fOdbcApiProxy.SQLDescribeCol(StatementHandle, ColumnNumber, ColumnName,
       BufferLength, NameLength, DataType, ColumnSize, DecimalDigits, Nullable);
   {$ELSE}
-    Result := OdbcApi.SQLDescribeCol(StatementHandle, ColumnNumber, ColumnName,
+    Result := OdbcApi.SQLDescribeColA(StatementHandle, ColumnNumber, ColumnName,
       BufferLength, NameLength, DataType, ColumnSize, DecimalDigits, Nullable);
   {$ENDIF}
 end;
@@ -10186,7 +10312,7 @@ begin
     Result := fOdbcApiProxy.SQLDriverConnect(HDbc, hwnd, szConnStrIn, cbConnStrIn,
       szConnStrOut, cbConnStrOutMax, pcbConnStrOut, fDriverCompletion);
   {$ELSE}
-    Result := OdbcApi.SQLDriverConnect(HDbc, hwnd, szConnStrIn, cbConnStrIn,
+    Result := OdbcApi.SQLDriverConnectA(HDbc, hwnd, szConnStrIn, cbConnStrIn,
       szConnStrOut, cbConnStrOutMax, pcbConnStrOut, fDriverCompletion);
   {$ENDIF}
 end;
@@ -10241,7 +10367,7 @@ begin
     CheckAvailableProxy;
     Result := fOdbcApiProxy.SQLExecDirect(StatementHandle, StatementText, TextLength);
   {$ELSE}
-    Result := OdbcApi.SQLExecDirect(StatementHandle, StatementText, TextLength);
+    Result := OdbcApi.SQLExecDirectA(StatementHandle, StatementText, TextLength);
   {$ENDIF}
 end;
 
@@ -10660,7 +10786,7 @@ begin
     CheckAvailableProxy;
     Result := fOdbcApiProxy.SQLPrepare(StatementHandle, StatementText, TextLength);
   {$ELSE}
-    Result := OdbcApi.SQLPrepare(StatementHandle, StatementText, TextLength);
+    Result := OdbcApi.SQLPrepareA(StatementHandle, StatementText, TextLength);
   {$ENDIF}
 end;
 

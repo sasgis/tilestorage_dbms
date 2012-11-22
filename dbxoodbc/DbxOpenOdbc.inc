@@ -146,7 +146,10 @@ Delphi 7:      15.00
 //
 
 {$UNDEF DynamicOdbcImport}
+
+{$if not defined(USE_STATIC_LINK_ODBC)}
 {$DEFINE DynamicOdbcImport} // optional: It allows to use odbc libraries directly, passing odbc manager.
+{$ifend}
 
 {$UNDEF UnloadApiCache}
 {$IFDEF DynamicOdbcImport}

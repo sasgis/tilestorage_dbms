@@ -5,8 +5,8 @@ unit u_ODBC_DSN;
 interface
 
 uses
-  OdbcApi,
   Windows,
+  OdbcApi,
   SysUtils;
 
 function Load_DSN_Params_from_ODBC(
@@ -22,11 +22,13 @@ function Load_DSN_Params_from_ODBC(
 ): Boolean;
 var
   VResult: SqlReturn;
+{$if not defined(USE_STATIC_LINK_ODBC)}
   VODBC32Handle: HMODULE;
   VSQLAllocHandle: Pointer;
   VSQLFreeHandle: Pointer;
   VSQLSetEnvAttr: Pointer;
   VSQLDataSources: Pointer;
+{$ifend}
   VEnvHandle: SqlHEnv;
   VServerName: array [0..SQL_MAX_DSN_LENGTH] of Byte;
   VDescription: array [0..SQL_MAX_OPTION_STRING_LENGTH] of Byte;
@@ -40,6 +42,7 @@ begin
   if (0=Length(AServerName)) then
     Exit;
 
+{$if not defined(USE_STATIC_LINK_ODBC)}
   VODBC32Handle:=LoadLibrary(PAnsiChar(sysodbclib));
   if (0<>VODBC32Handle) then
   try
@@ -56,22 +59,40 @@ begin
     VSQLDataSources := GetProcAddress(VODBC32Handle, 'SQLDataSources');
     if (nil=VSQLDataSources) then
       Exit;
+{$ifend}
 
     // allocate environment
-    VResult := TSQLAllocHandle(VSQLAllocHandle)(SQL_HANDLE_ENV, nil, VEnvHandle);
+    VResult :=
+    {$if defined(USE_STATIC_LINK_ODBC)}
+    SQLAllocHandle
+    {$else}
+    TSQLAllocHandle(VSQLAllocHandle)
+    {$ifend}
+    (SQL_HANDLE_ENV, nil, VEnvHandle);
     if not SQL_SUCCEEDED(VResult) then
       Exit;
 
     // environment is allocated successfully
     try
       // set ODBC version (c_ODBC_VERSION)
-      {VResult :=} TSQLSetEnvAttr(VSQLSetEnvAttr)(VEnvHandle, SQL_ATTR_ODBC_VERSION, Pointer(SQL_OV_ODBC3), 0);
+      {VResult :=}
+      {$if defined(USE_STATIC_LINK_ODBC)}
+      SQLSetEnvAttr
+      {$else}
+      TSQLSetEnvAttr(VSQLSetEnvAttr)
+      {$ifend}
+      (VEnvHandle, SQL_ATTR_ODBC_VERSION, Pointer(SQL_OV_ODBC3), 0);
 
       VDirection := SQL_FETCH_FIRST_SYSTEM; // SQL_FETCH_FIRST;
       repeat
         // enumerate
-        VResult := TSQLDataSources(VSQLDataSources)(
-          VEnvHandle,
+        VResult :=
+        {$if defined(USE_STATIC_LINK_ODBC)}
+        SQLDataSourcesA
+        {$else}
+        TSQLDataSourcesA(VSQLDataSources)
+      {$ifend}
+         (VEnvHandle,
           VDirection,
           VServerName[0],
           SQL_MAX_DSN_LENGTH,
@@ -104,11 +125,18 @@ begin
       until FALSE;
     finally
       // free env handle
-      TSQLFreeHandle(VSQLFreeHandle)(SQL_HANDLE_ENV, VEnvHandle);
+      {$if defined(USE_STATIC_LINK_ODBC)}
+      SQLFreeHandle
+      {$else}
+      TSQLFreeHandle(VSQLFreeHandle)
+      {$ifend}
+      (SQL_HANDLE_ENV, VEnvHandle);
     end;
+{$if not defined(USE_STATIC_LINK_ODBC)}
   finally
     FreeLibrary(VODBC32Handle);
   end;
+{$ifend}
 end;
 
 end.

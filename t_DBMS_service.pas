@@ -13,7 +13,7 @@ type
     work_mode: AnsiChar; // in ['0','S','R'] ('0' by default)
     use_common_tiles: AnsiChar; // boolean ('0' by default)
   public
-    function XYMaskWidth: Byte; inline;
+    function XYMaskWidth: Byte; //inline;
   end;
 
   (*

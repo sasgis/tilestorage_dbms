@@ -132,13 +132,14 @@ end;
 
 constructor TVersionList.Create;
 begin
+  inherited Create;
   Clear;
 end;
 
 destructor TVersionList.Destroy;
 begin
   Clear;
-  inherited;
+  inherited Destroy;
 end;
 
 function TVersionList.FindItemByAnsiValue(

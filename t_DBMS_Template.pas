@@ -20,9 +20,9 @@ const
   // список настроеных серверов
   c_SQL_Ext_Ini = '.ini';
   // префиксы ini-шек для разделения настроек по типам используемых транспортов для подключения
-  c_SQL_DBX_Prefix_Ini = '_DBX_';
+  c_SQL_DBX_Prefix_Ini  = '_DBX_';
   c_SQL_ZEOS_Prefix_Ini = '_ZEOS_';
-  c_SQL_SQLDB_Prefix_Ini = '_SQLDB_';
+  c_SQL_ODBC_Prefix_Ini = '_ODBC_';
 
   // базовые таблицы
 

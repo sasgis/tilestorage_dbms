@@ -5,7 +5,6 @@ unit u_DBMS_Provider;
 interface
 
 uses
-  Types,
   Windows,
   SysUtils,
   Classes,
@@ -408,7 +407,7 @@ begin
   try
     // исполняем INSERT (вставляем запись о сервисе)
     try
-      VDataset.SQL.Text := VSQLText;
+      VDataset.SetSQLTextAsString(VSQLText);
       VDataset.ExecSQLDirect;
       Result := ETS_RESULT_OK;
     except
@@ -679,7 +678,7 @@ begin
         end;
 
         // готово
-        VExecSQL.SQL.Text := VSQLText;
+        VExecSQL.SetSQLTextAsString(VSQLText);
 
         // исполняем (напрямую)
         VExecSQL.ExecSQLDirect;
@@ -744,7 +743,7 @@ begin
 
       // execute DELETE statement
       try
-        VDataset.SQL.Text := VDeleteSQL;
+        VDataset.SetSQLTextAsString(VDeleteSQL);
         // exec (do not prepare statement)
         VDataset.ExecSQLDirect;
         // done (successfully DELETEed)
@@ -1046,7 +1045,7 @@ begin
     Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 {$else}
-  // для DBX не обрабатываем разрыв соединения сервером
+  // для DBX и ODBC не обрабатываем разрыв соединения сервером
   Result := ETS_RESULT_PROVIDER_EXCEPTION;
 {$ifend}
 end;
@@ -1124,7 +1123,7 @@ begin
           VInsertSQL := StringReplace(VInsertSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
         end;
 
-        VInsertDataset.SQL.Text := VInsertSQL;
+        VInsertDataset.SetSQLTextAsString(VInsertSQL);
         if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
           VInsertDataset.SetParamBlobData(
@@ -1150,6 +1149,10 @@ begin
             // проверяем, может не было таблицы
             if (not TableExists(VQuotedTableNameWithPrefix)) then begin
               // пробуем создать таблицу по шаблону
+              if (not VExclusive) then begin
+                Result := ETS_RESULT_NEED_EXCLUSIVE;
+                Exit;
+              end;
               CreateTableByTemplate(
                 c_Templated_RealTiles,
                 VUnquotedTableNameWithoutPrefix,
@@ -1187,7 +1190,7 @@ begin
           VUpdateSQL := StringReplace(VUpdateSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
         end;
         
-        VUpdateDataset.SQL.Text := VUpdateSQL;
+        VUpdateDataset.SetSQLTextAsString(VUpdateSQL);
         if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
           // добавим параметр (как BLOB)
           VUpdateDataset.SetParamBlobData(
@@ -1418,7 +1421,7 @@ begin
   FProvSync := nil;
   FGuidesSync := nil;
   
-  inherited;
+  inherited Destroy;
 end;
 
 procedure TDBMS_Provider.DoBeginWork(
@@ -1427,13 +1430,9 @@ procedure TDBMS_Provider.DoBeginWork(
   out AExclusivelyLocked: Boolean
 );
 begin
-{$if defined(ETS_USE_ZEOS)}
   AExclusivelyLocked := AExclusively OR
                         (FConnection=nil) OR
                         (FConnection.FullSyncronizeSQL);
-{$else}
-  AExclusivelyLocked := AExclusively;
-{$ifend}
 
   if AExclusivelyLocked then
     FProvSync.BeginWrite
@@ -2623,12 +2622,14 @@ begin
     // тут проверять бессмысленно, будем считать что таблица создалась
 
     // забацаем SQL для вставки записи о новой версии
-    VDataset.SQL.Text := 'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
-              '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
-              IntToStr(ANewVersionPtr^.id_ver) + ',' +
-              WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
-              SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
-              IntToStr(ANewVersionPtr^.ver_number) + ')';
+    VDataset.SetSQLTextAsString(
+      'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
+      '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
+      IntToStr(ANewVersionPtr^.id_ver) + ',' +
+      WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
+      SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
+      IntToStr(ANewVersionPtr^.ver_number) + ')'
+    );
     try
       // выполним (напрямую)
       VDataset.ExecSQLDirect;

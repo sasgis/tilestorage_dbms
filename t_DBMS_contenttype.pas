@@ -109,13 +109,14 @@ end;
 
 constructor TContentTypeList.Create;
 begin
+  inherited Create;
   Clear;
 end;
 
 destructor TContentTypeList.Destroy;
 begin
   Clear;
-  inherited;
+  inherited Destroy;
 end;
 
 function TContentTypeList.FindItemByAnsiContentTypeText(

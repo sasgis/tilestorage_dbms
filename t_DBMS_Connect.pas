@@ -32,6 +32,9 @@ const
   ETS_INTERNAL_DBX_GetDriverFunc = ETS_INTERNAL_PARAMS_PREFIX + 'DBX_GetDriverFunc';
   ETS_INTERNAL_DBX_VendorLib     = ETS_INTERNAL_PARAMS_PREFIX + 'DBX_VendorLib';
 
+  // для подключения через SQLDB через ODBC
+  ETS_INTERNAL_SQLDB_ConnectWithParams = ETS_INTERNAL_PARAMS_PREFIX + 'SQLDB_ConnectWithParams';
+
 implementation
 
 end.
