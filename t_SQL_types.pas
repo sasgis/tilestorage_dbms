@@ -488,6 +488,9 @@ begin
   end else if (System.Pos('ADAPTIVE', VDescUpper)>0) and (System.Pos('SERVER', VDescUpper)>0) and (System.Pos('ENTERPRISE', VDescUpper)>0) then begin
     // ASE
     Result := et_ASE;
+  end else if (System.Pos('SQL', VDescUpper)>0) and (System.Pos('ANYWHERE', VDescUpper)>0) then begin
+    // ASA
+    Result := et_ASA;
   end else if ('SQL SERVER'=VDescUpper) then begin
     // MSSQL
     Result := et_MSSQL;

@@ -56,6 +56,27 @@ type
     property ExceptionAddr: ESQLError read FExceptionAddr write FExceptionAddr;
   end;
 
+  // ODBC environment errors
+  EODBCEnvironmentError    = class(ESQLerror);
+
+  // common ODBC errors
+  EODBCCommonError         = class(ESQLerror);
+  EODBCErrorWithInfo       = class(EODBCCommonError);
+  EODBCErrorNeedData       = class(EODBCCommonError);
+  EODBCErrorStillExecuting = class(EODBCCommonError);
+  EODBCErrorSQLError       = class(EODBCCommonError);
+  EODBCErrorNoData         = class(EODBCCommonError);
+  EODBCErrorInvalidHandle  = class(EODBCCommonError);
+  EODBCErrorUnknown        = class(EODBCCommonError);
+
+  // library errors
+  EMODBCCommonError         = class(ESQLerror);
+  EMODBCNoDataSource        = class(EMODBCCommonError);
+  EMODBCAllocStatement      = class(EMODBCCommonError);
+  EMODBCCommonDatabaseError = class(EMODBCCommonError);
+  EMODBCStrictDatabaseError = class(EMODBCCommonError);
+
+
 var
   mODBCErrorDlg: TmODBCErrorDlg;
 
@@ -97,7 +118,7 @@ begin
     sqlres := SQLGetDiagRec( HandleType, Handle, i, psqlstate,
                              NativeError, pmessage, 254, textlength);
     if i = 1 then
-      if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
+      if SQL_SUCCEEDED(sqlres) then
       begin
         SqlState := StrPas(pSqlState);
         Message := StrPas(psqlstate) + ':' + StrPas(pmessage);
@@ -107,13 +128,13 @@ begin
          //Message :='SQL ERROR '+IntToStr( nError);
       end;
 
-    if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
+    if SQL_SUCCEEDED(sqlres) then
     begin
       MessageList.add( StrPas(psqlstate)+':'+StrPas(pmessage));
     end;
 
     inc( i);
-  until (sqlres <> SQL_SUCCESS) and (sqlres <> SQL_SUCCESS_WITH_INFO);
+  until not SQL_SUCCEEDED(sqlres);
 end;
 
 destructor ESQLError.Destroy;

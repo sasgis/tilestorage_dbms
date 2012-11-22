@@ -626,7 +626,7 @@ begin
     Exit;
 
   if DataBase=nil then
-    raise ESQLerror.Create( SmNoDataSource);
+    raise EMODBCNoDataSource.Create( SmNoDataSource);
 
   if DataBase.hdbc=0 then
     DataBase.Connect;
@@ -635,8 +635,8 @@ begin
 
   sqlres := SQLAllocHandle(SQL_HANDLE_STMT, DataBase.hdbc, hstmt);
 
-  if sqlres <> SQL_SUCCESS then
-    raise ESQLerror.CreateDiag( SQL_HANDLE_DBC, DataBase.hdbc, sqlres);//ESQLerror.Create( SmAllocateSTMTError);
+  if not SQL_SUCCEEDED(sqlres) then
+    raise EMODBCAllocStatement.CreateDiag( SQL_HANDLE_DBC, DataBase.hdbc, sqlres);//ESQLerror.Create( SmAllocateSTMTError);
 
   Include(FState, mqInitialized);
   GetStmtAttributes;

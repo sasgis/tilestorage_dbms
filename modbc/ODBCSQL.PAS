@@ -43,6 +43,12 @@ type
   PSQLFLOAT     = ^SQLFLOAT;
   PSQLHandle    = ^SQLHANDLE;
 
+  SQLULEN       = SQLUINTEGER;
+  SQLLEN        = SQLINTEGER;
+  PSQLLEN       = ^SQLLEN;
+
+  ULong = LongWord;
+
 const
   { SQL data type codes }
   SQL_UNKNOWN_TYPE = 0;
@@ -56,7 +62,7 @@ const
   SQL_WCHAR         =(-8);
   SQL_WVARCHAR      =(-9);
   SQL_WLONGVARCHAR  =(-10);
-
+  SQL_GUID          =(-11);
 
   SQL_CHAR          = 1;
   SQL_NUMERIC       = 2;
@@ -69,9 +75,10 @@ const
  {$ifdef ODBCVER3}
   SQL_DATETIME      = 9;
  {$endif}
+  SQL_INTERVAL      = 10;
   SQL_VARCHAR       = 12;
 
-  SQL_C_LONG        = SQL_INTEGER;
+
  {$ifdef ODBCVER3}
   SQL_TYPE_DATE     = 91;
   SQL_TYPE_TIME     = 92;
@@ -85,6 +92,88 @@ const
   {end of Odbc2}
 
   SQL_NO_TOTAL   = -4;
+
+  // C datatype to SQL datatype mapping SQL types
+  // -------------------
+  SQL_C_CHAR = SQL_CHAR; // CHAR, VARCHAR, DECIMAL, NUMERIC
+  SQL_C_LONG = SQL_INTEGER; // INTEGER
+  SQL_C_SHORT = SQL_SMALLINT; // SMALLINT
+  SQL_C_FLOAT = SQL_REAL; // REAL
+  SQL_C_DOUBLE = SQL_DOUBLE; // FLOAT, DOUBLE
+  SQL_C_NUMERIC = SQL_NUMERIC;
+  SQL_C_DEFAULT = 99;
+  SQL_SIGNED_OFFSET = (-20);
+  SQL_UNSIGNED_OFFSET = (-22);
+
+  // interval code
+  SQL_CODE_YEAR = 1;
+  SQL_CODE_MONTH = 2;
+  SQL_CODE_DAY = 3;
+  SQL_CODE_HOUR = 4;
+  SQL_CODE_MINUTE = 5;
+  SQL_CODE_SECOND = 6;
+  SQL_CODE_YEAR_TO_MONTH = 7;
+  SQL_CODE_DAY_TO_HOUR = 8;
+  SQL_CODE_DAY_TO_MINUTE = 9;
+  SQL_CODE_DAY_TO_SECOND = 10;
+  SQL_CODE_HOUR_TO_MINUTE = 11;
+  SQL_CODE_HOUR_TO_SECOND = 12;
+  SQL_CODE_MINUTE_TO_SECOND = 13;
+
+  SQL_INTERVAL_YEAR = (100 + SQL_CODE_YEAR);
+  SQL_INTERVAL_MONTH = (100 + SQL_CODE_MONTH);
+  SQL_INTERVAL_DAY = (100 + SQL_CODE_DAY);
+  SQL_INTERVAL_HOUR = (100 + SQL_CODE_HOUR);
+  SQL_INTERVAL_MINUTE = (100 + SQL_CODE_MINUTE);
+  SQL_INTERVAL_SECOND = (100 + SQL_CODE_SECOND);
+  SQL_INTERVAL_YEAR_TO_MONTH = (100 + SQL_CODE_YEAR_TO_MONTH);
+  SQL_INTERVAL_DAY_TO_HOUR = (100 + SQL_CODE_DAY_TO_HOUR);
+  SQL_INTERVAL_DAY_TO_MINUTE = (100 + SQL_CODE_DAY_TO_MINUTE);
+  SQL_INTERVAL_DAY_TO_SECOND = (100 + SQL_CODE_DAY_TO_SECOND);
+  SQL_INTERVAL_HOUR_TO_MINUTE = (100 + SQL_CODE_HOUR_TO_MINUTE);
+  SQL_INTERVAL_HOUR_TO_SECOND = (100 + SQL_CODE_HOUR_TO_SECOND);
+  SQL_INTERVAL_MINUTE_TO_SECOND = (100 + SQL_CODE_MINUTE_TO_SECOND);
+
+  // C datatype to SQL datatype mapping
+  SQL_C_DATE = SQL_DATE;
+  SQL_C_TIME = SQL_TIME;
+  SQL_C_TIMESTAMP = SQL_TIMESTAMP;
+  SQL_C_TYPE_DATE = SQL_TYPE_DATE;
+  SQL_C_TYPE_TIME = SQL_TYPE_TIME;
+  SQL_C_TYPE_TIMESTAMP = SQL_TYPE_TIMESTAMP;
+  SQL_C_INTERVAL_YEAR = SQL_INTERVAL_YEAR;
+  SQL_C_INTERVAL_MONTH = SQL_INTERVAL_MONTH;
+  SQL_C_INTERVAL_DAY = SQL_INTERVAL_DAY;
+  SQL_C_INTERVAL_HOUR = SQL_INTERVAL_HOUR;
+  SQL_C_INTERVAL_MINUTE = SQL_INTERVAL_MINUTE;
+  SQL_C_INTERVAL_SECOND = SQL_INTERVAL_SECOND;
+  SQL_C_INTERVAL_YEAR_TO_MONTH = SQL_INTERVAL_YEAR_TO_MONTH;
+  SQL_C_INTERVAL_DAY_TO_HOUR = SQL_INTERVAL_DAY_TO_HOUR;
+  SQL_C_INTERVAL_DAY_TO_MINUTE = SQL_INTERVAL_DAY_TO_MINUTE;
+  SQL_C_INTERVAL_DAY_TO_SECOND = SQL_INTERVAL_DAY_TO_SECOND;
+  SQL_C_INTERVAL_HOUR_TO_MINUTE = SQL_INTERVAL_HOUR_TO_MINUTE;
+  SQL_C_INTERVAL_HOUR_TO_SECOND = SQL_INTERVAL_HOUR_TO_SECOND;
+  SQL_C_INTERVAL_MINUTE_TO_SECOND = SQL_INTERVAL_MINUTE_TO_SECOND;
+  SQL_C_BINARY = SQL_BINARY;
+  SQL_C_BIT = SQL_BIT;
+  SQL_C_SBIGINT = (SQL_BIGINT + SQL_SIGNED_OFFSET); // SIGNED BIGINT
+  SQL_C_UBIGINT = (SQL_BIGINT + SQL_UNSIGNED_OFFSET); // UNSIGNED BIGINT
+  SQL_C_TINYINT = SQL_TINYINT;
+  SQL_C_SLONG = (SQL_C_LONG + SQL_SIGNED_OFFSET); // SIGNED INTEGER
+  SQL_C_SSHORT = (SQL_C_SHORT + SQL_SIGNED_OFFSET); // SIGNED SMALLINT
+  SQL_C_STINYINT = (SQL_TINYINT + SQL_SIGNED_OFFSET); // SIGNED TINYINT
+  SQL_C_ULONG = (SQL_C_LONG + SQL_UNSIGNED_OFFSET); // UNSIGNED INTEGER
+  SQL_C_USHORT = (SQL_C_SHORT + SQL_UNSIGNED_OFFSET); // UNSIGNED SMALLINT
+  SQL_C_UTINYINT = (SQL_TINYINT + SQL_UNSIGNED_OFFSET); // UNSIGNED TINYINT
+{$IFDEF WIN64}
+  SQL_C_BOOKMARK = SQL_C_UBIGINT; // BOOKMARK
+  {$EXTERNALSYM SQL_C_BOOKMARK}
+{$ELSE}
+  SQL_C_BOOKMARK = SQL_C_ULONG;   // BOOKMARK
+  {$EXTERNALSYM SQL_C_BOOKMARK}
+{$ENDIF}
+  SQL_C_GUID = SQL_GUID;
+
 
 type
   SQL_DATE_STRUCT = packed record
@@ -115,10 +204,20 @@ type
 const
   SQL_NAME_LEN = 128;
 
-  SQL_OV_ODBC3	        = 3;
-  SQL_OV_ODBC2	        = 2;
+  SQL_OV_ODBC3	        = ULong(3);
+  SQL_OV_ODBC2	        = ULong(2);
   SQL_ATTR_ODBC_VERSION = 200;
 
+  SQL_OV_ODBC3_50 = ULong(0350);
+  SQL_OV_ODBC3_51 = ULong(0351);
+  SQL_OV_ODBC3_80 = ULong(0380);
+
+(*
+In Windows 7, the Driver Manager version is 03.80.
+In Windows 8, the Driver Manager version is 03.81 via the SQLGetInfo SQL_DM_VER (InfoType parameter).
+SQL_ODBC_VER reports the version as 03.80 in both Windows 7 and Windows 8.
+*)
+    
   { Options for SQLDriverConnect }
   SQL_DRIVER_NOPROMPT          = 0;
   SQL_DRIVER_COMPLETE          = 1;
@@ -291,6 +390,10 @@ const
   SQL_ERROR   = (-1);
   SQL_INVALID_HANDLE =(-2);
 
+{$ifdef ODBCVER380}
+  SQL_PARAM_DATA_AVAILABLE = 101;
+{$endif}
+
   SQL_STILL_EXECUTING =  2;
   SQL_NEED_DATA       = 99;
   { flags for null-terminated string }
@@ -318,7 +421,7 @@ const
   { connection attributes }
   SQL_ATTR_AUTO_IPD    = 10001;
   SQL_ATTR_METADATA_ID = 10014;
-{$endif}  { ODBCVER >= 0x0300 }
+{$endif}
 
   { statement attributes }
   SQL_ATTR_APP_ROW_DESC       = 10010;
@@ -468,12 +571,7 @@ const
   SQL_DIAG_SELECT_CURSOR         = 85;
   SQL_DIAG_UNKNOWN_STATEMENT     =  0;
   SQL_DIAG_UPDATE_WHERE          = 82;
-{$endif}  { ODBCVER >= 0x0300 }
-
-  SQL_C_DEFAULT       = 99;
-  SQL_UNSIGNED_OFFSET = (-22);
-  SQL_C_ULONG         = (SQL_C_LONG+SQL_UNSIGNED_OFFSET);
-  SQL_C_BOOKMARK      = SQL_C_ULONG;
+{$endif}
 
   { Statement attribute values for cursor sensitivity }
 {$ifdef ODBCVER3}
@@ -517,28 +615,21 @@ const
  not known whether or not a data type supports null values. }
 
   SQL_NULLABLE_UNKNOWN = 2;
-{
-/* Values returned by SQLGetTypeInfo() to show WHERE clause
- * supported
 
-#if (ODBCVER >= 0x0300)
-#define SQL_PRED_NONE     0
-#define SQL_PRED_CHAR     1
-#define SQL_PRED_BASIC    2
-#endif
+{$ifdef ODBCVER3}
+  SQL_PRED_NONE     = 0;
+  SQL_PRED_CHAR     = 1;
+  SQL_PRED_BASIC    = 2;
 
-/* values of UNNAMED field in descriptor */
-#if (ODBCVER >= 0x0300)
-#define SQL_NAMED           0
-#define SQL_UNNAMED         1
-#endif
+  // values of UNNAMED field in descriptor
+  SQL_NAMED           = 0;
+  SQL_UNNAMED         = 1;
 
-/* values of ALLOC_TYPE field in descriptor */
-#if (ODBCVER >= 0x0300)
-#define SQL_DESC_ALLOC_AUTO 1
-#define SQL_DESC_ALLOC_USER 2
-#endif
-}
+  // values of ALLOC_TYPE field in descriptor
+  SQL_DESC_ALLOC_AUTO = 1;
+  SQL_DESC_ALLOC_USER = 2;
+{$endif}
+
   { FreeStmt() options }
   SQL_CLOSE        = 0;
   SQL_DROP         = 1;
@@ -668,7 +759,7 @@ const
 {$ifdef ODBCVER3}
   SQL_OJ_CAPABILITIES         = 115;
   SQL_OUTER_JOIN_CAPABILITIES = SQL_OJ_CAPABILITIES;
-{$endif} { ODBCVER >= 0x0300 }
+{$endif}
 
 {$ifdef ODBCVER3}
   SQL_XOPEN_CLI_YEAR            = 10000;
@@ -678,7 +769,7 @@ const
   SQL_COLLATION_SEQ             = 10004;
   SQL_MAX_IDENTIFIER_LEN        = 10005;
   SQL_MAXIMUM_IDENTIFIER_LENGTH = SQL_MAX_IDENTIFIER_LEN;
-{$endif} { ODBCVER >= 0x0300 }
+{$endif}
 
 {/* SQL_ALTER_TABLE bitmasks */
 #if (ODBCVER >= 0x0200)
@@ -707,15 +798,16 @@ const
 *#define SQL_AT_CONSTRAINT_NON_DEFERRABLE			0x00080000L
 
 #endif  /* ODBCVER >= 0x0300 */
+}
 
+// SQL_ASYNC_MODE values
+{$ifdef ODBCVER3}
+  SQL_AM_NONE                         = 0;
+  SQL_AM_CONNECTION                   = 1;
+  SQL_AM_STATEMENT                    = 2;
+{$endif}
 
-/* SQL_ASYNC_MODE values */
-#if (ODBCVER >= 0x0300)
-#define SQL_AM_NONE                         0
-#define SQL_AM_CONNECTION                   1
-#define SQL_AM_STATEMENT                    2
-#endif
-
+{
 /* SQL_CURSOR_COMMIT_BEHAVIOR values */
 #define SQL_CB_DELETE                       0
 #define SQL_CB_CLOSE                        1
@@ -732,13 +824,17 @@ const
 /* SQL_GETDATA_EXTENSIONS bitmasks */
 #define SQL_GD_ANY_COLUMN                   0x00000001L
 #define SQL_GD_ANY_ORDER                    0x00000002L
+}
 
-/* SQL_IDENTIFIER_CASE values */
-#define SQL_IC_UPPER                        1
-#define SQL_IC_LOWER                        2
-#define SQL_IC_SENSITIVE                    3
-#define SQL_IC_MIXED                        4
+// SQL_IDENTIFIER_CASE values
+{$ifdef ODBCVER3}
+  SQL_IC_UPPER                        = 1;
+  SQL_IC_LOWER                        = 2;
+  SQL_IC_SENSITIVE                    = 3;
+  SQL_IC_MIXED                        = 4;
+{$endif}
 
+{
 /* SQL_OJ_CAPABILITIES bitmasks */
 /* NB: this means 'outer join', not what  you may be thinking */
 
@@ -811,7 +907,7 @@ const
   SQL_COLATT_OPT_MAX             = SQL_COLUMN_LABEL;
 {$ifdef ODBCVER3}
   SQL_COLUMN_DRIVER_START        = 1000;
-{$endif} { ODBCVER >= 0x0300 }
+{$endif}
   SQL_DESC_AUTO_UNIQUE_VALUE     = SQL_COLUMN_AUTO_INCREMENT;
   SQL_DESC_BASE_COLUMN_NAME	   = 22;
   SQL_DESC_BASE_TABLE_NAME	   = 23;
@@ -1195,17 +1291,19 @@ var    odbcversion:word;
    function SQLRowCount(
                StatementHandle:SQLHSTMT;
 	       Var RowCount:SQLINTEGER):SQLRETURN;stdcall;external 'ODBC32.DLL';
+
    function SQLBindParameter(
-               hstmt:SQLHSTMT;
-               ipar:SQLUSMALLINT;
-               fParamType:SQLSMALLINT;
-               fCType:SQLSMALLINT;
-               fSqlType:SQLSMALLINT;
-               cbColDef:SQLUINTEGER;
-               ibScale:SQLSMALLINT;
-               rgbValue:SQLPOINTER;
-               cbValueMax:SQLINTEGER;
-               pcbValue:PSQLINTEGER):SQLRETURN;stdcall;external 'ODBC32.DLL';
+               StatementHandle: SQLHSTMT;
+               ParameterNumber: SQLUSMALLINT;
+               InputOutputType: SQLSMALLINT;
+               ValueType: SQLSMALLINT;
+               ParameterType: SQLSMALLINT;
+               ColumnSize: SQLULEN;
+               DecimalDigits: SQLSMALLINT;
+               ParameterValuePtr: SQLPOINTER;
+               BufferLength: SQLLEN;
+               ptrStrLen_or_IndPtr: PSQLLEN): SQLRETURN;stdcall;external 'ODBC32.DLL';
+
    function SQLFreeStmt(
                StatementHandle:SQLHSTMT;
                Option:SQLUSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
@@ -1301,6 +1399,10 @@ procedure DateTime2TimeStampStruct( var Value:SQL_TIMESTAMP_STRUCT; b:TDateTime)
 procedure LoadOdbc;
 procedure UnLoadOdbc;
 
+  // MACRO
+  // test for SQL_SUCCESS or SQL_SUCCESS_WITH_INFO
+function SQL_SUCCEEDED(const rc: SqlReturn): Boolean;
+
 implementation
 uses Windows,SysUtils;
 
@@ -1313,6 +1415,12 @@ Var
    OdbcHMODULE:  HMODULE;
 {$ENDIF}
    OdbccpHMODULE:HMODULE;
+
+// Macro: test for SQL_SUCCESS or SQL_SUCCESS_WITH_INFO
+function SQL_SUCCEEDED(const rc: SqlReturn): Boolean;
+begin
+  Result := (rc and (not 1)) = 0;
+end;
 
 function DateStructToDateTime( b:PSQL_DATE_STRUCT):TDateTime;
 begin

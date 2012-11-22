@@ -46,13 +46,13 @@ procedure TmCustomQuery.CheckSQLResult( sqlres: SQLRETURN{;const Message: string
 begin
   case sqlres of
     SQL_SUCCESS:;
-    SQL_SUCCESS_WITH_INFO:;// raise ESQLerror.CreateDiag(SQL_HANDLE_STMT, hstmt, sqlres);
-    SQL_NEED_DATA:         raise ESQLerror.Create('SQL_NEED_DATA');
-    SQL_STILL_EXECUTING:   raise ESQLerror.Create('SQL_STILL_EXECUTING');
-    SQL_ERROR:             raise ESQLerror.CreateDiag(SQL_HANDLE_STMT,hstmt, sqlres);
-    SQL_NO_DATA:           raise ESQLerror.Create('SQL_NO_DATA');
-    SQL_INVALID_HANDLE:    raise ESQLerror.Create({Message+}': SQL_INVALID_HANDLE');
-   else                    raise ESQLerror.Create('unknown SQL result');
+    SQL_SUCCESS_WITH_INFO:;// raise EODBCErrorWithInfo.CreateDiag(SQL_HANDLE_STMT, hstmt, sqlres);
+    SQL_NEED_DATA:         raise EODBCErrorNeedData.Create('SQL_NEED_DATA');
+    SQL_STILL_EXECUTING:   raise EODBCErrorStillExecuting.Create('SQL_STILL_EXECUTING');
+    SQL_ERROR:             raise EODBCErrorSQLError.CreateDiag(SQL_HANDLE_STMT,hstmt, sqlres);
+    SQL_NO_DATA:           raise EODBCErrorNoData.Create('SQL_NO_DATA');
+    SQL_INVALID_HANDLE:    raise EODBCErrorInvalidHandle.Create({Message+}': SQL_INVALID_HANDLE');
+   else                    raise EODBCErrorUnknown.Create('unknown SQL result');
   end;
 end;
 

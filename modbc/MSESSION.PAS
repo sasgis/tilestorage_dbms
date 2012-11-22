@@ -27,6 +27,9 @@ var
 
 implementation
 
+uses
+  mExcept;
+
 constructor TmSession.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
@@ -59,19 +62,33 @@ begin
 end;
 
 procedure TmSession.InitHENV;
+var vRes: SQLRETURN;
 begin
   if FHENV <> 0 then
     exit;
 
   loadODBC;
 
-  if SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, FHENV) <> SQL_SUCCESS then
+  if not SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, FHENV)) then
     raise Exception.Create( SmAllocateHENVError);
 
   try
-    if not(SQLSetEnvAttr(FHENV,SQL_ATTR_ODBC_VERSION, SQLPOINTER( SQL_OV_ODBC3), 0)
-           in [SQL_SUCCESS,SQL_SUCCESS_WITH_INFO]) then
-      raise Exception.Create( SmSetEnvAttrError);
+    vRes := SQLSetEnvAttr(
+      FHENV,
+      SQL_ATTR_ODBC_VERSION,
+{$if defined(ODBCVER380)}
+      SQLPOINTER(SQL_OV_ODBC3_80),
+{$elseif defined(ODBCVER351)}
+      SQLPOINTER(SQL_OV_ODBC3_51),
+{$elseif defined(ODBCVER350)}
+      SQLPOINTER(SQL_OV_ODBC3_50),
+{$else}
+      SQLPOINTER(SQL_OV_ODBC3),
+{$ifend}
+      0);
+      
+      if not SQL_SUCCEEDED(vRes) then
+        raise EODBCEnvironmentError.CreateDiag( SQL_HANDLE_ENV, FHENV, vRes );
   except
     FreeHENV;
     raise;

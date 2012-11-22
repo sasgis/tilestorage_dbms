@@ -770,8 +770,7 @@ procedure TDBMS_Connection.DirectExecWithBlob(
 );
 begin
 {$if defined(USE_DIRECT_ODBC)}
-  //FSQLConnection.ExecuteDirectSQL(ASQLText);
-  //with TOdb
+  FSQLConnection.ExecuteDirectWithBlob(ASQLText, ABufferAddr, ABufferSize);
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
   TODO
@@ -857,7 +856,10 @@ begin
       // allow get info from driver
       if (et_Unknown=FEngineType) then begin
 {$if defined(USE_DIRECT_ODBC)}
-        FEngineType := GetEngineTypeByODBCDescription(FSQLConnection.SystemDSN);
+        if Load_DSN_Params_from_ODBC(FSQLConnection.SystemDSN, FODBCDescription) then
+          FEngineType := GetEngineTypeByODBCDescription(FODBCDescription)
+        else
+          FEngineType := GetEngineTypeByODBCDescription(FSQLConnection.SystemDSN);
 {$elseif defined(ETS_USE_ZEOS)}
         FEngineType := GetEngineTypeByZEOSLibProtocol(FSQLConnection.Protocol);
 {$else}

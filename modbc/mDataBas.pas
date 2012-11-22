@@ -4,6 +4,12 @@ unit mDataBas;
 
 interface
 
+//{$define ALLOW_MODBC_METADATA}
+//{$define ALLOW_MODBC_DSN_METADATA}
+//{$define ALLOW_MODBC_TRANS_ISOLATION}
+//{$define ALLOW_MODBC_TRANSACTIONS}
+//{$define ALLOW_MODBC_AUTOCOMMIT}
+
 uses
   Windows, SysUtils, Classes,
   Forms, Db,controls,
@@ -16,13 +22,18 @@ type
   TmOdbcCreateDSN = (cdADD_DSN, cdCONFIG_DSN, cdREMOVE_DSN, cdADD_SYSDSN,
                      cdCONFIG_SYSDSN, cdREMOVE_SYSDSN);
   TmLoginEvent = procedure(Database: TmDatabase) of object;
-  //TmIsolationLevels = (TxnDefault, TxnDirtyRead, TxnReadCommitted, TxnRepeatableRead, TxnSerializable);
+
+{$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
+  TmIsolationLevels = (TxnDefault, TxnDirtyRead, TxnReadCommitted, TxnRepeatableRead, TxnSerializable);
+{$ifend}
 
   TmDataBase = class(TComponent)
   private
     { Private declarations }
 //    FDataBaseName: String; stored in Fparams
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
     FDsnParams: String;
+{$ifend}
     FDataSetList:  TList;
     FDriverCompletion: TmDriverCompletion;
     fhdbc: SQLHDBC;
@@ -30,7 +41,9 @@ type
     FOnLogin: TmLoginEvent;
     FParams: TStrings;
     FSession: TmSession;
-    //FTransIsolation: TmIsolationLevels;
+{$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
+    FTransIsolation: TmIsolationLevels;
+{$ifend}
     FWaitCursor: TCursor;
     FOldCursor: TCursor;
     FShowWaitCursor: boolean;
@@ -38,6 +51,7 @@ type
     function GetConnected:Boolean;
     procedure SetParams(Value: TStrings);
     procedure CheckSQLResult( sqlres:SQLRETURN);
+    procedure CheckSQLStrict( sqlres:SQLRETURN);
     procedure SetSession( s:TmSession);
     function GetDatabaseName:String;
     function GetUID: String;
@@ -60,24 +74,39 @@ type
     procedure Connect;
     procedure DisConnect;
     function GetHENV:SQLHANDLE;
+    
     procedure ODBCDriverInfo(
         InfoType:SQLUSMALLINT;
         InfoValuePtr:SQLPOINTER; BufferLength:SQLSMALLINT;
         StringLengthPtr:PSQLSMALLINT);
+
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
     procedure ConfigureDSN(
         Action: TmOdbcCreateDSN;
         DsnName: string;
         Driver: string;
         Parameters: TStringList);
+{$ifend}
+
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
     function DriverOfDataSource( DSN:String):String;
+{$ifend}
+
     property hdbc: SQLHDBC read fhdbc;
+
+{$if defined(ALLOW_MODBC_METADATA)}
     procedure GetColumnNames(const ATable: string; AList:TStrings);
     procedure GetDatSourceNames( tlist: TStrings);
     procedure GetDriverNames( tlist: TStrings);
     procedure GetTableNames( AList: TStrings);
     procedure GetPrimaryKeys(const ATable: string; AList:TStrings);
     procedure GetProcNames( AList: TStrings);
+{$ifend}
+
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
     procedure GetDsnParams( AList: TStrings);
+{$ifend}
+
     procedure StartTransaction;
     procedure Commit;
     procedure Rollback;
@@ -86,7 +115,33 @@ type
     procedure BusyCursor;
     procedure RestoreCursor;
 
-    procedure ExecuteDirectSQL(const ASQLText: String);
+    function ExecuteDirectSQL(
+      const ASQLText: String
+    ): Boolean;
+
+    function ExecuteDirectWithBlob(
+      const ASQLText: String;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt
+    ): Boolean;
+
+    function OpenDirectSQL(
+      const ASQLText: String;
+      out AStatementHandle: SQLHANDLE
+    ): Boolean;
+
+    function OpenDirectWithBlob(
+      const ASQLText: String;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt;
+      out AStatementHandle: SQLHANDLE
+    ): Boolean;
+
+    procedure CloseDirectSQL(
+      const AStatementHandle: SQLHANDLE
+    );
+
+    function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 
     property SystemDSN: String read GetDataBaseName;
     property UID: String read GetUID;
@@ -105,11 +160,13 @@ type
     property OnConnect: TmLoginEvent read FOnLogin write FOnLogin;
     property Params: TStrings read FParams write SetParams;
     property Session: TmSession read FSession write SetSession;
-    (*
+
+{$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
     property TransIsolation: TmIsolationLevels read FTransIsolation
                                                write FTransIsolation
                                                default TxnDefault;
-    *)
+{$ifend}
+
     property WaitCursor:TCursor read FWaitCursor write SetWaitCursor;
     property ShowWaitCursor:boolean read FShowWaitCursor write SetShowWaitCursor;
 
@@ -130,7 +187,11 @@ begin
   FDriverCompletion := sdCompleteReq;
   FOdbcCursors      := ocUSE_DRIVER;
   FSession          := nil;
-  //FTransIsolation   := TxnDefault;
+
+{$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
+  FTransIsolation   := TxnDefault;
+{$ifend}
+
   fhdbc             := 0;
   FWaitCursor       :=crSQLWait;
 end;
@@ -146,32 +207,64 @@ end;
 
 procedure TmDataBase.CheckSQLResult( sqlres:SQLRETURN);
 begin
-  if (sqlres <> SQL_SUCCESS) and (sqlres <> SQL_SUCCESS_WITH_INFO) then
-    raise ESQLerror.CreateDiag( SQL_HANDLE_DBC, fhdbc, sqlres);
+  if not SQL_SUCCEEDED(sqlres) then
+    raise EMODBCCommonDatabaseError.CreateDiag( SQL_HANDLE_DBC, fhdbc, sqlres);
+end;
+
+procedure TmDataBase.CheckSQLStrict(sqlres: SQLRETURN);
+begin
+  if (sqlres<>SQL_SUCCESS) then
+    raise EMODBCStrictDatabaseError.CreateDiag( SQL_HANDLE_DBC, fhdbc, sqlres);
 end;
 
 procedure TmDataBase.StartTransaction;
+{$if defined(ALLOW_MODBC_TRANSACTIONS)}
 var
    us: SQLUSMALLINT;
+{$ifend}
 begin
+{$if defined(ALLOW_MODBC_TRANSACTIONS)}
   ODBCDriverInfo( SQL_TXN_CAPABLE, SQLPOINTER(@us), Sizeof( SQLUSMALLINT), nil);
 
   if us = SQL_TC_NONE then
     raise Exception.Create('Driver not support transactions');
 
+{$if defined(ALLOW_MODBC_AUTOCOMMIT)}
   CheckSQLResult( SQLSetConnectAttr( hdbc, SQL_ATTR_AUTOCOMMIT,
                                      SQLPOINTER( SQL_AUTOCOMMIT_OFF),
                                      SQL_IS_UINTEGER));
+{$ifend}
+{$ifend}
+end;
+
+function TmDataBase.TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
+var
+  h: SQLHANDLE;
+  VFullSQL: String;
+begin
+  VFullSQL := 'select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1';
+  CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h ));
+  try
+    Result := SQL_SUCCEEDED(
+      SQLExecDirect( h, PChar(VFullSQL), Length(VFullSQL) )
+    );
+  finally
+    SQLFreeHandle( SQL_HANDLE_STMT, h );
+  end;
 end;
 
 procedure TmDataBase.Commit;
 begin
+{$if defined(ALLOW_MODBC_TRANSACTIONS)}
   CheckSQLResult( SQLEndTran( SQL_HANDLE_DBC, hdbc, SQL_COMMIT));
+{$ifend}
 end;
 
 procedure TmDataBase.Rollback;
 begin
+{$if defined(ALLOW_MODBC_TRANSACTIONS)}
   CheckSQLResult( SQLEndTran( SQL_HANDLE_DBC, hdbc, SQL_ROLLBACK));
+{$ifend}
 end;
 
 procedure TmDataBase.Connect;
@@ -186,8 +279,8 @@ begin
     exit;
   try
     BusyCursor;
-    if SQLAllocHandle(SQL_HANDLE_DBC, GetHENV, fhdbc)<>SQL_SUCCESS then
-      raise Exception.Create( SmAllocateHDBCError);
+
+    CheckSQLResult(SQLAllocHandle(SQL_HANDLE_DBC, GetHENV, fhdbc));
 
     try
       case FOdbcCursors of
@@ -222,7 +315,9 @@ begin
         else           dc := SQL_DRIVER_COMPLETE_REQUIRED;
       end;
 
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
       FDsnParams:='';
+{$ifend}
       try
         if ConnectWithParams then begin
           // via connectionstring
@@ -252,7 +347,7 @@ begin
           );
         end;
 
-        CheckSQLResult(VConnectResult);
+        CheckSQLStrict(VConnectResult);
       except on E: ESQLerror do
         if E.NativeError = SQL_NO_DATA then
         begin
@@ -262,9 +357,12 @@ begin
         if (E.SqlState <> '01000') then
           raise;
       end;
-      FDsnParams := StrPas(SServer);
 
-      (*
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
+      FDsnParams := StrPas(SServer);
+{$ifend}
+
+{$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
       case FTransIsolation of
         TxnDirtyRead:     dc := SQL_TXN_READ_UNCOMMITTED;
         TxnReadCommitted: dc := SQL_TXN_READ_COMMITTED;
@@ -277,7 +375,8 @@ begin
         CheckSQLResult( SQLSetConnectAttr( hdbc, SQL_ATTR_TXN_ISOLATION,
                                            SQLPOINTER( dc),
                                            SQL_IS_INTEGER));
-      *)
+{$ifend}
+
     except
       SQLFreeHandle( SQL_HANDLE_DBC, fhdbc);
       fhdbc := 0;
@@ -340,35 +439,39 @@ begin
   sqlres := SQLGetInfo( hdbc, InfoType, InfoValuePtr, BufferLength, StringLengthPtr);
   case sqlres of
     SQL_SUCCESS:;
-    SQL_SUCCESS_WITH_INFO: raise ESQLerror.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
-    SQL_STILL_EXECUTING:   raise ESQLerror.Create('SQL_STILL_EXECUTING');
-    SQL_ERROR:             raise ESQLerror.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
-    SQL_INVALID_HANDLE:    raise ESQLerror.Create( 'SQL_INVALID_HANDLE');
-    else                   raise ESQLerror.Create( 'unknown SQL result');
+    SQL_SUCCESS_WITH_INFO: raise EODBCErrorWithInfo.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
+    SQL_NEED_DATA:         raise EODBCErrorNeedData.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
+    SQL_STILL_EXECUTING:   raise EODBCErrorStillExecuting.Create('SQL_STILL_EXECUTING');
+    SQL_ERROR:             raise EODBCErrorSQLError.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
+    SQL_NO_DATA:           raise EODBCErrorNoData.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
+    SQL_INVALID_HANDLE:    raise EODBCErrorInvalidHandle.Create( 'SQL_INVALID_HANDLE');
+    else                   raise EODBCErrorUnknown.Create( 'unknown SQL result');
   end;
 end;
 
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
 function TmDatabase.DriverOfDataSource( DSN:String):String;
 var
   ServerName: array [0..SQL_MAX_DSN_LENGTH] of Char;
   DriverName: array [0..255] of Char;
 begin
   Result := '';
-  if SQLDataSources( GetHENV, SQL_FETCH_FIRST,
+  if SQL_SUCCEEDED(SQLDataSources( GetHENV, SQL_FETCH_FIRST,
                      ServerName, SQL_MAX_DSN_LENGTH, nil,
-                     DriverName, 255, nil) = SQL_SUCCESS then
+                     DriverName, 255, nil)) then
   repeat
     if StrPas(ServerName) = DSN then
     begin
       Result := StrPas( DriverName);
       exit;
     end;
-  until SQLDataSources( GetHENV, SQL_FETCH_NEXT,
+  until not SQL_SUCCEEDED(SQLDataSources( GetHENV, SQL_FETCH_NEXT,
                         ServerName, SQL_MAX_DSN_LENGTH, nil,
-                        DriverName, 255, nil) <> SQL_SUCCESS;
+                        DriverName, 255, nil));
 end;
+{$ifend}
 
-
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
 procedure TmDatabase.ConfigureDSN( Action: TmOdbcCreateDSN;
                                    DsnName: string;
                                    Driver: string;
@@ -414,7 +517,9 @@ begin
       raise ESQLerror.Create( 'SQLConfigDataSource:' + #13 + StrPas( lpszErrorMsg));
     end;
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_METADATA)}
 procedure TmDatabase.GetDatSourceNames( tlist: TStrings);
 var
   ServerName: array [0..SQL_MAX_DSN_LENGTH] of Char;
@@ -422,17 +527,19 @@ var
   sqlResult: integer;
 begin
   tlist.Clear;
-  if SQLDataSources( GetHENV, SQL_FETCH_FIRST,
+  if SQL_SUCCEEDED(SQLDataSources( GetHENV, SQL_FETCH_FIRST,
                      ServerName, SQL_MAX_DSN_LENGTH, @sl,
-                     nil, 0, nil) = SQL_SUCCESS then
+                     nil, 0, nil)) then
   repeat
     tlist.add( StrPas(ServerName));
     sqlresult := SQLDataSources( GetHENV, SQL_FETCH_NEXT,
                                  ServerName, SQL_MAX_DSN_LENGTH, @sl,
                                  nil, 0, nil)
-  until (sqlResult <> SQL_SUCCESS) and (sqlResult <> SQL_SUCCESS_WITH_INFO)
+  until not SQL_SUCCEEDED(sqlResult);
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_METADATA)}
 procedure TmDatabase.GetDriverNames( tlist: TStrings);
 var
   DriverName: array [0..SQL_MAX_OPTION_STRING_LENGTH] of Char;
@@ -444,16 +551,17 @@ begin
   sqlResult := SQLDrivers( GetHENV, SQL_FETCH_FIRST, DriverName,
                            SQL_MAX_OPTION_STRING_LENGTH, @sl, nil, 0, nil);
 
-  if (sqlResult = SQL_SUCCESS) or (sqlResult = SQL_SUCCESS_WITH_INFO) then
+  if SQL_SUCCEEDED(sqlResult) then
   repeat
     tlist.add( StrPas(DriverName));
     sqlResult := SQLDrivers( GetHENV, SQL_FETCH_NEXT, DriverName,
                              SQL_MAX_OPTION_STRING_LENGTH, @sl, nil, 0, nil);
 
-  until (sqlResult <> SQL_SUCCESS) and
-        (sqlResult <> SQL_SUCCESS_WITH_INFO)
+  until not SQL_SUCCEEDED(sqlResult);
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_METADATA)}
 procedure TmDatabase.GetTableNames( AList: TStrings);
 var
   h : SQLHANDLE;
@@ -465,17 +573,17 @@ begin
   AList.Clear;
   Connect;
 
-  if SQLAllocHandle( SQL_HANDLE_STMT, hdbc,h ) = SQL_SUCCESS then
+  if SQL_SUCCEEDED(SQLAllocHandle( SQL_HANDLE_STMT, hdbc,h )) then
   try
     Busycursor;
     Res := SQLTables( h, nil, 0, nil, 0, nil, 0, nil, 0);
-    if Res = SQL_SUCCESS then
+    if SQL_SUCCEEDED(Res) then
     begin
       SQLBindCol( h, 3, SQL_CHAR, @ATableName[0], SQL_NAME_LEN, @l);
       SQLBindCol( h, 4, SQL_CHAR, @ATableType[0], SQL_NAME_LEN, @l);
 
       Res := SQLFetch( h );
-      while ( Res = SQL_SUCCESS ) do
+      while SQL_SUCCEEDED( Res ) do
       begin
         if StrPas( ATableType)<>'SYSTEM TABLE' then
           AList.Add( StrPas( ATableName ));
@@ -487,12 +595,14 @@ begin
     restorecursor;
   end;
 end;
+{$ifend}
 
 function TmDataBase.GetUID: String;
 begin
   Result := FParams.Values['UID'];
 end;
 
+{$if defined(ALLOW_MODBC_METADATA)}
 procedure TmDatabase.GetProcNames( AList: TStrings);
 var
   h: SQLHANDLE;
@@ -502,17 +612,17 @@ var
 begin
   Connect;
 
-  if SQLAllocHandle( SQL_HANDLE_STMT, hdbc,h ) = SQL_SUCCESS then
+  if SQL_SUCCEEDED(SQLAllocHandle( SQL_HANDLE_STMT, hdbc,h )) then
   try
     AList.beginupdate;
     AList.Clear;
     Res := SQLProcedures( h, nil, 0, nil, 0,nil, 0);
-    if Res = SQL_SUCCESS then
+    if SQL_SUCCEEDED(Res) then
     begin
       SQLBindCol( h, 3, SQL_CHAR, @AProcName[0], SQL_NAME_LEN, @l);
 
       Res := SQLFetch( h );
-      while ( Res = SQL_SUCCESS ) do
+      while SQL_SUCCEEDED( Res ) do
       begin
         AList.Add( StrPas( AProcName ) );
         Res := SQLFetch( h );
@@ -523,7 +633,7 @@ begin
     AList.Endupdate;
   end;
 end;
-
+{$ifend}
 
 function TmDataBase.GetPWD: String;
 begin
@@ -545,11 +655,99 @@ begin
     FdataSetList.delete(i);
 end;
 
-procedure TmDataBase.ExecuteDirectSQL(const ASQLText: String);
+function TmDataBase.ExecuteDirectSQL(
+  const ASQLText: String
+): Boolean;
+var
+  h: SQLHANDLE;
 begin
-  CheckSQLResult(SQLExecDirect(hdbc, PChar(ASQLText), Length(ASQLText)));
+  CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h));
+  try
+    Result := SQL_SUCCEEDED(SQLExecDirect(h, PChar(ASQLText), Length(ASQLText)));
+  finally
+    SQLFreeHandle( SQL_HANDLE_STMT, h);
+  end;
 end;
 
+procedure TmDataBase.CloseDirectSQL(
+  const AStatementHandle: SQLHANDLE
+);
+begin
+  SQLFreeHandle( SQL_HANDLE_STMT, AStatementHandle);
+end;
+
+function TmDataBase.OpenDirectSQL(
+  const ASQLText: String;
+  out AStatementHandle: SQLHANDLE
+): Boolean;
+begin
+  CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, AStatementHandle));
+  Result := SQL_SUCCEEDED(SQLExecDirect(AStatementHandle, PChar(ASQLText), Length(ASQLText)));
+end;
+
+function TmDataBase.OpenDirectWithBlob(
+  const ASQLText: String;
+  const ABufferAddr: Pointer;
+  const ABufferSize: LongInt;
+  out AStatementHandle: SQLHANDLE
+): Boolean;
+var
+  Res: SQLRETURN;
+  VColumnSize: SQLULEN;
+  VStrLen_or_IndPtr: SQLLEN;
+begin
+  // allocate statement
+  CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, AStatementHandle));
+
+  if (ABufferAddr<>nil) and (ABufferSize>0) then begin
+    // has data
+    VStrLen_or_IndPtr := ABufferSize;
+    VColumnSize := ABufferSize;
+  end else begin
+    // is null
+    VStrLen_or_IndPtr := SQL_NULL_DATA;
+    VColumnSize := 0;
+  end;
+
+  // bind single blob
+  Res := SQLBindParameter (
+    AStatementHandle,
+    1,
+    SQL_PARAM_INPUT,
+    SQL_C_ULONG,
+    SQL_LONGVARBINARY,
+    VColumnSize,
+    0,
+    ABufferAddr,
+    VStrLen_or_IndPtr,
+    @VStrLen_or_IndPtr);
+
+  CheckSQLResult(Res);
+
+  // execute
+  Res := SQLExecDirect(AStatementHandle, PChar(ASQLText), Length(ASQLText));
+
+  Result := SQL_SUCCEEDED(Res);
+
+end;
+
+function TmDataBase.ExecuteDirectWithBlob(
+  const ASQLText: String;
+  const ABufferAddr: Pointer;
+  const ABufferSize: Integer
+): Boolean;
+var
+  h: SQLHANDLE;
+begin
+  h := 0;
+  try
+    Result := OpenDirectWithBlob(ASQLText, ABufferAddr, ABufferSize, h);
+  finally
+    SQLFreeHandle( SQL_HANDLE_STMT, h);
+  end;
+end;
+
+{$if defined(ALLOW_MODBC_METADATA)}
 procedure TmDataBase.GetColumnNames(const ATable: string; AList: TStrings);
 var
   h: SQLHANDLE;
@@ -560,15 +758,15 @@ begin
   AList.BeginUpdate;
   AList.Clear;
   Connect;
-  if SQLAllocHandle( SQL_HANDLE_STMT, hdbc,h ) = SQL_SUCCESS then
+  if SQL_SUCCEEDED(SQLAllocHandle( SQL_HANDLE_STMT, hdbc,h )) then
   begin
     try
       Res := SQLColumns( h, nil, 0, nil, 0, pchar(ATable), length(Atable), nil, 0);
-      if Res = SQL_SUCCESS then
+      if SQL_SUCCEEDED(Res) then
       begin
         SQLBindCol( h, 4, SQL_CHAR, @ATableName[0], SQL_NAME_LEN, @l);
         Res := SQLFetch( h );
-        while ( Res = SQL_SUCCESS ) do
+        while SQL_SUCCEEDED( Res ) do
         begin
           AList.Add( StrPas( ATableName ) );
           Res := SQLFetch( h );
@@ -580,7 +778,9 @@ begin
     end;
   end;
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_METADATA)}
 procedure TmDataBase.GetPrimaryKeys(const ATable: string; AList: TStrings);
 var
   h: SQLHANDLE;
@@ -591,15 +791,15 @@ begin
   AList.BeginUpdate;
   AList.Clear;
   Connect;
-  if SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h ) = SQL_SUCCESS then
+  if SQL_SUCCEEDED(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h )) then
   begin
     try
        Res := SQLPrimaryKeys( h, nil, 0, nil, 0, pchar(ATable), length(Atable));
-       if Res = SQL_SUCCESS then
+       if SQL_SUCCEEDED(Res) then
        begin
          SQLBindCol( h, 4, SQL_CHAR, @ATableName[0], SQL_NAME_LEN, @l);
          Res := SQLFetch( h );
-         while ( Res = SQL_SUCCESS ) do
+         while SQL_SUCCEEDED( Res ) do
          begin
            AList.Add( StrPas( ATableName ) );
            Res := SQLFetch( h );
@@ -611,6 +811,7 @@ begin
     end;
   end;
 end;
+{$ifend}
 
 procedure TmDataBase.SetSession( s:TmSession);
 begin
@@ -625,10 +826,12 @@ begin
     else Result := GlobalSession.HENV;
 end;
 
+{$if defined(ALLOW_MODBC_DSN_METADATA)}
 procedure TmDatabase.GetDsnParams( AList: TStrings);
 begin
     Alist.Text := FDsnParams;
 end;
+{$ifend}
 
 function TmDataBase.GetDatabaseName: String;
 begin
