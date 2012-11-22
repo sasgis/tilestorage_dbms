@@ -417,7 +417,7 @@ begin
     // для более быстрого доступа
     FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE := StrToIntDef(AParamValue, 0);
     Exit;
-  end else if SameText(ETS_INTERNAL_SQLDB_ConnectWithParams, AParamName) then begin
+  end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(USE_DIRECT_ODBC)}
     FSQLConnection.ConnectWithParams := (StrToIntDef(AParamValue, 0) <> 0);
 {$ifend}
