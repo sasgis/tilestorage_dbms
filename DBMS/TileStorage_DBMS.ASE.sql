@@ -1,4 +1,4 @@
-create view DUAL as select @@version as ENGINE_VERSION
+create view DUAL as select 'ASE' as ENGINETYPE
 go
 
 
@@ -297,7 +297,7 @@ create table Z_SERVICE (
    service_name         varchar(50)                    not null,
    id_contenttype       smallint                       not null,
    id_ver_comp          char(1)                        default '0' not null,
-   id_div_mode          char(1)                        default 'I' not null,
+   id_div_mode          char(1)                        default 'Z' not null,
    work_mode            char(1)                        default '0' not null
          constraint CKC_WORK_MODE_Z_SERVICE check (work_mode in ('0','S','R')),
    use_common_tiles     char(1)                        default '0' not null,
