@@ -41,6 +41,10 @@ type
 
   TSqlOperation = (so_Select, so_Insert, so_Delete, so_EnumVersions, so_Sync, so_Destroy);
 
+  TStatementExceptionType = (set_Unknown, set_TableNotFound, set_PrimaryKeyViolation);
+
+  TStatementRepeatType = (srt_None, srt_Insert, srt_Update);
+
 const
   c_SQLCMD_VERSION_S  = 'SELECT @@VERSION';  // MSSQL+ASE+ASA
   c_SQLCMD_FROM_DUAL  = 'SELECT * FROM DUAL'; // if 'select @@version as v into DUAL' executed from model
@@ -59,7 +63,7 @@ const
     'PG',    // PostgreSQL
     'MMR',   // Mimer
     'FB',    // Firebird
-    ''
+    ''       // Unknown or unsupported - use c_RTL_UNKNOWN for scripts, do not insert it here
   );
 
   // 'Integrated Security' or 'Trusted_Connection' (if allowed)
@@ -378,6 +382,7 @@ const
   c_RTL_Interbase = 'Interbase'; // for Firebird
   c_RTL_Trusted_Connection = 'OS Authentication';
   c_RTL_Numeric = 'numeric';
+  c_RTL_UNKNOWN = 'UNKNOWN';
 
   c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL, ASE, MSSQL
   c_RTL_Tile_Body_Paramname = ':' + c_RTL_Tile_Body_Paramsrc;

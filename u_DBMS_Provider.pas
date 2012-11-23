@@ -148,7 +148,7 @@ type
 
     function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
 
-    function PrimaryConstraintViolation(const AException: Exception): Boolean;
+    function GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
   private
     function CreateAllBaseTablesFromScript: Byte;
     
@@ -183,9 +183,6 @@ type
       const ATileSize: LongInt;
       out AUseAsTileSize: LongInt
     ): Boolean;
-
-    // check if table exists
-    function TableExists(const ATableName: TDBMS_String): Boolean;
 
     // create table using SQL commands from special table
     function CreateTableByTemplate(
@@ -389,7 +386,6 @@ end;
 
 function TDBMS_Provider.AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
 var
-  VDataset: TDBMS_Dataset;
   VSQLText: TDBMS_String;
 begin
   // регистрация картосервиса в БД выполняется только в эксклюзивном режиме
@@ -403,19 +399,13 @@ begin
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
-  VDataset := FConnection.MakePoolDataset;
+  // исполняем INSERT (вставляем запись о сервисе)
   try
-    // исполняем INSERT (вставляем запись о сервисе)
-    try
-      VDataset.SetSQLTextAsString(VSQLText);
-      VDataset.ExecSQLDirect;
-      Result := ETS_RESULT_OK;
-    except
-      // обломались
-      Result := ETS_RESULT_INVALID_STRUCTURE;
-    end;
-  finally
-    FConnection.KillPoolDataset(VDataset);
+    FConnection.ExecuteDirectSQL(VSQLText);
+    Result := ETS_RESULT_OK;
+  except
+    // обломались
+    Result := ETS_RESULT_INVALID_STRUCTURE;
   end;
 end;
 
@@ -586,7 +576,6 @@ function TDBMS_Provider.CreateAllBaseTablesFromScript: Byte;
 var
   VUniqueEngineType: String;
   VSQLTemplates: TDBMS_SQLTemplates_File;
-  VDataset: TDBMS_Dataset;
 begin
   // получим уникальный код типа СУБД
   VUniqueEngineType := c_SQL_Engine_Name[FConnection.GetCheckedEngineType];
@@ -597,7 +586,6 @@ begin
   end;
 
   // создадим объект для генерации структуры для конкретного типа БД
-  VDataset := nil;
   VSQLTemplates := TDBMS_SQLTemplates_File.Create(
     VUniqueEngineType,
     FConnection.ForcedSchemaPrefix,
@@ -605,10 +593,8 @@ begin
   );
   try
     // исполним всё что есть
-    VDataset := FConnection.MakePoolDataset;
-    Result := VSQLTemplates.ExecuteAllSQLs(VDataset);
+    Result := VSQLTemplates.ExecuteAllSQLs(FConnection);
   finally
-    FConnection.KillPoolDataset(VDataset);
     VSQLTemplates.Free;
   end;
 end;
@@ -619,7 +605,7 @@ function TDBMS_Provider.CreateTableByTemplate(
   const ASubstSQLTypes: Boolean
 ): Byte;
 var
-  VDataset, VExecSQL: TDBMS_Dataset;
+  VDataset: TDBMS_Dataset;
   VSQLText: TDBMS_String;
   //VSQLAnsi: AnsiString;
   Vignore_errors: AnsiChar;
@@ -628,11 +614,11 @@ var
   VReplaceNumeric: String;
 begin
   // а вдруг нет базовой таблицы с шаблонами
-  if (not TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
+  if (not FConnection.TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
     // создадим базовые таблицы
     CreateAllBaseTablesFromScript;
     // а вдруг обломались?
-    if (not TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
+    if (not FConnection.TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
       // полный отстой и нам тут делать нечего
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
@@ -640,16 +626,15 @@ begin
   end;
 
   // если запрошенная таблица уже есть - валим
-  if (TableExists(AQuotedTableNameWithPrefix)) then begin
+  if (FConnection.TableExists(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
 
   // вытащим все запросы SQL для CREATE (операция "C") для запрошенного шаблона
   VDataset := FConnection.MakePoolDataset;
-  VExecSQL := FConnection.MakePoolDataset;
   try
-    VSQLText := 'select * from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
+    VSQLText := 'select index_sql,ignore_errors,object_sql from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
                 ' where object_name=' + WideStrToDB(ATemplateName) +
                   ' and object_oper=''C'' and skip_sql=''0'' order by index_sql';
     VDataset.OpenSQL(VSQLText);
@@ -677,12 +662,10 @@ begin
           VSQLText := StringReplace(VSQLText, c_RTL_Numeric, VReplaceNumeric, [rfReplaceAll,rfIgnoreCase]);
         end;
 
-        // готово
-        VExecSQL.SetSQLTextAsString(VSQLText);
-
         // исполняем (напрямую)
-        VExecSQL.ExecSQLDirect;
+        FConnection.ExecuteDirectSQL(VSQLText, (Vignore_errors<>ETS_UCT_NO) );
       except
+        // SilentMode in ExecuteDirectSQL may be a fake
         if (Vignore_errors=ETS_UCT_NO) then
           raise;
       end;
@@ -691,12 +674,11 @@ begin
     end;
 
     // проверяем что табла успешно создалась
-    if (TableExists(AQuotedTableNameWithPrefix)) then begin
+    if (FConnection.TableExists(AQuotedTableNameWithPrefix)) then begin
       Result := ETS_RESULT_OK;
       Exit;
     end;
   finally
-    FConnection.KillPoolDataset(VExecSQL);
     FConnection.KillPoolDataset(VDataset);
   end;
 
@@ -715,7 +697,6 @@ function TDBMS_Provider.DBMS_DeleteTile(
 ): Byte;
 var
   VExclusive: Boolean;
-  VDataset: TDBMS_Dataset;
   VDeleteSQL: TDBMS_String;
   VExclusivelyLocked: Boolean;
 begin
@@ -729,38 +710,37 @@ begin
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
-    // if connected - DELETE tile from DB
-    VDataset := FConnection.MakePoolDataset;
-    try
-      // make DELETE statements
-      Result := GetSQL_DeleteTile(
-        ADeleteBuffer,
-        VDeleteSQL
-      );
+    // make DELETE statements
+    Result := GetSQL_DeleteTile(
+      ADeleteBuffer,
+      VDeleteSQL
+    );
       
-      if (ETS_RESULT_OK<>Result) then
-        Exit;
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
 
+    try
       // execute DELETE statement
-      try
-        VDataset.SetSQLTextAsString(VDeleteSQL);
-        // exec (do not prepare statement)
-        VDataset.ExecSQLDirect;
+      if FConnection.ExecuteDirectSQL(VDeleteSQL, TRUE) then begin
         // done (successfully DELETEed)
         Result := ETS_RESULT_OK;
-      except
-        on E: Exception do begin
-          // проверка разрыва соединения
-          Result := DBMS_HandleGlobalException(E);
-          if FReconnectPending then
-            Exit;
-          // нет таблицы - нет и тайлов
-          Result := ETS_RESULT_OK;
-        end;
+      end else begin
+        // not deleted - may be:
+        // no tile to delete from existing table
+        // no table at all
+        // disconnected
+        // etc....
+        Result := ETS_RESULT_OK;
       end;
-
-    finally
-      FConnection.KillPoolDataset(VDataset);
+    except
+      on E: Exception do begin
+        // проверка разрыва соединения
+        Result := DBMS_HandleGlobalException(E);
+        if FReconnectPending then
+          Exit;
+        // нет таблицы - нет и тайлов
+        Result := ETS_RESULT_OK;
+      end;
     end;
   finally
     DoEndWork(VExclusivelyLocked);
@@ -1056,14 +1036,13 @@ function TDBMS_Provider.DBMS_InsertTile(
 ): Byte;
 var
   VExclusive: Boolean;
-  VInsertDataset, VUpdateDataset: TDBMS_Dataset;
   VInsertSQL, VUpdateSQL: TDBMS_String;
   VUnquotedTableNameWithoutPrefix: TDBMS_String;
   VQuotedTableNameWithPrefix: TDBMS_String;
-  VNeedUpdate: Boolean;
+  VStatementRepeatType: TStatementRepeatType;
   VInsertUpdateSubType: TInsertUpdateSubType;
   VCastBodyAsHexLiteral: Boolean;
-  VExecDirect: Boolean;
+  VExecuteWithBlob: Boolean;
   VBodyAsLiteralValue: TDBMS_String;
   VExclusivelyLocked: Boolean;
 begin
@@ -1078,12 +1057,7 @@ begin
       Exit;
 
     // if connected - INSERT tile to DB
-    VInsertDataset := FConnection.MakePoolDataset;
-    //VInsertDataset := FConnection.MakeNonPooledDataset;
-    VUpdateDataset := FConnection.MakePoolDataset;
-    //VUpdateDataset := FConnection.MakeNonPooledDataset;
-    try
-      VNeedUpdate := FALSE;
+      VStatementRepeatType := srt_None;
       
       // получим выражения INSERT и UPDATE
       Result := GetSQL_InsertUpdateTile(
@@ -1112,9 +1086,8 @@ begin
         VBodyAsLiteralValue := '';
       end;
 
-      // запрос напрямую или нет
-      VExecDirect := VCastBodyAsHexLiteral or (iust_TILE<>VInsertUpdateSubType);
-      //VExecDirect := TRUE;
+      // запрос с передачей BLOBа или нет
+      VExecuteWithBlob := (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral);
 
       // выполним INSERT
       try
@@ -1123,105 +1096,116 @@ begin
           VInsertSQL := StringReplace(VInsertSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
         end;
 
-        VInsertDataset.SetSQLTextAsString(VInsertSQL);
-        if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
-          // добавим параметр (как BLOB)
-          VInsertDataset.SetParamBlobData(
-            c_RTL_Tile_Body_Paramsrc,
-            AInsertBuffer^.ptTileBuffer,
-            AInsertBuffer^.dwTileSize
-          );
+        if VExecuteWithBlob then begin
+          // INSERT with BLOB
+          FConnection.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
+        end else begin
+          // INSERT without BLOB
+          FConnection.ExecuteDirectSQL(VInsertSQL);
         end;
-
-        // исполняем INSERT
-        VInsertDataset.ExecSQLSpecified(VExecDirect);
         
         // готово (вставлено!)
         Result := ETS_RESULT_OK;
-      except
+      except on E: Exception do
         // обломались со вставкой новой записи
-        on E: Exception do begin
-          // если есть слова про уникальность - уходим на update
-          if PrimaryConstraintViolation(E) then begin
-            // нарушение уникальности - надо обновляться
-            VNeedUpdate := TRUE;
-          end else begin
-            // проверяем, может не было таблицы
-            if (not TableExists(VQuotedTableNameWithPrefix)) then begin
-              // пробуем создать таблицу по шаблону
-              if (not VExclusive) then begin
-                Result := ETS_RESULT_NEED_EXCLUSIVE;
-                Exit;
-              end;
-              CreateTableByTemplate(
+
+        // смотрим что за ошибка
+        case GetStatementExceptionType(E) of
+          set_PrimaryKeyViolation: begin
+            // нарушение уникальности по первичному ключу - надо обновляться
+            VStatementRepeatType := srt_Update;
+          end;
+          set_TableNotFound: begin
+            // таблицы нет в БД
+            if (not VExclusive) then begin
+              // таблицы создаём только в эксклюзивном режиме
+              Result := ETS_RESULT_NEED_EXCLUSIVE;
+              Exit;
+            end;
+
+            // пробуем создать таблицу по шаблону
+            CreateTableByTemplate(
                 c_Templated_RealTiles,
                 VUnquotedTableNameWithoutPrefix,
                 VQuotedTableNameWithPrefix,
                 AInsertBuffer^.XYZ.z,
                 TRUE
               );
-              // проверяем существование таблицы
-              if (not TableExists(VQuotedTableNameWithPrefix)) then begin
-                // не удалось даже создать - валим
-                Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
-                Exit;
-              end;
+
+            // проверяем существование таблицы
+            if (not FConnection.TableExists(VQuotedTableNameWithPrefix)) then begin
+              // не удалось даже создать - валим
+              Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
+              Exit;
             end;
+
             // повторяем INSERT
-            try
-              VInsertDataset.ExecSQLSpecified(VExecDirect);
-              Result := ETS_RESULT_OK;
-            except
-              on E: Exception do begin
-                // проверка разрыва соединения
-                Result := DBMS_HandleGlobalException(E);
-                if FReconnectPending then
-                  Exit;
-                VNeedUpdate := TRUE;
-              end;
-            end;
+            VStatementRepeatType := srt_Insert;
+          end;
+          else begin
+            // неисправляемое исключение при выполнении запроса
+            // на всякий случай запросим эксклюзивный режим
+            if GetStatementExceptionType(E) <> set_PrimaryKeyViolation then // просто для отладки
+            if VExclusive then
+              Result := ETS_RESULT_INVALID_STRUCTURE
+            else
+              Result := ETS_RESULT_NEED_EXCLUSIVE;
+            Exit;
           end;
         end;
       end;
 
-      if VNeedUpdate then begin
-        // пробуем выполнить UPDATE
-        if VCastBodyAsHexLiteral then begin
-          VUpdateSQL := StringReplace(VUpdateSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
+      // пробуем выполнить INSERT или UPDATE повторно
+      while (VStatementRepeatType <> srt_None) do begin
+        // подправим литерал для UPDATE как ранее для INSERT
+        // после того как обломается UPDATE - уже никогда не выполняем INSERT
+        // значит можно просто копировать текст SQL-я из UPDATE в INSERT
+        // и пользоваться только одним буфером
+        if (VStatementRepeatType = srt_Update) then begin
+          if VCastBodyAsHexLiteral then begin
+            VUpdateSQL := StringReplace(VUpdateSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
+          end;
+          VInsertSQL := VUpdateSQL;
         end;
-        
-        VUpdateDataset.SetSQLTextAsString(VUpdateSQL);
-        if (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral) then begin
-          // добавим параметр (как BLOB)
-          VUpdateDataset.SetParamBlobData(
-            c_RTL_Tile_Body_Paramsrc,
-            AInsertBuffer^.ptTileBuffer,
-            AInsertBuffer^.dwTileSize
-          );
-        end;
-        // исполняем UPDATE
+
         try
-          // испускаем запрос
-          VUpdateDataset.ExecSQLSpecified(VExecDirect);
-          // готово (обновлено!)
+          // здесь в VInsertSQL может быть и текст для UPDATE
+          if VExecuteWithBlob then begin
+            // UPDATE with BLOB
+            FConnection.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
+          end else begin
+            // UPDATE without BLOB
+            FConnection.ExecuteDirectSQL(VInsertSQL);
+          end;
+
+          // однако повторно получилось успешно
+          VStatementRepeatType := srt_None;
           Result := ETS_RESULT_OK;
-        except
-          on E: Exception do begin
-            // проверка разрыва соединения
-            Result := DBMS_HandleGlobalException(E);
-            if FReconnectPending then
+        except on E: Exception do
+          // смотрим что за ошибка
+          case GetStatementExceptionType(E) of
+            set_PrimaryKeyViolation: begin
+              // если при INSERT - уйдём на новый виток - на этот раз UPDATE
+              // если при UPDATE - уйдём в слезах рекаверить датабазу из обломков былой роскоши
+              if (VStatementRepeatType=srt_Update) then begin
+                Result := ETS_RESULT_INVALID_STRUCTURE;
+                Exit;
+              end else
+                VStatementRepeatType := srt_Update;
+            end;
+            set_TableNotFound: begin
+              // какая-то бредятина
+              Result := ETS_RESULT_INVALID_STRUCTURE;
               Exit;
-            // общая ошибка структуры, тут уже автоматически не разобраться
-            Result := ETS_RESULT_INVALID_STRUCTURE;
+            end;
+            else begin
+              // тоже не лучше
+              Result := ETS_RESULT_INVALID_STRUCTURE;
+              Exit;
+            end;
           end;
         end;
       end;
-    finally
-      FConnection.KillPoolDataset(VInsertDataset);
-      //FreeAndNil(VInsertDataset);
-      FConnection.KillPoolDataset(VUpdateDataset);
-      //FreeAndNil(VUpdateDataset);
-    end;
   finally
     DoEndWork(VExclusivelyLocked);
   end;
@@ -2408,7 +2392,7 @@ begin
   end;
 
   // пробуем подключиться
-  Result := FConnection.EnsureConnected(AExclusively);
+  Result := FConnection.EnsureConnected(AExclusively, FStatusBuffer);
 
   // при ошибке валим
   if (ETS_RESULT_OK<>Result) then
@@ -2457,8 +2441,16 @@ begin
     // исходя из указанного при инициализации внешнего уникального кода сервиса
     try
       VDataset.OpenSQL(VSelectCurrentServiceSQL);
-    except
-      // обломались при открытии датасета - значит нет таблицы
+    except on E: Exception do
+      // обломались при открытии датасета - возможно нет таблицы
+      case GetStatementExceptionType(E) of
+        set_TableNotFound: begin
+          // и правда нет таблицы
+        end;
+        else begin
+          // неизвестно что
+        end;
+      end;
     end;
 
     if (not VDataset.Active) then begin
@@ -2515,6 +2507,16 @@ begin
     FDBMS_Service_Info.work_mode := VDataset.GetAnsiCharFlag('work_mode', ETS_SWM_DEFAULT);
     FDBMS_Service_Info.use_common_tiles := VDataset.GetAnsiCharFlag('use_common_tiles', ETS_UCT_NO);
     FDBMS_Service_OK := TRUE;
+
+    // копируем параметры в опции хранилища
+    if (FStatusBuffer<>nil) then
+    with (FStatusBuffer^) do begin
+      id_div_mode      := FDBMS_Service_Info.id_div_mode;
+      id_ver_comp      := FDBMS_Service_Info.id_ver_comp;
+      work_mode        := FDBMS_Service_Info.work_mode;
+      use_common_tiles := FDBMS_Service_Info.use_common_tiles;
+    end;
+
     Result := ETS_RESULT_OK;
   finally
     FConnection.KillPoolDataset(VDataset);
@@ -2594,35 +2596,33 @@ function TDBMS_Provider.MakePtrVersionInDB(
   const AExclusively: Boolean
 ): Boolean;
 var
-  VDataset: TDBMS_Dataset;
   VVersionsTableName_UnquotedWithoutPrefix: String;
   VVersionsTableName_QuotedWithPrefix: String;
 begin
   Assert(AExclusively);
 
-  VDataset := FConnection.MakePoolDataset;
+  VVersionsTableName_UnquotedWithoutPrefix := c_Prefix_Versions + InternalGetServiceNameByDB;
+  VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
+
+  // проверим, а есть ли табличка с версиями сервиса
+  if (not FConnection.TableExists(VVersionsTableName_QuotedWithPrefix)) then
   try
-    VVersionsTableName_UnquotedWithoutPrefix := c_Prefix_Versions + InternalGetServiceNameByDB;
-    VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
+    // создадим
+    CreateTableByTemplate(
+      c_Templated_Versions,
+      VVersionsTableName_UnquotedWithoutPrefix,
+      VVersionsTableName_QuotedWithPrefix,
+      0,
+      FALSE
+    );
+  except
+  end;
 
-    // проверим, а есть ли табличка с версиями сервиса
-    if (not TableExists(VVersionsTableName_QuotedWithPrefix)) then
-    try
-      // создадим
-      CreateTableByTemplate(
-        c_Templated_Versions,
-        VVersionsTableName_UnquotedWithoutPrefix,
-        VVersionsTableName_QuotedWithPrefix,
-        0,
-        FALSE
-      );
-    except
-    end;
+  // тут проверять бессмысленно, будем считать что таблица создалась
 
-    // тут проверять бессмысленно, будем считать что таблица создалась
-
-    // забацаем SQL для вставки записи о новой версии
-    VDataset.SetSQLTextAsString(
+  try
+    // выполним SQL для вставки записи о новой версии напрямую
+    FConnection.ExecuteDirectSQL(
       'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
       '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
       IntToStr(ANewVersionPtr^.id_ver) + ',' +
@@ -2630,24 +2630,35 @@ begin
       SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
       IntToStr(ANewVersionPtr^.ver_number) + ')'
     );
-    try
-      // выполним (напрямую)
-      VDataset.ExecSQLDirect;
-      Result := TRUE;
-    except
-      Result := FALSE;
-    end;
-  finally
-    FConnection.KillPoolDataset(VDataset);
+    Result := TRUE;
+  except
+    Result := FALSE;
   end;
 end;
 
-function TDBMS_Provider.PrimaryConstraintViolation(const AException: Exception): Boolean;
+function TDBMS_Provider.GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
 var VMessage: String;
 begin
-  VMessage := LowerCase(AException.Message);
-  Result := (System.Pos('violation', VMessage)>0) and (System.Pos('constraint', VMessage)>0);
+  VMessage := UpperCase(AException.Message);
+{$if defined(USE_DIRECT_ODBC)}
+  if System.Copy(VMessage, 1, 6) = '23505:' then begin
+    // это код ODBC для нарушения уникальности
+    Result := set_PrimaryKeyViolation;
+    Exit;
+  end;
+
+  if System.Copy(VMessage, 1, 6) = '42P01:' then begin
+    // это код ODBC для для отсутствия отношения
+    Result := set_TableNotFound;
+    Exit;
+  end;
+
+  // что-то иное
+  Result := set_Unknown;
+{$else}
+  Result := (System.Pos('VIOLATION', VMessage)>0) and (System.Pos('CONSTRAINT', VMessage)>0);
   // FB: 'violation of PRIMARY or UNIQUE KEY constraint "PK_C2I1_NMC_RECENCY" on table "C2I1_nmc_recency"'
+{$ifend}
 end;
 
 procedure TDBMS_Provider.ReadContentTypesFromDB(const AExclusively: Boolean);
@@ -2726,24 +2737,6 @@ function TDBMS_Provider.SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_
 begin
   Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
             DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat, ADateTime, FFormatSettings));
-end;
-
-function TDBMS_Provider.TableExists(const ATableName: TDBMS_String): Boolean;
-var
-  VDataset: TDBMS_Dataset;
-begin
-  VDataset := FConnection.MakePoolDataset;
-  try
-    try
-      // простая универсальная проверка существования и доступности таблицы
-      VDataset.OpenSQL('select 1 as a from ' + ATableName + ' where 0=1');
-      Result := VDataset.Active;
-    except
-      Result := FALSE;
-    end;
-  finally
-    FConnection.KillPoolDataset(VDataset);
-  end;
 end;
 
 function TDBMS_Provider.VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;

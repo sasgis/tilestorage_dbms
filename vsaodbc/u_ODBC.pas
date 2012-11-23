@@ -50,12 +50,36 @@ type
   public
     // close all registered datasets
     procedure CloseDataSets;
-    
-    // execute statement without parameters
-    procedure ExecuteDirectSQL(
+
+    function ExecuteDirectSQL(
       const ASQLText: String;
-      const ARowsAffected: PLongInt = nil
-    );
+      const ASilentOnError: Boolean
+    ): Boolean;
+
+    function ExecuteDirectWithBlob(
+      const ASQLText: String;
+      const AFullParamName: String;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt;
+      const ASilentOnError: Boolean
+    ): Boolean;
+
+    function OpenDirectSQL(
+      const ASQLText: String;
+      out AStatement: IODBCStatement;
+      const ASilentOnError: Boolean
+    ): Boolean;
+
+    function OpenDirectWithBlob(
+      const ASQLText: String;
+      const AFullParamName: String;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt;
+      out AStatement: IODBCStatement;
+      const ASilentOnError: Boolean
+    ): Boolean;
+
+    function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
   public
     property ConnectWithParams: Boolean read FConnectWithParams write FConnectWithParams default FALSE;
     property KeepConnection: Boolean read FKeepConnection write FKeepConnection default FALSE;
@@ -106,7 +130,7 @@ type
   protected { abstract methods required for all datasets }
     function IsCursorOpen: Boolean; override;
   public
-    function ExecSQL(const AExecDirect: Boolean = FALSE): Integer;
+    function ExecSQL(const AExecDirect: Boolean = FALSE): Integer; deprecated;
   end;
 
   // dataset to open
@@ -195,9 +219,10 @@ begin
   FEnvironment.CheckErrors;
 
   // allocate connection handle
-  FConnectionResult := SQLAllocHandle(SQL_HANDLE_DBC, FEnvironment.ENVHandle, FDBCHandle);
-  CheckODBCError(FConnectionResult, SQL_HANDLE_DBC, FEnvironment.ENVHandle);
-
+  FConnectionResult := SQLAllocHandle(SQL_HANDLE_DBC, FEnvironment.GetODBCHandle, FDBCHandle);
+  if not SQL_SUCCEEDED(FConnectionResult) then
+    raise EODBCNoConnection.CreateWithDiag(FConnectionResult, SQL_HANDLE_ENV, FEnvironment.GetODBCHandle);
+  
   try
     if ConnectWithParams then begin
       // TODO: make ConnectionString and call SQLDriverConnect
@@ -218,7 +243,8 @@ begin
       );
     end;
 
-    CheckODBCError(FConnectionResult, SQL_HANDLE_DBC, FDBCHandle);
+    if not SQL_SUCCEEDED(FConnectionResult) then
+      raise EODBCConnectionError.CreateWithDiag(FConnectionResult, SQL_HANDLE_DBC, FDBCHandle);
   except
     // failed to connect - deallocate connection
     InternalDeallocateConnectionHandle;
@@ -237,18 +263,26 @@ begin
   end;
 end;
 
-procedure TODBCConnection.ExecuteDirectSQL(
+function TODBCConnection.ExecuteDirectSQL(
   const ASQLText: String;
-  const ARowsAffected: PLongInt
-);
+  const ASilentOnError: Boolean
+): Boolean;
 var
   VStatement: IODBCStatement;
 begin
-  CheckActive;
-  VStatement := TODBCStatement.CreateAndExecDirect(FDBCHandle, ASQLText);
-  VStatement.CheckErrors;
-  if (nil<>ARowsAffected) then
-    ARowsAffected^ := VStatement.GetAffectedRows;
+  Result := OpenDirectSQL(ASQLText, VStatement, ASilentOnError);
+end;
+
+function TODBCConnection.ExecuteDirectWithBlob(
+  const ASQLText, AFullParamName: String;
+  const ABufferAddr: Pointer;
+  const ABufferSize: Integer;
+  const ASilentOnError: Boolean
+): Boolean;
+var
+  VStatement: IODBCStatement;
+begin
+  Result := OpenDirectWithBlob(ASQLText, AFullParamName, ABufferAddr, ABufferSize, VStatement, ASilentOnError);
 end;
 
 function TODBCConnection.GetConnected: Boolean;
@@ -364,10 +398,44 @@ begin
   FDBCHandle := nil;
 end;
 
+function TODBCConnection.OpenDirectSQL(
+  const ASQLText: String;
+  out AStatement: IODBCStatement;
+  const ASilentOnError: Boolean
+): Boolean;
+begin
+  CheckActive;
+
+  AStatement := TODBCStatement.CreateAndExecDirect(FDBCHandle, ASQLText);
+  Result := SQL_SUCCEEDED(AStatement.GetLastResult);
+
+  if (not AStatement.IsAllocated) OR ((not Result) and (not ASilentOnError)) then
+    AStatement.CheckErrors;
+end;
+
+function TODBCConnection.OpenDirectWithBlob(
+  const ASQLText, AFullParamName: String;
+  const ABufferAddr: Pointer;
+  const ABufferSize: Integer;
+  out AStatement: IODBCStatement;
+  const ASilentOnError: Boolean
+): Boolean;
+begin
+
+end;
+
 procedure TODBCConnection.SetParams(const Value: TStrings);
 begin
   CheckInactive;
   FParams.Assign(Value);
+end;
+
+function TODBCConnection.TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
+var
+  VFullSQL: String;
+begin
+  VFullSQL := 'select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1';
+  Result := ExecuteDirectSQL(VFullSQL, TRUE);
 end;
 
 { TODBCDataset }
@@ -508,7 +576,7 @@ begin
   
   // ODBC allows direct execution
   if AExecDirect then begin
-    FConnection.ExecuteDirectSQL(CommandText);
+    FConnection.ExecuteDirectSQL(CommandText, FALSE);
     Exit;
   end;
 
@@ -605,11 +673,12 @@ begin
 
   FieldDefs.Clear;
 
-  VSTMTHandle := FStatement.STMTHandle;
+  VSTMTHandle := FStatement.GetODBCHandle;
 
   // obtain number of cols
   VResult := SQLNumResultCols(VSTMTHandle, FColumnCount);
-  CheckODBCError(VResult, SQL_HANDLE_STMT, VSTMTHandle);
+  if not SQL_SUCCEEDED(VResult) then
+    raise EODBCSQLNumResultColsError.CreateWithDiag(VResult, SQL_HANDLE_STMT, VSTMTHandle);
 
   if (FColumnCount<=0) then begin
     // TODO: something wrong
@@ -632,7 +701,8 @@ begin
       VDecimalDigits,
       VNullable
     );
-    CheckODBCError(VResult, SQL_HANDLE_STMT, VSTMTHandle);
+    if not SQL_SUCCEEDED(VResult) then
+      raise EODBCSQLDescribeColError.CreateWithDiag(VResult, SQL_HANDLE_STMT, VSTMTHandle);
 
     SetLength(VColumnName, VNameLength);
 
@@ -888,7 +958,7 @@ begin
 
     // raise on unknown field type
     if (ftUnknown=VFieldType) then
-      raise EODBCUnknownFieldTypeException.Create(
+      raise EODBCUnknownFieldType.Create(
         // show field attribs
         'DataType='+IntToStr(VDataType)+', ColumnSize='+IntToStr(VColumnSize)+', ColumnName='+VColumnName
       );

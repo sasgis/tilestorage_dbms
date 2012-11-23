@@ -10,9 +10,22 @@ const
 
   // синхронный режим выполнения всех запросов (включать только в случае ошибок)
   ETS_INTERNAL_SYNC_SQL_MODE   = ETS_INTERNAL_PARAMS_PREFIX + 'SYNC_SQL_MODE';
+
   // если 0 - нет дополнительной синхронизации
-  // если 1 - синхронизируются запросы полностью
+  c_SYNC_SQL_MODE_None = 0;
+  
+  // если 1 - синхронизируются все запросы к хранилищу внутри DLL
+  c_SYNC_SQL_MODE_All_In_DLL = 1;
+
   // если 2 - только внутри OpenSQL и ExecSQL
+  // потенциально заменить на синхронизацию конечных Statement-ов
+  c_SYNC_SQL_MODE_Statements = 2;
+
+  // если 3 - синхронизируются все запросы к хранилищу снаружи DLL
+  c_SYNC_SQL_MODE_All_In_EXE = 3;
+
+  // если 4 - синхронизируются запросы типа SELECT к хранилищу снаружи DLL
+  c_SYNC_SQL_MODE_Query_In_EXE = 4;
 
   // схема для всех таблиц
   ETS_INTERNAL_SCHEMA          = ETS_INTERNAL_PARAMS_PREFIX + 'SCHEMA';

@@ -44,12 +44,20 @@ type
 {$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
     FTransIsolation: TmIsolationLevels;
 {$ifend}
+    FSQL_SCROLL_OPTIONS_VALUE: SQLUINTEGER;
+    FSQL_BOOKMARK_PERSISTENCE_VALUE: SQLUINTEGER;
+    FSQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE: SQLUINTEGER;
+    FSQL_STATIC_SENSITIVITY_VALUE: SQLUINTEGER;
+{$ifndef ODBCVER3UP}
+    FSQL_SCROLL_CONCURRENCY_VALUE: SQLUINTEGER; // deprecated in ODBC 3.x
+{$endif}    
     FWaitCursor: TCursor;
     FOldCursor: TCursor;
     FShowWaitCursor: boolean;
     FConnectWithParams: Boolean;
     function GetConnected:Boolean;
     procedure SetParams(Value: TStrings);
+    procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
     procedure CheckSQLResult( sqlres:SQLRETURN);
     procedure CheckSQLStrict( sqlres:SQLRETURN);
     procedure SetSession( s:TmSession);
@@ -68,8 +76,10 @@ type
   public
     { Public declarations }
     property Connected: Boolean read GetConnected write SetConnected;
+
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+
     function BDE2SqlType( aFieldType: TFieldType): SQLSMALLINT;
     procedure Connect;
     procedure DisConnect;
@@ -94,6 +104,15 @@ type
 
     property hdbc: SQLHDBC read fhdbc;
 
+    property SQL_SCROLL_OPTIONS_VALUE: SQLUINTEGER read FSQL_SCROLL_OPTIONS_VALUE;
+    property SQL_BOOKMARK_PERSISTENCE_VALUE: SQLUINTEGER read FSQL_BOOKMARK_PERSISTENCE_VALUE;
+    property SQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE: SQLUINTEGER read FSQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE;
+    property SQL_STATIC_SENSITIVITY_VALUE: SQLUINTEGER read FSQL_STATIC_SENSITIVITY_VALUE;
+    
+{$ifndef ODBCVER3UP}
+    property SQL_SCROLL_CONCURRENCY_VALUE: SQLUINTEGER read FSQL_SCROLL_CONCURRENCY_VALUE;
+{$endif}
+
 {$if defined(ALLOW_MODBC_METADATA)}
     procedure GetColumnNames(const ATable: string; AList:TStrings);
     procedure GetDatSourceNames( tlist: TStrings);
@@ -116,25 +135,31 @@ type
     procedure RestoreCursor;
 
     function ExecuteDirectSQL(
-      const ASQLText: String
+      const ASQLText: String;
+      const ASilentOnError: Boolean
     ): Boolean;
 
     function ExecuteDirectWithBlob(
       const ASQLText: String;
+      const AFullParamName: String;
       const ABufferAddr: Pointer;
-      const ABufferSize: LongInt
+      const ABufferSize: LongInt;
+      const ASilentOnError: Boolean
     ): Boolean;
 
     function OpenDirectSQL(
       const ASQLText: String;
-      out AStatementHandle: SQLHANDLE
+      out AStatementHandle: SQLHANDLE;
+      const ASilentOnError: Boolean
     ): Boolean;
 
     function OpenDirectWithBlob(
       const ASQLText: String;
+      const AFullParamName: String;
       const ABufferAddr: Pointer;
       const ABufferSize: LongInt;
-      out AStatementHandle: SQLHANDLE
+      out AStatementHandle: SQLHANDLE;
+      const ASilentOnError: Boolean
     ): Boolean;
 
     procedure CloseDirectSQL(
@@ -181,7 +206,18 @@ const SQL_NAME_LEN = 128;
 constructor TmDatabase.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+
+  FSQL_SCROLL_OPTIONS_VALUE := 0;
+  FSQL_BOOKMARK_PERSISTENCE_VALUE := 0;
+  FSQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE := 0;
+  FSQL_STATIC_SENSITIVITY_VALUE := 0;
+  
+{$ifndef ODBCVER3UP}
+  FSQL_SCROLL_CONCURRENCY_VALUE := 0;
+{$endif}
+
   FConnectWithParams := FALSE;
+
   FDataSetList      := TList.Create;
   FParams           := TStringList.Create;
   FDriverCompletion := sdCompleteReq;
@@ -203,6 +239,12 @@ begin
   FDataSetList.free;
   FParams.Free;
   inherited Destroy;
+end;
+
+procedure TmDataBase.CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
+begin
+  if not SQL_SUCCEEDED(sqlres) then
+    raise EMODBCExecStatementError.CreateDiag( SQL_HANDLE_STMT, stmthandle, sqlres);
 end;
 
 procedure TmDataBase.CheckSQLResult( sqlres:SQLRETURN);
@@ -239,18 +281,10 @@ end;
 
 function TmDataBase.TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 var
-  h: SQLHANDLE;
   VFullSQL: String;
 begin
   VFullSQL := 'select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1';
-  CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h ));
-  try
-    Result := SQL_SUCCEEDED(
-      SQLExecDirect( h, PChar(VFullSQL), Length(VFullSQL) )
-    );
-  finally
-    SQLFreeHandle( SQL_HANDLE_STMT, h );
-  end;
+  Result := ExecuteDirectSQL (VFullSQL, TRUE);
 end;
 
 procedure TmDataBase.Commit;
@@ -361,6 +395,22 @@ begin
 {$if defined(ALLOW_MODBC_DSN_METADATA)}
       FDsnParams := StrPas(SServer);
 {$ifend}
+
+      // get cursor params
+      ODBCDriverInfo( SQL_SCROLL_OPTIONS,            SQLPOINTER(@FSQL_SCROLL_OPTIONS_VALUE),            sizeof(SQLUINTEGER), nil);
+      // get bookmark params
+      ODBCDriverInfo( SQL_BOOKMARK_PERSISTENCE,      SQLPOINTER(@FSQL_BOOKMARK_PERSISTENCE_VALUE),      sizeof(SQLUINTEGER), nil);
+
+
+      // cursor attribs
+      ODBCDriverInfo( SQL_KEYSET_CURSOR_ATTRIBUTES1, SQLPOINTER(@FSQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE), sizeof(SQLUINTEGER), nil);
+      ODBCDriverInfo( SQL_STATIC_SENSITIVITY,        SQLPOINTER(@FSQL_STATIC_SENSITIVITY_VALUE),        sizeof(SQLUINTEGER), nil);
+      
+{$ifndef ODBCVER3UP}
+      // get concurrency info (deprecated in ODBC 3.x)
+      ODBCDriverInfo( SQL_SCROLL_CONCURRENCY, SQLPOINTER(@FSQL_SCROLL_CONCURRENCY_VALUE), sizeof(SQLUINTEGER), nil);
+{$endif}
+
 
 {$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
       case FTransIsolation of
@@ -656,14 +706,19 @@ begin
 end;
 
 function TmDataBase.ExecuteDirectSQL(
-  const ASQLText: String
+  const ASQLText: String;
+  const ASilentOnError: Boolean
 ): Boolean;
 var
   h: SQLHANDLE;
+  VRes: SQLRETURN;
 begin
   CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h));
   try
-    Result := SQL_SUCCEEDED(SQLExecDirect(h, PChar(ASQLText), Length(ASQLText)));
+    VRes := SQLExecDirect(h, PChar(ASQLText), Length(ASQLText));
+    Result := SQL_SUCCEEDED(VRes);
+    if (not Result) and (not ASilentOnError) then
+      CheckStatementResult(h, VRes);
   finally
     SQLFreeHandle( SQL_HANDLE_STMT, h);
   end;
@@ -678,24 +733,35 @@ end;
 
 function TmDataBase.OpenDirectSQL(
   const ASQLText: String;
-  out AStatementHandle: SQLHANDLE
+  out AStatementHandle: SQLHANDLE;
+  const ASilentOnError: Boolean
 ): Boolean;
+var
+  VRes: SQLRETURN;
 begin
   CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, AStatementHandle));
-  Result := SQL_SUCCEEDED(SQLExecDirect(AStatementHandle, PChar(ASQLText), Length(ASQLText)));
+  VRes := SQLExecDirect(AStatementHandle, PChar(ASQLText), Length(ASQLText));
+  Result := SQL_SUCCEEDED(VRes);
+  if (not Result) and (not ASilentOnError) then
+    CheckStatementResult(AStatementHandle, VRes);
 end;
 
 function TmDataBase.OpenDirectWithBlob(
   const ASQLText: String;
+  const AFullParamName: String;
   const ABufferAddr: Pointer;
   const ABufferSize: LongInt;
-  out AStatementHandle: SQLHANDLE
+  out AStatementHandle: SQLHANDLE;
+  const ASilentOnError: Boolean
 ): Boolean;
 var
-  Res: SQLRETURN;
+  VRes: SQLRETURN;
   VColumnSize: SQLULEN;
   VStrLen_or_IndPtr: SQLLEN;
+  VFullSQLText: String;
 begin
+  VFullSQLText := StringReplace(ASQLText, AFullParamName, '?', [rfReplaceAll,rfIgnoreCase]);
+
   // allocate statement
   CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, AStatementHandle));
 
@@ -710,11 +776,11 @@ begin
   end;
 
   // bind single blob
-  Res := SQLBindParameter (
+  VRes := SQLBindParameter (
     AStatementHandle,
     1,
     SQL_PARAM_INPUT,
-    SQL_C_ULONG,
+    SQL_C_BINARY,
     SQL_LONGVARBINARY,
     VColumnSize,
     0,
@@ -722,26 +788,30 @@ begin
     VStrLen_or_IndPtr,
     @VStrLen_or_IndPtr);
 
-  CheckSQLResult(Res);
+  CheckStatementResult(AStatementHandle, VRes);
 
   // execute
-  Res := SQLExecDirect(AStatementHandle, PChar(ASQLText), Length(ASQLText));
+  VRes := SQLExecDirect(AStatementHandle, PChar(VFullSQLText), Length(VFullSQLText));
 
-  Result := SQL_SUCCEEDED(Res);
+  Result := SQL_SUCCEEDED(VRes);
 
+  if (not Result) and (not ASilentOnError) then
+    CheckStatementResult(AStatementHandle, VRes);
 end;
 
 function TmDataBase.ExecuteDirectWithBlob(
   const ASQLText: String;
+  const AFullParamName: String;
   const ABufferAddr: Pointer;
-  const ABufferSize: Integer
+  const ABufferSize: Integer;
+  const ASilentOnError: Boolean
 ): Boolean;
 var
   h: SQLHANDLE;
 begin
   h := 0;
   try
-    Result := OpenDirectWithBlob(ASQLText, ABufferAddr, ABufferSize, h);
+    Result := OpenDirectWithBlob(ASQLText, AFullParamName, ABufferAddr, ABufferSize, h, ASilentOnError);
   finally
     SQLFreeHandle( SQL_HANDLE_STMT, h);
   end;

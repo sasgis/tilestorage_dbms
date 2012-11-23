@@ -75,6 +75,7 @@ type
   EMODBCAllocStatement      = class(EMODBCCommonError);
   EMODBCCommonDatabaseError = class(EMODBCCommonError);
   EMODBCStrictDatabaseError = class(EMODBCCommonError);
+  EMODBCExecStatementError  = class(EMODBCCommonError);
 
 
 var
@@ -85,9 +86,11 @@ implementation
 {$R *.DFM}
 
 constructor ESQLError.CreateDiag(HandleType:SQLSMALLINT; Handle:SQLHANDLE; nError:SQLINTEGER);
+const
+  c_message_buffer_len = 512;
 var
   psqlstate: array [0..6] of Char;
-  pmessage: array [0..255] of Char;
+  pmessage: array [0..c_message_buffer_len-1] of Char;
   textLength: SQLSMALLINT;
   sqlres:     SQLRETURN;
   i:          integer;
@@ -116,9 +119,9 @@ begin
   end else
   repeat
     sqlres := SQLGetDiagRec( HandleType, Handle, i, psqlstate,
-                             NativeError, pmessage, 254, textlength);
+                             NativeError, pmessage, c_message_buffer_len-1, textlength);
     if i = 1 then
-      if SQL_SUCCEEDED(sqlres) then
+      if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
       begin
         SqlState := StrPas(pSqlState);
         Message := StrPas(psqlstate) + ':' + StrPas(pmessage);
@@ -128,13 +131,13 @@ begin
          //Message :='SQL ERROR '+IntToStr( nError);
       end;
 
-    if SQL_SUCCEEDED(sqlres) then
+    if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
     begin
       MessageList.add( StrPas(psqlstate)+':'+StrPas(pmessage));
     end;
 
     inc( i);
-  until not SQL_SUCCEEDED(sqlres);
+  until (sqlres <> SQL_SUCCESS) and (sqlres <> SQL_SUCCESS_WITH_INFO);
 end;
 
 destructor ESQLError.Destroy;

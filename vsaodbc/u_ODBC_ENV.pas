@@ -14,12 +14,9 @@ uses
 type
   IODBCEnvironment = interface(IODBCBasic)
     ['{825AAF47-C2BC-4498-8F6D-221FF8DCC45D}']
-    // return environment handle
-    function GetEnvHandle: SQLHENV;
-    property ENVHandle: SQLHENV read GetEnvHandle;
   end;
 
-  TODBCEnvironment = class(TInterfacedObject, IODBCEnvironment)
+  TODBCEnvironment = class(TInterfacedObject, IODBCEnvironment, IODBCBasic)
   private
     // Environment Handle
     FENVHandle: SQLHENV;
@@ -28,9 +25,10 @@ type
   private
     { IODBCBasic }
     function IsAllocated: Boolean;
+    function GetLastResult: SQLRETURN;
+    function GetODBCType: SQLSMALLINT;
+    function GetODBCHandle: SQLHANDLE;
     procedure CheckErrors;
-    { IODBCEnvironment }
-    function GetEnvHandle: SQLHENV;
   public
     constructor Create;
     destructor Destroy; override;
@@ -47,7 +45,9 @@ implementation
 procedure TODBCEnvironment.CheckErrors;
 begin
   if (not IsAllocated) then
-    raise EODBCUnavailableException.Create(IntToStr(FResult));
+    raise EODBCNoEnvironment.Create(IntToStr(FResult));
+  if not SQL_SUCCEEDED(FResult) then
+    InternalRaiseODBC(Self, EODBCEnvironmentError);
 end;
 
 constructor TODBCEnvironment.Create;
@@ -75,9 +75,19 @@ begin
   inherited;
 end;
 
-function TODBCEnvironment.GetEnvHandle: SQLHENV;
+function TODBCEnvironment.GetLastResult: SQLRETURN;
 begin
-  Result := FENVHandle
+  Result := FResult;
+end;
+
+function TODBCEnvironment.GetODBCHandle: SQLHANDLE;
+begin
+  Result := FENVHandle;
+end;
+
+function TODBCEnvironment.GetODBCType: SQLSMALLINT;
+begin
+  Result := SQL_HANDLE_ENV;
 end;
 
 function TODBCEnvironment.IsAllocated: Boolean;

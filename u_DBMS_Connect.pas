@@ -34,15 +34,16 @@ uses
   t_ETS_Tiles;
 
 type
+
   TDBMS_Custom_Connection = class(
 {$if defined(USE_MODBC)}
-    TmDataBase // modbc
+    TmDataBase
 {$elseif defined(USE_DIRECT_ODBC)}
-    TODBCConnection // ODBC
+    TODBCConnection
 {$elseif defined(ETS_USE_ZEOS)}
-    TZConnection   // ZEOS
+    TZConnection
 {$else}
-    TSQLConnection // DBX
+    TSQLConnection
 {$ifend}
   )
   protected
@@ -91,6 +92,7 @@ type
       out AResult: TDBMS_String
     ): Boolean;
 
+  private
     // set BLOB buffer to param (if exists)
     procedure SetParamBlobData(
       const AParamName: TDBMS_String;
@@ -98,6 +100,7 @@ type
       const ABufferSize: LongInt
     );
 
+  public
     // reads BLOB from field via stream
     function CreateFieldBlobReadStream(const AFieldName: TDBMS_String): TStream;
 
@@ -105,9 +108,9 @@ type
     procedure SetSQLTextAsStrings(const ASQLText: TStrings);
 
     // reassign both modes
-    procedure ExecSQLDirect;
-    procedure ExecSQLParsed;
-    procedure ExecSQLSpecified(const ADirectExec: Boolean);
+    procedure ExecSQLDirect; deprecated;
+    procedure ExecSQLParsed; deprecated;
+    procedure ExecSQLSpecified(const ADirectExec: Boolean); deprecated;
   end;
 
   IDBMS_Connection = interface
@@ -116,20 +119,29 @@ type
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
-    function MakeNonPooledDataset: TDBMS_Dataset;
 
     // подключение, если ещё не подключено
-    function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
+    function EnsureConnected(
+      const AllowTryToConnect: Boolean;
+      AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
+    ): Byte;
 
     // выполнение простого запроса напрямую
-    procedure DirectExecSQL(const ASQLText: TDBMS_String);
+    function ExecuteDirectSQL(
+      const ASQLText: TDBMS_String;
+      const ASilentOnError: Boolean = FALSE // может не поддерживаться
+    ): Boolean;
 
     // выполнение запроса с параметром типв blob напрямую
-    procedure DirectExecWithBlob(
+    function ExecuteDirectWithBlob(
       const ASQLText: TDBMS_String;
       const ABufferAddr: Pointer;
-      const ABufferSize: LongInt
-    );
+      const ABufferSize: LongInt;
+      const ASilentOnError: Boolean = FALSE // может не поддерживаться
+    ): Boolean;
+
+    // проверка существования таблицы
+    function TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
 
     // тип сервера БД
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
@@ -163,22 +175,31 @@ type
     function ApplyParamsToConnection(const AParams: TStrings): Byte;
     function IsTrustedConnection: Boolean;
     function GetEngineTypeUsingSQL: TEngineType;
+    function calc_exclusive_mode: AnsiChar;
   private
     { IDBMS_Connection }
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
-    function MakeNonPooledDataset: TDBMS_Dataset;
 
-    function EnsureConnected(const AllowTryToConnect: Boolean): Byte;
+    function EnsureConnected(
+      const AllowTryToConnect: Boolean;
+      AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
+    ): Byte;
 
-    procedure DirectExecSQL(const ASQLText: TDBMS_String);
+    function ExecuteDirectSQL(
+      const ASQLText: TDBMS_String;
+      const ASilentOnError: Boolean = FALSE // может не поддерживаться
+    ): Boolean;
 
-    procedure DirectExecWithBlob(
+    function ExecuteDirectWithBlob(
       const ASQLText: TDBMS_String;
       const ABufferAddr: Pointer;
-      const ABufferSize: LongInt
-    );
+      const ABufferSize: LongInt;
+      const ASilentOnError: Boolean = FALSE // может не поддерживаться
+    ): Boolean;
+
+    function TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
 
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
     function GetCheckedEngineType: TEngineType;
@@ -415,7 +436,7 @@ begin
     Exit;
   end else if SameText(ETS_INTERNAL_SYNC_SQL_MODE, AParamName) then begin
     // для более быстрого доступа
-    FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE := StrToIntDef(AParamValue, 0);
+    FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE := StrToIntDef(AParamValue, c_SYNC_SQL_MODE_None);
     Exit;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(USE_DIRECT_ODBC)}
@@ -443,6 +464,35 @@ begin
     FInternalParams := TStringList.Create;
   // просто складываем параметры в список
   FInternalParams.Values[AParamName] := AParamValue;
+end;
+
+function TDBMS_Connection.TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
+{$if defined(ETS_USE_DBX)}
+var
+  VDataset: TDBMS_Dataset;
+{$ifend}
+begin
+{$if defined(USE_DIRECT_ODBC)}
+  // ODBC
+  Result := FSQLConnection.TableExistsDirect(AFullyQualifiedQuotedTableName);
+{$elseif defined(ETS_USE_ZEOS)}
+  // ZEOS
+  Result := FSQLConnection.TableExistsDirect(AFullyQualifiedQuotedTableName);
+{$else}
+  // DBX
+  VDataset := FSQLConnection.MakePoolDataset;
+  try
+    try
+      // простая универсальная проверка существования и доступности таблицы
+      VDataset.OpenSQL('select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1');
+      Result := VDataset.Active;
+    except
+      Result := FALSE;
+    end;
+  finally
+    FSQLConnection.KillPoolDataset(VDataset);
+  end;
+{$ifend}
 end;
 
 function TDBMS_Connection.ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
@@ -656,6 +706,21 @@ begin
 {$ifend}
 end;
 
+function TDBMS_Connection.calc_exclusive_mode: AnsiChar;
+begin
+  case FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE of
+    c_SYNC_SQL_MODE_All_In_EXE: begin
+      Result := ETS_HEM_EXCLISUVE;
+    end;
+    c_SYNC_SQL_MODE_Query_In_EXE: begin
+      Result := ETS_HEM_QUERY_ONLY;
+    end;
+    else begin
+      Result := ETS_HEM_DEFAULT;
+    end;
+  end;
+end;
+
 procedure TDBMS_Connection.CompactPool;
 var
   i: Integer;
@@ -750,10 +815,13 @@ begin
   inherited;
 end;
 
-procedure TDBMS_Connection.DirectExecSQL(const ASQLText: TDBMS_String);
+function TDBMS_Connection.ExecuteDirectSQL(
+  const ASQLText: TDBMS_String;
+  const ASilentOnError: Boolean
+): Boolean;
 begin
 {$if defined(USE_DIRECT_ODBC)}
-  FSQLConnection.ExecuteDirectSQL(ASQLText);
+  Result := FSQLConnection.ExecuteDirectSQL(ASQLText, ASilentOnError);
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
   TODO
@@ -763,24 +831,40 @@ begin
 {$ifend}
 end;
 
-procedure TDBMS_Connection.DirectExecWithBlob(
+function TDBMS_Connection.ExecuteDirectWithBlob(
   const ASQLText: TDBMS_String;
   const ABufferAddr: Pointer;
-  const ABufferSize: Integer
-);
+  const ABufferSize: Integer;
+  const ASilentOnError: Boolean
+): Boolean;
 begin
+  // блобы у нас только для параметра ':tile_body' aka c_RTL_Tile_Body_Paramname
 {$if defined(USE_DIRECT_ODBC)}
-  FSQLConnection.ExecuteDirectWithBlob(ASQLText, ABufferAddr, ABufferSize);
+  Result := FSQLConnection.ExecuteDirectWithBlob(ASQLText, c_RTL_Tile_Body_Paramname, ABufferAddr, ABufferSize, ASilentOnError);
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
-  TODO
+  TODO:
+          // добавим параметр (как BLOB)
+          VInsertDataset.SetParamBlobData(
+            c_RTL_Tile_Body_Paramsrc,
+          );
+  
 {$else}
   // DBX
-  TODO
+  TODO:
+
+          // добавим параметр (как BLOB)
+          VInsertDataset.SetParamBlobData(
+            c_RTL_Tile_Body_Paramsrc,
+          );
+
 {$ifend}
 end;
 
-function TDBMS_Connection.EnsureConnected(const AllowTryToConnect: Boolean): Byte;
+function TDBMS_Connection.EnsureConnected(
+  const AllowTryToConnect: Boolean;
+  AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
+): Byte;
 begin
   if FSQLConnection.Connected then begin
     // connected
@@ -797,7 +881,14 @@ begin
       Result := ApplyAuthenticationInfo;
       if (ETS_RESULT_OK<>Result) then
         Exit;
-      
+
+      // пропихнём опции в хост
+      if (AStatusBuffer<>nil) then
+      with (AStatusBuffer^) do begin
+        if wSize>=SizeOf(AStatusBuffer^) then
+          exclusive_mode := calc_exclusive_mode;
+      end;
+
       // try to connect
       try
         FSQLConnection.Connected := TRUE;
@@ -829,8 +920,8 @@ end;
 
 function TDBMS_Connection.FullSyncronizeSQL: Boolean;
 begin
-  // если 1 - синхронизируются запросы полностью
-  Result := (FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE=1) or (not FSQLConnection.Connected);
+  // если c_SYNC_SQL_MODE_All_In_DLL - синхронизируются запросы полностью
+  Result := (FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE=c_SYNC_SQL_MODE_All_In_DLL) or (not FSQLConnection.Connected);
 end;
 
 function TDBMS_Connection.GetInternalParameter(const AInternalParameterName: String): String;
@@ -999,6 +1090,9 @@ end;
 
 procedure TDBMS_Connection.KillPoolDataset(var ADataset: TDBMS_Dataset);
 begin
+  if (ADataset<>nil) then
+    ADataset.Close;
+
   if (ADataset is TDBMS_Pooled_Dataset) then begin
     // check if in its pool
     Assert((ADataset.Owner=FSQLConnection),'KillPoolDataset mismatch');
@@ -1014,22 +1108,6 @@ begin
     // common dataset
     FreeAndNil(ADataset);
   end;
-end;
-
-function TDBMS_Connection.MakeNonPooledDataset: TDBMS_Dataset;
-begin
-  Result := TDBMS_Dataset.Create(nil);
-{$if defined(USE_MODBC)}
-  Result.DataBase := FSQLConnection;
-{$elseif defined(USE_DIRECT_ODBC)}
-  Result.SQLConnection := FSQLConnection;
-{$elseif defined(ETS_USE_ZEOS)}
-  Result.Connection := FSQLConnection;
-  Result.FUsePingServer := c_ZEOS_Use_PingServer[GetCheckedEngineType];
-{$else}
-  // DBX
-  Result.SQLConnection := FSQLConnection;
-{$ifend}
 end;
 
 function TDBMS_Connection.MakePoolDataset: TDBMS_Dataset;
@@ -1235,7 +1313,7 @@ begin
 {$elseif defined(USE_DIRECT_ODBC)}
   TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
   try
-    ExecSQL;
+    SQLConnection.ExecuteDirectSQL(CommandText, FALSE);
   finally
     TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
   end;
@@ -1272,7 +1350,7 @@ begin
 {$elseif defined(USE_DIRECT_ODBC)}
   TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
   try
-    ExecSQL;
+    SQLConnection.ExecuteDirectSQL(CommandText, FALSE);
   finally
     TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
   end;
@@ -1302,14 +1380,14 @@ begin
 {$if defined(USE_MODBC)}
   TDBMS_Custom_Connection(DataBase).BeforeSQL(VLocked);
   try
-    ExecSQL;
+     ExecSQL;
   finally
     TDBMS_Custom_Connection(DataBase).AfterSQL(VLocked);
   end;
 {$elseif defined(USE_DIRECT_ODBC)}
   TDBMS_Custom_Connection(SQLConnection).BeforeSQL(VLocked);
   try
-    ExecSQL;
+    SQLConnection.ExecuteDirectSQL(CommandText, FALSE);
   finally
     TDBMS_Custom_Connection(SQLConnection).AfterSQL(VLocked);
   end;
@@ -1457,7 +1535,7 @@ end;
 
 procedure TDBMS_Custom_Connection.BeforeSQL(out ALocked: Boolean);
 begin
-  ALocked := (FETS_INTERNAL_SYNC_SQL_MODE=2);
+  ALocked := (FETS_INTERNAL_SYNC_SQL_MODE=c_SYNC_SQL_MODE_Statements);
   if ALocked then begin
     EnterCriticalSection(FSYNC_SQL_MODE_CS);
   end;

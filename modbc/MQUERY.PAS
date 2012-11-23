@@ -264,7 +264,7 @@ type
     property  DataBase:TmDataBase read FDataBase write SetDataBase;
     property  DataSource: TDataSource read GetDataSource write SetDataSource;
     property  RequestLive:boolean read FRequestLive write FRequestLive default False;
-    property  CursorType:TmCursorTypes read FCursorType write SetCursorType default ctDynamicCursor;
+    property  CursorType:TmCursorTypes read FCursorType write SetCursorType default ctFwdOnlyCursor;
     property  ParamCheck: Boolean read FParamCheck write FParamCheck default True;
     property  Params: TmParams read FParams write SetParamsList;
     property  Prepared: Boolean read GetPrepared;
@@ -343,7 +343,7 @@ begin
   FParams        := TmParams.Create;
   FDataLink      := TmCustomQueryDataLink.Create(Self);
   TStringList(SQL).OnChange := QueryChanged;
-  FCursorType    := ctDynamicCursor;
+  FCursorType    := ctFwdOnlyCursor;
   FState         := [];
   FUniDirect     := False;
   FCachedUpdates := False;
@@ -494,16 +494,14 @@ end;
 // get and set cursor attributes
 procedure TmCustomQuery.GetStmtAttributes;
 var
-  ui: SQLUINTEGER;
-//  res: SQLSMALLINT;
+  VActualValue: SQLUINTEGER;
 begin
    // get supported cursor types
-   DataBase.ODBCDriverInfo( SQL_SCROLL_OPTIONS, SQLPOINTER(@ui), sizeof(SQLUINTEGER), nil);
-   if (CursorType=ctDynamicCursor)and((ui and SQL_SO_DYNAMIC)=0)
+   if (CursorType=ctDynamicCursor)and((DataBase.SQL_SCROLL_OPTIONS_VALUE and SQL_SO_DYNAMIC)=0)
      then CursorType:=ctKeySetCursor;
-   if (CursorType=ctKeySetCursor)and((ui and SQL_SO_KEYSET_DRIVEN)=0)
+   if (CursorType=ctKeySetCursor)and((DataBase.SQL_SCROLL_OPTIONS_VALUE and SQL_SO_KEYSET_DRIVEN)=0)
      then CursorType:=ctStaticCursor;
-   if (CursorType=ctStaticCursor)and((ui and SQL_SO_STATIC)=0)
+   if (CursorType=ctStaticCursor)and((DataBase.SQL_SCROLL_OPTIONS_VALUE and SQL_SO_STATIC)=0)
      then CursorType:=ctFwdOnlyCursor;
    if CursorType<>ctFwdOnlyCursor then
    begin
@@ -520,8 +518,8 @@ begin
            if (E.SqlState<>'01S02')and(E.SqlState<>'HYC00') then raise;
       end;
       // get real cursor type
-      CheckSQLResult( SQLGetStmtAttr( hstmt, SQL_ATTR_CURSOR_TYPE, @ui, sizeof(ui), nil));
-      case ui of
+      CheckSQLResult( SQLGetStmtAttr( hstmt, SQL_ATTR_CURSOR_TYPE, @VActualValue, sizeof(VActualValue), nil));
+      case VActualValue of
          SQL_CURSOR_FORWARD_ONLY:  CursorType:= ctFwdOnlyCursor;
          SQL_CURSOR_STATIC:        CursorType:= ctStaticCursor;
          SQL_CURSOR_KEYSET_DRIVEN: CursorType:= ctKeySetCursor;
@@ -543,8 +541,8 @@ begin
           end;
         ctKeySetCursor:
           begin
-            DataBase.ODBCDriverInfo( SQL_KEYSET_CURSOR_ATTRIBUTES1, SQLPOINTER(@Attrib1), sizeof(SQLUINTEGER), nil);
-            DataBase.ODBCDriverInfo( SQL_STATIC_SENSITIVITY, SQLPOINTER(@Sensitivity), sizeof(SQLUINTEGER), nil);
+            Attrib1     := DataBase.SQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE;
+            Sensitivity := DataBase.SQL_STATIC_SENSITIVITY_VALUE;
             // DataBase.ODBCDriverInfo( SQL_KEYSET_CURSOR_ATTRIBUTES2, SQLPOINTER(@Attrib2), sizeof(SQLUINTEGER), nil);
           end;
         ctDynamicCursor:
@@ -557,10 +555,8 @@ begin
       except; // some drivers not support second attributes
       end;
 
-      DataBase.ODBCDriverInfo( SQL_BOOKMARK_PERSISTENCE, SQLPOINTER(@ui), sizeof(SQLUINTEGER), nil);
-
-      if ((ui and SQL_BP_UPDATE)=0)
-          or(((ui and SQL_BP_DELETE)=0)and((Sensitivity and SQL_SS_DELETIONS)=0))
+      if ((Database.SQL_BOOKMARK_PERSISTENCE_VALUE and SQL_BP_UPDATE)=0)
+          or(((Database.SQL_BOOKMARK_PERSISTENCE_VALUE and SQL_BP_DELETE)=0)and((Sensitivity and SQL_SS_DELETIONS)=0))
           or (cursorType=ctFwdOnlyCursor)
       then UseDriverBookMark := False
       else UseDriverBookMark := True;
@@ -584,7 +580,10 @@ begin
       if not UseInternalDelete then
           Sensitivity := Sensitivity and (not SQL_SS_DELETIONS);
 
-      DataBase.ODBCDriverInfo( SQL_SCROLL_CONCURRENCY, SQLPOINTER(@ui), sizeof(SQLUINTEGER), nil);
+
+      // SQL_SCROLL_CONCURRENCY deprecated in ODBC 3.x
+
+      (*
       if (not(mqOpened in FState)) and
          (CursorType in [ctDynamicCursor,ctKeySetCursor])
       then
@@ -610,6 +609,7 @@ begin
             end;
           end;
       end;
+      *)
 
       if SQLGetStmtAttr( hstmt, SQL_ATTR_CONCURRENCY, @Concurrency, sizeof(Concurrency), nil)<>0
         then Concurrency:=0;
@@ -620,7 +620,6 @@ end;
 procedure TmCustomQuery.InitStmt;
 var
   sqlres: SQLRETURN;
-  ui:     SQLUINTEGER;
 begin
   if (mqInitialized in FState) and (hstmt <> 0) then
     Exit;
@@ -630,8 +629,6 @@ begin
 
   if DataBase.hdbc=0 then
     DataBase.Connect;
-
-  DataBase.ODBCDriverInfo( SQL_SCROLL_OPTIONS, SQLPOINTER(@ui), sizeof(SQLUINTEGER), nil);
 
   sqlres := SQLAllocHandle(SQL_HANDLE_STMT, DataBase.hdbc, hstmt);
 

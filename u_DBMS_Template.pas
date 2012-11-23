@@ -7,6 +7,7 @@ interface
 uses
   SysUtils,
   Classes,
+  t_types,
   t_ETS_Tiles,
   t_DBMS_Template,
   u_DBMS_Connect;
@@ -33,13 +34,13 @@ type
 
     procedure ExecuteAuxSQL(
       const AErrors: TStrings;
-      const ADataset: TDBMS_Dataset;
+      const AConnection: IDBMS_Connection;
       const ATemplatedTableName: String
     );
 
     procedure ExecSQLFromStrings(
       const ASrcLines: TStrings;
-      const ADataset: TDBMS_Dataset;
+      const AConnection: IDBMS_Connection;
       const AErrors: TStrings;
       const AInsertIntoTableForTemplated: String
     );
@@ -53,7 +54,7 @@ type
     destructor Destroy; override;
     
     // выполнение всех имеющихся команд SQL из скрипта
-    function ExecuteAllSQLs(const ADataset: TDBMS_Dataset): Byte;
+    function ExecuteAllSQLs(const AConnection: IDBMS_Connection): Byte;
   end;
 
 implementation
@@ -113,7 +114,7 @@ end;
 
 procedure TDBMS_SQLTemplates_File.ExecSQLFromStrings(
   const ASrcLines: TStrings;
-  const ADataset: TDBMS_Dataset;
+  const AConnection: IDBMS_Connection;
   const AErrors: TStrings;
   const AInsertIntoTableForTemplated: String
 );
@@ -144,23 +145,14 @@ begin
       try
         if (0=Length(AInsertIntoTableForTemplated)) then begin
           // если не в таблицу - значит просто исполняем команды SQL
-          if (0=Length(FAppendDivider)) then begin
-            // просто дообавляем строки
-            ADataset.SetSQLTextAsStrings(VLines);
-          end else begin
-            // кроме строк добавляем окончание команды
-            ADataset.SetSQLTextAsString(Trim(VLines.Text) + FAppendDivider);
-          end;
-          // исполняем
-          ADataset.ExecSQLDirect;
+          AConnection.ExecuteDirectSQL( Trim(VLines.Text)+FAppendDivider );
         end else begin
           // make insert SQL statement for special table
-          ADataset.SetSQLTextAsString(
+          AConnection.ExecuteDirectSQL(
             'insert into ' + FForcedSchemaPrefix + Z_ALL_SQL+
                   ' (object_name,object_oper,index_sql,object_sql)'+
                   ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')'
           );
-          ADataset.ExecSQLDirect;
         end;
       except
         on E: Exception do begin
@@ -179,7 +171,7 @@ begin
   end;
 end;
 
-function TDBMS_SQLTemplates_File.ExecuteAllSQLs(const ADataset: TDBMS_Dataset): Byte;
+function TDBMS_SQLTemplates_File.ExecuteAllSQLs(const AConnection: IDBMS_Connection): Byte;
 var
   VErrors: TStrings;
 begin
@@ -188,12 +180,12 @@ begin
   VErrors := TStringList.Create;
   try
     // первая часть - простые таблицы и прочее
-    ExecSQLFromStrings(FSQL, ADataset, VErrors, '');
+    ExecSQLFromStrings(FSQL, AConnection, VErrors, '');
 
     // вторая часть - шаблонные таблицы
-    ExecuteAuxSQL(VErrors, ADataset, c_Templated_Versions);
-    ExecuteAuxSQL(VErrors, ADataset, c_Templated_CommonTiles);
-    ExecuteAuxSQL(VErrors, ADataset, c_Templated_RealTiles);
+    ExecuteAuxSQL(VErrors, AConnection, c_Templated_Versions);
+    ExecuteAuxSQL(VErrors, AConnection, c_Templated_CommonTiles);
+    ExecuteAuxSQL(VErrors, AConnection, c_Templated_RealTiles);
   finally
     if VErrors.Count>0 then
     try
@@ -207,7 +199,7 @@ end;
 
 procedure TDBMS_SQLTemplates_File.ExecuteAuxSQL(
   const AErrors: TStrings;
-  const ADataset: TDBMS_Dataset;
+  const AConnection: IDBMS_Connection;
   const ATemplatedTableName: String
 );
 var
@@ -265,7 +257,7 @@ begin
       Exit;
 
     // insert all SQLs into special table
-    ExecSQLFromStrings(VLines, ADataset, AErrors, ATemplatedTableName);
+    ExecSQLFromStrings(VLines, AConnection, AErrors, ATemplatedTableName);
   finally
     VLines.Free;
   end;

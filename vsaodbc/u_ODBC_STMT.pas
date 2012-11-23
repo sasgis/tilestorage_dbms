@@ -16,9 +16,8 @@ uses
 type
   IODBCStatement = interface(IODBCBasic)
     ['{A7C71A3F-EC6B-41A2-948A-7EDAAF94E0C2}']
-    // return statement handle
-    function GetStmtHandle: SQLHSTMT;
-    property STMTHandle: SQLHSTMT read GetStmtHandle;
+    // check specified result on statement handle
+    procedure CheckError(const AResult: SQLRETURN);
     // bind params
     procedure BindParams(const AParams: TParams);
     // execute statement
@@ -88,8 +87,10 @@ type
 
 
 
-  TODBCStatement = class(TInterfacedObject, IODBCStatement)
+  TODBCStatement = class(TInterfacedObject, IODBCStatement, IODBCBasic)
   private
+    // stored connection handle
+    FDBCHandle: SQLHDBC;
     // statement Handle
     FSTMTHandle: SQLHSTMT;
     // result of handle allocation
@@ -103,9 +104,12 @@ type
   private
     { IODBCBasic }
     function IsAllocated: Boolean;
+    function GetLastResult: SQLRETURN;
+    function GetODBCType: SQLSMALLINT;
+    function GetODBCHandle: SQLHANDLE;
     procedure CheckErrors;
     { IODBCStatement }
-    function GetStmtHandle: SQLHSTMT;
+    procedure CheckError(const AResult: SQLRETURN);
     procedure BindParams(const AParams: TParams);
     function Execute(const ARowsAffected: PLongInt = nil): SQLRETURN;
     function GetAffectedRows: Longint;
@@ -213,20 +217,28 @@ begin
     );
 
     // check result
-    CheckODBCError(FResult, SQL_HANDLE_STMT, FSTMTHandle);
+    if not SQL_SUCCEEDED(FResult) then
+      raise EODBCBindParamsError.CreateWithDiag(FResult, SQL_HANDLE_STMT, FSTMTHandle);
   end;
+end;
+
+procedure TODBCStatement.CheckError(const AResult: SQLRETURN);
+begin
+  if not SQL_SUCCEEDED(AResult) then
+    raise EODBCStatementError.CreateWithDiag(AResult, SQL_HANDLE_STMT, FSTMTHandle);
 end;
 
 procedure TODBCStatement.CheckErrors;
 begin
+  // check on connection statement
   if (not IsAllocated) then
-    raise EODBCNoStatementException.Create(IntToStr(FResult));
+    raise EODBCNoStatement.CreateWithDiag(FResult, SQL_HANDLE_DBC, FDBCHandle);
 
   if FPrepared and (not SQL_SUCCEEDED(FResult)) then
-    raise EODBCStatementNotPreparedException.Create(IntToStr(FResult));
+    InternalRaiseODBC(Self, EODBCPrepareStatementError);
 
   if (not FPrepared) and (not SQL_SUCCEEDED(FResult)) then
-    raise EODBCStatementDirectExecException.Create(IntToStr(FResult));
+    InternalRaiseODBC(Self, EODBCDirectExecStatementError);
 end;
 
 constructor TODBCStatement.Create(
@@ -236,6 +248,7 @@ constructor TODBCStatement.Create(
 begin
   inherited Create;
 
+  FDBCHandle := ADBCHandle;
   FParamBuffers := nil;
   FPrepared := FALSE;
 
@@ -258,6 +271,7 @@ constructor TODBCStatement.CreateAndExecDirect(const ADBCHandle: SQLHDBC; const 
 begin
   inherited Create;
 
+  FDBCHandle := ADBCHandle;
   FParamBuffers := nil;
   FPrepared := FALSE;
 
@@ -290,6 +304,7 @@ end;
 function TODBCStatement.Execute(const ARowsAffected: PLongInt): SQLRETURN;
 begin
   if (not FPrepared) then begin
+    // ошибка логики вызова
     raise EODBCStatementNotPreparedException.Create('BindParams');
   end;
 
@@ -304,7 +319,7 @@ begin
   end;
 
   // check result
-  CheckODBCError(Result, SQL_HANDLE_STMT, FSTMTHandle);
+  CheckError(Result);
 
   // if OK
   if (nil<>ARowsAffected) then begin
@@ -346,9 +361,19 @@ begin
   SQLRowCount(FSTMTHandle, Result);
 end;
 
-function TODBCStatement.GetStmtHandle: SQLHSTMT;
+function TODBCStatement.GetLastResult: SQLRETURN;
+begin
+  Result := FResult;
+end;
+
+function TODBCStatement.GetODBCHandle: SQLHANDLE;
 begin
   Result := FSTMTHandle;
+end;
+
+function TODBCStatement.GetODBCType: SQLSMALLINT;
+begin
+  Result := SQL_HANDLE_STMT;
 end;
 
 function TODBCStatement.IsAllocated: Boolean;

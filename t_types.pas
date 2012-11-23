@@ -5,10 +5,10 @@ unit t_types;
 interface
 
 type
-{$if defined(ETS_USE_ZEOS)}
-  TDBMS_String = String;
-{$else}
+{$if defined(ETS_USE_DBX)}
   TDBMS_String = WideString;
+{$else}
+  TDBMS_String = String;
 {$ifend}
 
 
