@@ -1,3 +1,6 @@
+create view DUAL as select 'ASA' as ENGINETYPE
+;
+
 create table IF NOT EXISTS Z_ALL_SQL (
    object_name          varchar(128)                   not null,
    object_oper          char(1)                        not null
@@ -89,15 +92,15 @@ create table IF NOT EXISTS Z_OPTIONS (
 )
 ;
 
-INSERT IGNORE INTO Z_OPTIONS (id_option,option_descript,option_value) ON EXISTING SKIP VALUES
+INSERT INTO Z_OPTIONS (id_option,option_descript,option_value) ON EXISTING SKIP VALUES
 (1, 'Autocreate services', 0)
 ;
 
-INSERT IGNORE INTO Z_OPTIONS (id_option,option_descript,option_value) ON EXISTING SKIP VALUES
+INSERT INTO Z_OPTIONS (id_option,option_descript,option_value) ON EXISTING SKIP VALUES
 (2, 'Autocreate versions', 0)
 ;
 
-INSERT IGNORE INTO Z_OPTIONS (id_option,option_descript,option_value) ON EXISTING SKIP VALUES
+INSERT INTO Z_OPTIONS (id_option,option_descript,option_value) ON EXISTING SKIP VALUES
 (3, 'Keep TILE for TNE', 0)
 ;
 
@@ -111,31 +114,31 @@ create table IF NOT EXISTS Z_DIV_MODE (
 )
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('Z','All-in-One',0)
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('I','Based on 1024',10)
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('J','Based on 2048',11)
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('K','Based on 4096',12)
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('L','Based on 8192',13)
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('M','Based on 16384',14)
 ;
 
-INSERT IGNORE INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
+INSERT INTO Z_DIV_MODE (id_div_mode,div_mode_name,div_mask_width) ON EXISTING SKIP VALUES
 ('N','Based on 32768',15)
 ;
 
@@ -154,23 +157,23 @@ create table IF NOT EXISTS Z_VER_COMP (
 )
 ;
 
-INSERT IGNORE INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
+INSERT INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
 ('0','-','No')
 ;
 
-INSERT IGNORE INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
+INSERT INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
 ('I','id_ver','By id')
 ;
 
-INSERT IGNORE INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
+INSERT INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
 ('V','ver_value','By value')
 ;
 
-INSERT IGNORE INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
+INSERT INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
 ('D','ver_date','By date')
 ;
 
-INSERT IGNORE INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
+INSERT INTO Z_VER_COMP (id_ver_comp,ver_comp_field,ver_comp_name) ON EXISTING SKIP VALUES
 ('N','ver_number','By number')
 ;
 

@@ -267,7 +267,7 @@ const
   c_SQL_DUAL_Create: array [TEngineType] of String = (
   'create view DUAL as select @@version as ENGINE_VERSION', // MSSQL
   'create view DUAL as select ''ASE'' as ENGINETYPE',       // ASE
-  'create view DUAL as select @@version as ENGINE_VERSION', // ASA
+  'create view DUAL as select ''ASA'' as ENGINETYPE',       // ASA
   '', // Oracle - with DUAL by default - nothing
   '', // Informix
   '', // DB2

@@ -1864,7 +1864,7 @@ begin
     // выполняем команду INSERT
     // прочие поля (id_ver_comp, id_div_mode, work_mode, use_common_tiles) залетают из DEFAULT-ных значений
     // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
-    ASQLTextResult := 'INSERT INTO ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
+    ASQLTextResult := 'INSERT ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
                             IntToStr(VNewIdService) + ',' +
                             WideStrToDB(VNewServiceCode) + ',' +
                             WideStrToDB(InternalGetServiceNameByHost) + ',' +
@@ -2007,7 +2007,7 @@ begin
   end;
 
   // соберём выражение INSERT
-  AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
+  AInsertSQLResult := 'INSERT ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
                       IntToStr(VSQLTile.XYLowerToID.X) + ',' +
                       IntToStr(VSQLTile.XYLowerToID.Y) + ',' +
                       IntToStr(VReqVersion.id_ver) + ',' +
@@ -2647,7 +2647,7 @@ begin
   try
     // выполним SQL для вставки записи о новой версии напрямую
     FConnection.ExecuteDirectSQL(
-      'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
+      'INSERT ' + VVersionsTableName_QuotedWithPrefix +
       '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
       IntToStr(ANewVersionPtr^.id_ver) + ',' +
       WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
@@ -2694,7 +2694,7 @@ begin
     // '42P01:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
     // '42000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
     // '42S02:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]D2I1_NMC_RECENCY NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
-    //
+    // '42S02:[Sybase][ODBC Driver][SQL Anywhere]Table 'Z_SERVICE' not found'
     //
     //
     Result := set_TableNotFound;

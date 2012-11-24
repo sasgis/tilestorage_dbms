@@ -149,9 +149,8 @@ begin
         end else begin
           // make insert SQL statement for special table
           AConnection.ExecuteDirectSQL(
-            'insert into ' + FForcedSchemaPrefix + Z_ALL_SQL+
-                  ' (object_name,object_oper,index_sql,object_sql)'+
-                  ' values ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')'
+            'INSERT ' + FForcedSchemaPrefix + Z_ALL_SQL+ ' (object_name,object_oper,index_sql,object_sql)'+
+           ' VALUES ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+WideStrToDB(VLines.Text)+')'
           );
         end;
       except
