@@ -1216,12 +1216,12 @@ var    odbcversion:word;
                pcrow:PSQLUINTEGER;
                rgfRowStatus:PSQLUSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
    function SQLGetData(
-               StatementHandle:SQLHSTMT;
-               ColumnNumber:SQLUSMALLINT;
-               TargetType:SQLSMALLINT;
-               TargetValue:SQLPOINTER;
-               BufferLength:SQLINTEGER;
-               StrLen_or_Ind:PSQLINTEGER):SQLRETURN;stdcall;external 'ODBC32.DLL';
+               StatementHandle: SQLHSTMT;
+               ColumnNumber: SQLUSMALLINT;
+               TargetType: SQLSMALLINT;
+               TargetValue: SQLPOINTER;
+               BufferLength: SQLINTEGER;
+               StrLen_or_IndPtr: PSQLINTEGER):SQLRETURN;stdcall;external 'ODBC32.DLL';
    function SQLSetStmtAttr(
                StatementHandle:SQLHSTMT;
                Attribute:SQLINTEGER;

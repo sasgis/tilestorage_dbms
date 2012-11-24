@@ -13,6 +13,7 @@ interface
 *)
 
 uses
+  SysUtils,
   t_types;
 
 type
@@ -45,8 +46,9 @@ type
 
   TStatementRepeatType = (srt_None, srt_Insert, srt_Update);
 
+  TSecondarySQLCheckServerTypeMode = (schstm_None, schstm_SomeSybase);
+
 const
-  c_SQLCMD_VERSION_S  = 'SELECT @@VERSION';  // MSSQL+ASE+ASA
   c_SQLCMD_FROM_DUAL  = 'SELECT * FROM DUAL'; // if 'select @@version as v into DUAL' executed from model
   //c_SQLCMD_MySQL_DUAL = 'SELECT /*!1 111 AS F, */ * FROM DUAL'; //  /*!1 */ works at version 1 and higher
   //c_SQLCMD_Version_F  = 'SELECT version()'; // PostgreSQL, MySQL
@@ -264,7 +266,7 @@ const
   // create view DUAL for some DBMS without DUAL
   c_SQL_DUAL_Create: array [TEngineType] of String = (
   'create view DUAL as select @@version as ENGINE_VERSION', // MSSQL
-  'create view DUAL as select @@version as ENGINE_VERSION', // ASE
+  'create view DUAL as select ''ASE'' as ENGINETYPE',       // ASE
   'create view DUAL as select @@version as ENGINE_VERSION', // ASA
   '', // Oracle - with DUAL by default - nothing
   '', // Informix
@@ -452,26 +454,67 @@ const
   FALSE
   );
 
-function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
+  // sqlstate for 'table not exists' error
+  c_ODBC_SQLSTATE_TableNotEists : array [TEngineType] of String = (
+    '42S02:',    // Microsoft SQL
+    '42S02:',    // Sybase ASE // 42000 and 42S02
+    '',   // Sybase ASA
+    '',   // Oracle
+    '',   // Informix
+    '',   // DB2
+    '',    // MySQL
+    '42P01:',    // PostgreSQL
+    '42S02:',    // Mimer
+    '',    // Firebird
+    ''       // Unknown or unsupported - use c_RTL_UNKNOWN for scripts, do not insert it here
+  );
+
+  // sqlstate for primary key constraint violation
+  c_ODBC_SQLSTATE_PrimaryKeyViolation : array [TEngineType] of String = (
+    '23000:',    // Microsoft SQL
+    '23000:',    // Sybase ASE
+    '',   // Sybase ASA
+    '',   // Oracle
+    '',   // Informix
+    '',   // DB2
+    '',   // MySQL
+    '23505:',    // PostgreSQL
+    '23000:',    // Mimer
+    '',    // Firebird
+    ''       // Unknown or unsupported - use c_RTL_UNKNOWN for scripts, do not insert it here
+  );
+
+
+function GetEngineTypeByDBXDriverName(
+  const ADBXDriverName: String;
+  const AODBCDescription: WideString;
+  out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
+): TEngineType;
 
 function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngineType;
 
-function GetEngineTypeByODBCDescription(const AODBCDescription: WideString): TEngineType;
+function GetEngineTypeByODBCDescription(
+  const AODBCDescription: WideString;
+  out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
+): TEngineType;
 
-function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
+function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: String; var AResult: TEngineType): Boolean;
+
+function GetEngineTypeUsingSelectVersionException(const AException: Exception): TEngineType;
 
 // формирует 16-ричную константу для записи BLOB-а, есть работа через параметры невозможна
 function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
 
 implementation
 
-uses
-  SysUtils;
-
-function GetEngineTypeByODBCDescription(const AODBCDescription: WideString): TEngineType;
+function GetEngineTypeByODBCDescription(
+  const AODBCDescription: WideString;
+  out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
+): TEngineType;
 var VDescUpper: String;
 begin
   VDescUpper := UpperCase(AODBCDescription);
+  ASecondarySQLCheckServerTypeMode := schstm_None;
   if (System.Pos('MIMER', VDescUpper)>0) then begin
     // MIMER
     Result := et_Mimer;
@@ -499,13 +542,23 @@ begin
   end else if ('SQL SERVER'=VDescUpper) then begin
     // MSSQL
     Result := et_MSSQL;
+  end else if (System.Pos('SYBASE', VDescUpper)>0) then begin
+    // some sybase
+    ASecondarySQLCheckServerTypeMode := schstm_SomeSybase;
+    Result := et_Unknown;
   end else begin
     Result := et_Unknown;
   end;
 end;
 
-function GetEngineTypeByDBXDriverName(const ADBXDriverName: String; const AODBCDescription: WideString): TEngineType;
+function GetEngineTypeByDBXDriverName(
+  const ADBXDriverName: String;
+  const AODBCDescription: WideString;
+  out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
+): TEngineType;
 begin
+  ASecondarySQLCheckServerTypeMode := schstm_None;
+
   if (0=Length(ADBXDriverName)) then begin
     Result := et_Unknown;
     Exit;
@@ -513,7 +566,7 @@ begin
 
   if SameText(c_ODBC_DriverName,ADBXDriverName) then begin
     // check by ODBC driver description
-    Result := GetEngineTypeByODBCDescription(AODBCDescription);
+    Result := GetEngineTypeByODBCDescription(AODBCDescription, ASecondarySQLCheckServerTypeMode);
     Exit;
   end;
 
@@ -580,23 +633,35 @@ begin
 *)
 end;
 
-function GetEngineTypeUsingSQL_Version_S(const AText: String; var AResult: TEngineType): Boolean;
+function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: String; var AResult: TEngineType): Boolean;
 begin
-  if (System.Pos('microsoft', AText)>0) then begin
+  if (System.Pos('ADAPTIVE SERVER ENTERPRISE', AUppercasedText)>0) then begin
+    // Sybase ASE
+    // 'ADAPTIVE SERVER ENTERPRISE/12.5.4/EBF 16791 ESD#10/P/NT (IX86)/OS 4.0/ASE1254/2159/32-BIT/OPT/MON NOV 02 05:01:55 2009'
+    AResult := et_ASE;
+    Result := TRUE;
+  end else if (System.Pos('ANYWHERE', AUppercasedText)>0) then begin
+    // Sybase ASA
+    AResult := et_ASA;
+    Result := TRUE;
+  end else if (System.Pos('MICROSOFT', AUppercasedText)>0) then begin
     // MSSQL
     AResult := et_MSSQL;
-    Result := TRUE;
-  end else if (System.Pos('sybase', AText)>0) then begin
-    // sybase ASE or ASA
-    if (System.Pos('enterprise', AText)>0) then
-      AResult := et_ASE
-    else
-      AResult := et_ASA;
     Result := TRUE;
   end else begin
     // unknown
     Result := FALSE;
   end;
+end;
+
+function GetEngineTypeUsingSelectVersionException(const AException: Exception): TEngineType;
+begin
+  // варианты ответа сервера:
+  // нет секции FROM
+  // нет такой переменной
+  // полный бред и неверный синтаксис
+  // имя типа сервера где-то в ответе
+  Result := et_Unknown;
 end;
 
 function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;

@@ -20,6 +20,7 @@ uses
   i_DBMS_Provider,
   t_DBMS_Connect,
   u_DBMS_Connect,
+  u_ExecuteSQLArray,
   u_DBMS_Utils;
 
 type
@@ -606,12 +607,14 @@ function TDBMS_Provider.CreateTableByTemplate(
 ): Byte;
 var
   VDataset: TDBMS_Dataset;
+  VExecuteSQLArray: TExecuteSQLArray;
   VSQLText: TDBMS_String;
   //VSQLAnsi: AnsiString;
   Vignore_errors: AnsiChar;
   //VStream: TStream;
   //VMemStream: TMemoryStream;
   VReplaceNumeric: String;
+  i: Integer;
 begin
   // а вдруг нет базовой таблицы с шаблонами
   if (not FConnection.TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
@@ -632,54 +635,75 @@ begin
   end;
 
   // вытащим все запросы SQL для CREATE (операция "C") для запрошенного шаблона
-  VDataset := FConnection.MakePoolDataset;
+  VExecuteSQLArray := nil;
   try
-    VSQLText := 'select index_sql,ignore_errors,object_sql from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
-                ' where object_name=' + WideStrToDB(ATemplateName) +
-                  ' and object_oper=''C'' and skip_sql=''0'' order by index_sql';
-    VDataset.OpenSQL(VSQLText);
+    VDataset := FConnection.MakePoolDataset;
+    try
+      VSQLText := 'select index_sql,ignore_errors,object_sql from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
+                  ' where object_name=' + WideStrToDB(ATemplateName) +
+                    ' and object_oper=''C'' and skip_sql=''0'' order by index_sql';
+      VDataset.OpenSQL(VSQLText);
 
-    if VDataset.IsEmpty then begin
-      // ничего не прочиталось - значит нет шаблона
-      Result := ETS_RESULT_NO_TEMPLATE_RECORDS;
-      Exit;
-    end;
+      if VDataset.IsEmpty then begin
+        // ничего не прочиталось - значит нет шаблона
+        Result := ETS_RESULT_NO_TEMPLATE_RECORDS;
+        Exit;
+      end;
 
-    VDataset.First;
-    while (not VDataset.Eof) do begin
-      // тащим текст SQL для исполнения в порядке очерёдности
-      Vignore_errors := VDataset.GetAnsiCharFlag('ignore_errors', ETS_UCT_YES);
-      // если есть текст
-      if VDataset.ClobAsWideString('object_sql', VSQLText) then
-      try
-        // а тут надо подменить имя таблицы
-        VSQLText := StringReplace(VSQLText, ATemplateName, AUnquotedTableNameWithoutPrefix, [rfReplaceAll,rfIgnoreCase]);
+      // что-то в датасете есть
+      VExecuteSQLArray := TExecuteSQLArray.Create;
 
-        if ASubstSQLTypes then begin
-          // также необходимо подставить нуные типы полей для оптимального хранения XY
-          // а именно - заменить numeric на INT нужной ширины
-          VReplaceNumeric := GetSQLIntName_Div(FDBMS_Service_Info.XYMaskWidth, AZoom);
-          VSQLText := StringReplace(VSQLText, c_RTL_Numeric, VReplaceNumeric, [rfReplaceAll,rfIgnoreCase]);
+      VDataset.First;
+      while (not VDataset.Eof) do begin
+        // тащим текст SQL для исполнения в порядке очерёдности
+        Vignore_errors := VDataset.GetAnsiCharFlag('ignore_errors', ETS_UCT_YES);
+
+        // если есть текст - добавляем его в список
+        if VDataset.ClobAsWideString('object_sql', VSQLText) then begin
+          // а тут надо подменить имя таблицы
+          VSQLText := StringReplace(VSQLText, ATemplateName, AUnquotedTableNameWithoutPrefix, [rfReplaceAll,rfIgnoreCase]);
+
+          if ASubstSQLTypes then begin
+            // также необходимо подставить нуные типы полей для оптимального хранения XY
+            // а именно - заменить numeric на INT нужной ширины
+            VReplaceNumeric := GetSQLIntName_Div(FDBMS_Service_Info.XYMaskWidth, AZoom);
+            VSQLText := StringReplace(VSQLText, c_RTL_Numeric, VReplaceNumeric, [rfReplaceAll,rfIgnoreCase]);
+          end;
+
+          VExecuteSQLArray.AddSQLItem(
+            VSQLText,
+            (Vignore_errors<>ETS_UCT_NO)
+          );
         end;
 
-        // исполняем (напрямую)
-        FConnection.ExecuteDirectSQL(VSQLText, (Vignore_errors<>ETS_UCT_NO) );
-      except
-        // SilentMode in ExecuteDirectSQL may be a fake
-        if (Vignore_errors=ETS_UCT_NO) then
-          raise;
+        // - Следующий!
+        VDataset.Next;
       end;
-      // - Следующий!
-      VDataset.Next;
+
+    finally
+      FConnection.KillPoolDataset(VDataset);
     end;
 
-    // проверяем что табла успешно создалась
-    if (FConnection.TableExists(AQuotedTableNameWithPrefix)) then begin
-      Result := ETS_RESULT_OK;
-      Exit;
+    // а теперь если чего залетело в список - выполним
+    if (VExecuteSQLArray<>nil) then
+    if (VExecuteSQLArray.Count>0) then
+    for i := 0 to VExecuteSQLArray.Count-1 do
+    try
+      // выполняем напрямую
+      FConnection.ExecuteDirectSQL(VExecuteSQLArray.GetSQLItem(i).Text, VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec);
+    except
+      // SilentMode in ExecuteDirectSQL may be a fake
+      if (not VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec) then
+        raise;
     end;
   finally
-    FConnection.KillPoolDataset(VDataset);
+    FreeAndNil(VExecuteSQLArray);
+  end;
+
+  // проверяем что табла успешно создалась
+  if (FConnection.TableExists(AQuotedTableNameWithPrefix)) then begin
+    Result := ETS_RESULT_OK;
+    Exit;
   end;
 
   // облом
@@ -2641,14 +2665,38 @@ var VMessage: String;
 begin
   VMessage := UpperCase(AException.Message);
 {$if defined(USE_DIRECT_ODBC)}
-  if System.Copy(VMessage, 1, 6) = '23505:' then begin
+  // смотрим по SQLSTATE
+  VMessage := System.Copy(VMessage, 1, 6);
+
+  if (0=Length(VMessage)) then begin
+    Result := set_Unknown;
+    Exit;
+  end;
+  
+  if (VMessage = '23000:') or (VMessage = '23505:') then begin
     // это код ODBC для нарушения уникальности
+    // '23000:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]VIOLATION OF PRIMARY KEY CONSTRAINT 'PK_D2I1_NMC_RECENCY'. CANNOT INSERT DUPLICATE KEY IN OBJECT 'DBO.D2I1_NMC_RECENCY'.'
+    // '23000:[MIMER][ODBC MIMER DRIVER][MIMER SQL]PRIMARY KEY CONSTRAINT VIOLATED, ATTEMPT TO INSERT DUPLICATE KEY IN TABLE SYSADM.DZ_NMC_RECENCY'
+    // '23505:ОШИБКА: повторяющееся значение ключа нарушает ограничение уникальности "PK_D2I1_NMC_RECENCY"'#$A'Ключ "(X, Y, ID_VER)=(644, 149, 0)" уже существует.;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
+    // '23000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'D2I1_NMC_RECENCY' WITH UNIQUE INDEX 'PK_D2I1_NMC_RECENCY''#$A
+    // '23000:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'D2I1_NMC_RECENCY' WITH UNIQUE INDEX 'PK_D2I1_NMC_RECENCY''#$A
+    //
+    //
+    //
     Result := set_PrimaryKeyViolation;
     Exit;
   end;
 
-  if System.Copy(VMessage, 1, 6) = '42P01:' then begin
+  if (VMessage = '42S02:') or (VMessage = '42P01:') or (VMessage = '42000:') then begin
     // это код ODBC для для отсутствия отношения
+    // '42S02:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]INVALID OBJECT NAME 'C1I0_NMC_RECENCY'.'
+    // '42S02:[MIMER][ODBC MIMER DRIVER][MIMER SQL]TABLE 1Z_NMC_RECENCY NOT FOUND, TABLE DOES NOT EXIST OR NO ACCESS PRIVILEGE'
+    // '42P01:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
+    // '42000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
+    // '42S02:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]D2I1_NMC_RECENCY NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
+    //
+    //
+    //
     Result := set_TableNotFound;
     Exit;
   end;

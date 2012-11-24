@@ -8,6 +8,9 @@ unit mQuery;
 
 {$I mODBC.INC}
 
+//{$define USE_READONLY_DATASET}
+//{$define USE_UNIDIRECTIONAL_DATASET}
+
 interface
 
 uses
@@ -19,6 +22,7 @@ uses
   Db,
   mDataBas,
   odbcsql,
+  u_ODBC_BLOB,
   mParams;
 
 {$IFDEF D4UP}
@@ -142,6 +146,7 @@ type
     FBindBuffer:   PChar; // buffer for SQLbindColumn
     FFilterBuffer: PChar;
     FonFilter:     TFilterRecordEvent;
+    FOdbcBlobStream: TOdbcBlobStream;
     procedure AddDeletedToList(Buffer: PChar {Pointer});
     procedure AddToCacheBuffer( uStatus:TUpdateStatus; Buffer: PChar);
     function  CheckDeleted( Buffer: PChar {Pointer}):boolean;
@@ -232,6 +237,7 @@ type
     { Public declarations }
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+    
     procedure ApplyUpdates;
     procedure CancelUpdates;
     procedure CommitUpdates;
@@ -331,6 +337,8 @@ var
   UpdateKind: TUpdateKind;
 begin
   inherited Create(AOwner);
+  FOdbcBlobStream := nil;
+  
   FSQL           := TStringList.Create;
   hstmt          := 0;
   FRecBufSize    := 0;
@@ -377,6 +385,8 @@ begin
     if Assigned(FQueries[UpdateKind]) then
       FQueries[UpdateKind].free;
   end;
+
+  FreeAndNil(FOdbcBlobStream);
   inherited Destroy;
 end;
 
@@ -1116,12 +1126,9 @@ function TmCustomQuery.InternalGetRecord(Buffer: PChar; GetMode: TGetMode;
 var
   sqlres:   SQLRETURN;
   i,
-  Offset:   integer;
   bind:     SQLINTEGER;
-  c:        AnsiString;
-  iv:       SQLINTEGER;
+  VBlobAccum: TmBlobData;
   b:        LongInt;
-  bufInc:   Integer;
 label again;
 begin
   if FBindBuffer = nil then
@@ -1288,39 +1295,14 @@ again:
                                    PSQLINTEGER(Buffer+OffsetInBuf+SqlSize)))
           else }
           begin
-          // load blob fields
-            c := '';
-            Offset := 0;
-            iv := 0;
-            SQLGetData( hstmt, FieldNo, SQLDataType{SQL_BINARY 05/05/2000},
-                        SQLPOINTER( @i), 0, @iv); // get data length
+            // load blob fields
+            if (nil=FOdbcBlobStream) then begin
+              FOdbcBlobStream := TOdbcBlobStream.Create;
+            end;
+            VBlobAccum := FOdbcBlobStream.ReadOdbcFieldAsString(hstmt, FieldNo, SQLDataType, Database.CheckStatementResult);
 
-            if iv > 0 then bufInc := iv   // if driver know field size
-                      else bufInc := 256; // if driver don't know (SQL_NO_TOTAL)
-            repeat
-              if SQLDataType = SQL_CHAR then inc(bufInc); // for #0 char
-              SetLength( c, Offset + bufInc);
-              sqlres := SQLGetData( hstmt, FieldNo, SQLDataType{SQL_BINARY 05/05/2000},
-                                    SQLPOINTER( PCHAR(c) + Offset), bufInc, @iv);
-              if (sqlres = SQL_NO_DATA)or(iv = 0) then
-              begin
-                SetLength( c, Offset);
-                break;
-              end;
-              if iv = SQL_NULL_DATA then
-              begin
-                c := '';
-                break;
-              end;
-              if (iv > bufInc) or (iv = SQL_NO_TOTAL)
-                then inc( Offset, bufInc)
-                else inc( Offset, iv);
-              if (SQLDataType = SQL_CHAR)and(c[Offset] = #0) then dec(Offset); // remove #0
-              SetLength( c, Offset);
-              bufInc:=256;
-            until sqlres <> SQL_SUCCESS_WITH_INFO;
             {$RANGECHECKS OFF}
-            PmBlobDataArray(Buffer + FBlobCacheOfs)[OffsetInBuf] := c;
+            PmBlobDataArray(Buffer + FBlobCacheOfs)[OffsetInBuf] := VBlobAccum;
           end;
       end;
     end;

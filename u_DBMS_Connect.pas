@@ -174,7 +174,7 @@ type
     function ApplyConnectionParams: Byte;
     function ApplyParamsToConnection(const AParams: TStrings): Byte;
     function IsTrustedConnection: Boolean;
-    function GetEngineTypeUsingSQL: TEngineType;
+    function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
     function calc_exclusive_mode: AnsiChar;
   private
     { IDBMS_Connection }
@@ -940,17 +940,20 @@ begin
 end;
 
 function TDBMS_Connection.GetEngineType(const ACheckMode: TCheckEngineTypeMode): TEngineType;
+var
+  VSecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode;
 begin
   case ACheckMode of
     cetm_Check: begin
       // check if not checked
       // allow get info from driver
       if (et_Unknown=FEngineType) then begin
+        VSecondarySQLCheckServerTypeMode := schstm_None;
 {$if defined(USE_DIRECT_ODBC)}
         if Load_DSN_Params_from_ODBC(FSQLConnection.SystemDSN, FODBCDescription) then
-          FEngineType := GetEngineTypeByODBCDescription(FODBCDescription)
+          FEngineType := GetEngineTypeByODBCDescription(FODBCDescription, VSecondarySQLCheckServerTypeMode)
         else
-          FEngineType := GetEngineTypeByODBCDescription(FSQLConnection.SystemDSN);
+          FEngineType := GetEngineTypeByODBCDescription(FSQLConnection.SystemDSN, VSecondarySQLCheckServerTypeMode);
 {$elseif defined(ETS_USE_ZEOS)}
         FEngineType := GetEngineTypeByZEOSLibProtocol(FSQLConnection.Protocol);
 {$else}
@@ -958,52 +961,52 @@ begin
 {$ifend}
         if (et_Unknown=FEngineType) then begin
           // use sql requests
-          FEngineType := GetEngineTypeUsingSQL;
+          FEngineType := GetEngineTypeUsingSQL(VSecondarySQLCheckServerTypeMode);
         end;
       end;
     end;
     cetm_Force: begin
       // (re)check via SQL requests
-      FEngineType := GetEngineTypeUsingSQL;
+      FEngineType := GetEngineTypeUsingSQL(schstm_None);
     end;
   end;
 
   Result := FEngineType;
 end;
 
-function TDBMS_Connection.GetEngineTypeUsingSQL: TEngineType;
-(*
+function TDBMS_Connection.GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
 var
   VDataset: TDBMS_Dataset;
   VText: String;
-*)
 begin
-  Result := et_Unknown;
-(*
-  if (EnsureConnected(FALSE) <> ETS_RESULT_OK) then begin
+  if (not FSQLConnection.Connected) then begin
     // not connected
     Result := et_Unknown;
   end else begin
     // connected
     VDataset := MakePoolDataset;
     try
-      // first check
+      // определение типа сервера исходя из его реакции на шаблонные действия
+
+      // сперва проверим select @@version // MSSQL+ASE+ASA
       try
-        VDataset.OpenSQL(c_SQLCMD_VERSION_S);
+        VDataset.OpenSQL('SELECT @@VERSION as v');
+        
         if VDataset.FieldCount>0 then
-        if (VDataset.Fields[0].DataType in [ftString, ftFixedChar, ftMemo, ftWideString, ftFixedWideChar, ftWideMemo]) then begin
-          VText := LowerCase(VDataset.Fields[0].AsString);
-          if GetEngineTypeUsingSQL_Version_S(VText, Result) then
+        if (VDataset.Fields[0].DataType in [ftString, ftFixedChar, ftMemo, ftWideString, ftFixedWideChar, ftWideMemo, ftFmtMemo]) then begin
+          VText := UpperCase(VDataset.Fields[0].AsString);
+          if GetEngineTypeUsingSQL_Version_Upper(VText, Result) then
             Exit;
         end;
         // unknown
         Result := et_Unknown;
-      except
-        on E: Exception do begin
-          // TODO: check message is about 'FROM' clause
-        end;
+      except on E: Exception do
+        // а тут смотрим чего понаписали в ошибку
+        Result := GetEngineTypeUsingSelectVersionException(E);
       end;
 
+      if (et_Unknown=Result) then begin
+      (*
       // second check
       try
         VDataset.OpenSQL(c_SQLCMD_FROM_DUAL);
@@ -1013,12 +1016,13 @@ begin
           // TODO: check message
         end;
       end;
+      *)
+      end;
       
     finally
       KillPoolDataset(VDataset);
     end;
   end;
-*)
 end;
 
 function TDBMS_Connection.IsTrustedConnection: Boolean;
@@ -1262,7 +1266,11 @@ begin
   VSqlTextField := Self.FieldByName(AFieldName);
   Result := (not VSqlTextField.IsNull);
   if Result then begin
+{$if defined(USE_WIDESTRING_FOR_SQL)}
     AResult := VSqlTextField.AsWideString;
+{$else}
+    AResult := VSqlTextField.AsString;
+{$ifend}
   end;
 end;
 

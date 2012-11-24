@@ -19,7 +19,8 @@ uses
   t_SQL_types in 't_SQL_types.pas',
   t_DBMS_Connect in 't_DBMS_Connect.pas',
   t_types in 't_types.pas',
-  u_exports in 'u_exports.pas';
+  u_exports in 'u_exports.pas',
+  u_ExecuteSQLArray in 'u_ExecuteSQLArray.pas';
 
 {$R *.res}
 

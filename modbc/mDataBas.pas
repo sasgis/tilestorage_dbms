@@ -57,7 +57,6 @@ type
     FConnectWithParams: Boolean;
     function GetConnected:Boolean;
     procedure SetParams(Value: TStrings);
-    procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
     procedure CheckSQLResult( sqlres:SQLRETURN);
     procedure CheckSQLStrict( sqlres:SQLRETURN);
     procedure SetSession( s:TmSession);
@@ -167,6 +166,8 @@ type
     );
 
     function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
+
+    procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
 
     property SystemDSN: String read GetDataBaseName;
     property UID: String read GetUID;
@@ -388,6 +389,7 @@ begin
            E.Message:=SmDatabaseNotOpened;
            raise;
         end else
+          // '01000:[]Changed database context to 'xxx'.'
         if (E.SqlState <> '01000') then
           raise;
       end;
