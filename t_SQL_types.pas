@@ -524,6 +524,9 @@ begin
   end else if (System.Pos('POSTGRESQL', VDescUpper)>0) then begin
     // POSTGRESQL
     Result := et_PostgreSQL;
+  end else if (System.Pos('MYSQL', VDescUpper)>0) then begin
+    // MYSQL
+    Result := et_MySQL;
   end else if (System.Pos('ORACLE', VDescUpper)>0) then begin
     // ORACLE
     Result := et_Oracle;
