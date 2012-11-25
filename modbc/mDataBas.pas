@@ -44,6 +44,8 @@ type
 {$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
     FTransIsolation: TmIsolationLevels;
 {$ifend}
+
+    FSQL_IDENTIFIER_QUOTE_CHAR_VALUE: String; // ansi or wide
     FSQL_SCROLL_OPTIONS_VALUE: SQLUINTEGER;
     FSQL_BOOKMARK_PERSISTENCE_VALUE: SQLUINTEGER;
     FSQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE: SQLUINTEGER;
@@ -85,9 +87,12 @@ type
     function GetHENV:SQLHANDLE;
     
     procedure ODBCDriverInfo(
-        InfoType:SQLUSMALLINT;
-        InfoValuePtr:SQLPOINTER; BufferLength:SQLSMALLINT;
-        StringLengthPtr:PSQLSMALLINT);
+      InfoType: SQLUSMALLINT;
+      InfoValuePtr: SQLPOINTER;
+      BufferLength: SQLSMALLINT;
+      StringLengthPtr: PSQLSMALLINT;
+      const AAllowWithInfo: Boolean = FALSE
+    );
 
 {$if defined(ALLOW_MODBC_DSN_METADATA)}
     procedure ConfigureDSN(
@@ -102,6 +107,8 @@ type
 {$ifend}
 
     property hdbc: SQLHDBC read fhdbc;
+
+    property SQL_IDENTIFIER_QUOTE_CHAR_VALUE: String read FSQL_IDENTIFIER_QUOTE_CHAR_VALUE;
 
     property SQL_SCROLL_OPTIONS_VALUE: SQLUINTEGER read FSQL_SCROLL_OPTIONS_VALUE;
     property SQL_BOOKMARK_PERSISTENCE_VALUE: SQLUINTEGER read FSQL_BOOKMARK_PERSISTENCE_VALUE;
@@ -208,6 +215,7 @@ constructor TmDatabase.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
 
+  FSQL_IDENTIFIER_QUOTE_CHAR_VALUE := '"'; // default value
   FSQL_SCROLL_OPTIONS_VALUE := 0;
   FSQL_BOOKMARK_PERSISTENCE_VALUE := 0;
   FSQL_KEYSET_CURSOR_ATTRIBUTES1_VALUE := 0;
@@ -398,6 +406,12 @@ begin
       FDsnParams := StrPas(SServer);
 {$ifend}
 
+      // get quotation options
+      FSQL_IDENTIFIER_QUOTE_CHAR_VALUE := '';
+      SetLength(FSQL_IDENTIFIER_QUOTE_CHAR_VALUE, 4);
+      ODBCDriverInfo( SQL_IDENTIFIER_QUOTE_CHAR,     SQLPOINTER(@FSQL_IDENTIFIER_QUOTE_CHAR_VALUE[1]),  Length(FSQL_IDENTIFIER_QUOTE_CHAR_VALUE), @cbout, TRUE);
+      SetLength(FSQL_IDENTIFIER_QUOTE_CHAR_VALUE, cbout);
+
       // get cursor params
       ODBCDriverInfo( SQL_SCROLL_OPTIONS,            SQLPOINTER(@FSQL_SCROLL_OPTIONS_VALUE),            sizeof(SQLUINTEGER), nil);
       // get bookmark params
@@ -481,17 +495,20 @@ begin
   FParams.Assign(Value);
 end;
 
-procedure TmDatabase.ODBCDriverInfo( InfoType:SQLUSMALLINT;
-                                     InfoValuePtr:SQLPOINTER;
-                                     BufferLength:SQLSMALLINT;
-                                     StringLengthPtr:PSQLSMALLINT);
+procedure TmDatabase.ODBCDriverInfo(
+  InfoType: SQLUSMALLINT;
+  InfoValuePtr: SQLPOINTER;
+  BufferLength: SQLSMALLINT;
+  StringLengthPtr: PSQLSMALLINT;
+  const AAllowWithInfo: Boolean = FALSE
+);
 var
   sqlres: SQLRETURN;
 begin
   sqlres := SQLGetInfo( hdbc, InfoType, InfoValuePtr, BufferLength, StringLengthPtr);
   case sqlres of
     SQL_SUCCESS:;
-    SQL_SUCCESS_WITH_INFO: raise EODBCErrorWithInfo.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
+    SQL_SUCCESS_WITH_INFO: if not AAllowWithInfo then raise EODBCErrorWithInfo.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
     SQL_NEED_DATA:         raise EODBCErrorNeedData.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);
     SQL_STILL_EXECUTING:   raise EODBCErrorStillExecuting.Create('SQL_STILL_EXECUTING');
     SQL_ERROR:             raise EODBCErrorSQLError.CreateDiag( SQL_HANDLE_DBC, hdbc, sqlres);

@@ -358,7 +358,7 @@ begin
     TILE_VERSION_COMPARE_VALUE: begin
       // order by ver_value
       if (AVerInfoPtr<>nil) then
-        _AddWithFieldValue('ver_value', WideStrToDB(AVerInfoPtr^.ver_value))
+        _AddWithFieldValue('ver_value', DBMSStrToDB(AVerInfoPtr^.ver_value))
       else
         _AddWithoutFieldValue('ver_value');
     end;
@@ -402,8 +402,10 @@ begin
 
   // исполняем INSERT (вставляем запись о сервисе)
   try
-    FConnection.ExecuteDirectSQL(VSQLText);
-    Result := ETS_RESULT_OK;
+    if FConnection.ExecuteDirectSQL(VSQLText) then
+      Result := ETS_RESULT_OK
+    else
+      Result := ETS_RESULT_INVALID_STRUCTURE;
   except
     // обломались
     Result := ETS_RESULT_INVALID_STRUCTURE;
@@ -640,7 +642,7 @@ begin
     VDataset := FConnection.MakePoolDataset;
     try
       VSQLText := 'select index_sql,ignore_errors,object_sql from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
-                  ' where object_name=' + WideStrToDB(ATemplateName) +
+                  ' where object_name=' + DBMSStrToDB(ATemplateName) +
                     ' and object_oper=''C'' and skip_sql=''0'' order by index_sql';
       VDataset.OpenSQL(VSQLText);
 
@@ -690,7 +692,8 @@ begin
     for i := 0 to VExecuteSQLArray.Count-1 do
     try
       // выполняем напрямую
-      FConnection.ExecuteDirectSQL(VExecuteSQLArray.GetSQLItem(i).Text, VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec);
+      // TODO: после тестирования заменить FALSE на VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec
+      FConnection.ExecuteDirectSQL(VExecuteSQLArray.GetSQLItem(i).Text, FALSE);
     except
       // SilentMode in ExecuteDirectSQL may be a fake
       if (not VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec) then
@@ -1864,10 +1867,10 @@ begin
     // выполняем команду INSERT
     // прочие поля (id_ver_comp, id_div_mode, work_mode, use_common_tiles) залетают из DEFAULT-ных значений
     // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
-    ASQLTextResult := 'INSERT ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
+    ASQLTextResult := 'INSERT INTO ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
                             IntToStr(VNewIdService) + ',' +
-                            WideStrToDB(VNewServiceCode) + ',' +
-                            WideStrToDB(InternalGetServiceNameByHost) + ',' +
+                            DBMSStrToDB(VNewServiceCode) + ',' +
+                            DBMSStrToDB(InternalGetServiceNameByHost) + ',' +
                             IntToStr(VNewIdContentType) + ')';
     Result := ETS_RESULT_OK;
   finally
@@ -2007,7 +2010,7 @@ begin
   end;
 
   // соберём выражение INSERT
-  AInsertSQLResult := 'INSERT ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
+  AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
                       IntToStr(VSQLTile.XYLowerToID.X) + ',' +
                       IntToStr(VSQLTile.XYLowerToID.Y) + ',' +
                       IntToStr(VReqVersion.id_ver) + ',' +
@@ -2032,12 +2035,12 @@ end;
 
 function TDBMS_Provider.GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): TDBMS_String;
 begin
-  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_code='+WideStrToDB(AServiceCode);
+  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_code='+DBMSStrToDB(AServiceCode);
 end;
 
 function TDBMS_Provider.GetSQL_SelectService_ByHost: TDBMS_String;
 begin
-  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_name='+WideStrToDB(InternalGetServiceNameByHost);
+  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_name='+DBMSStrToDB(InternalGetServiceNameByHost);
 end;
 
 function TDBMS_Provider.GetSQL_SelectTile(
@@ -2647,10 +2650,10 @@ begin
   try
     // выполним SQL для вставки записи о новой версии напрямую
     FConnection.ExecuteDirectSQL(
-      'INSERT ' + VVersionsTableName_QuotedWithPrefix +
+      'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
       '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
       IntToStr(ANewVersionPtr^.id_ver) + ',' +
-      WideStrToDB(ANewVersionPtr^.ver_value) + ',' +
+      DBMSStrToDB(ANewVersionPtr^.ver_value) + ',' +
       SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
       IntToStr(ANewVersionPtr^.ver_number) + ')'
     );
@@ -2680,7 +2683,7 @@ begin
     // '23505:ОШИБКА: повторяющееся значение ключа нарушает ограничение уникальности "PK_D2I1_NMC_RECENCY"'#$A'Ключ "(X, Y, ID_VER)=(644, 149, 0)" уже существует.;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
     // '23000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'D2I1_NMC_RECENCY' WITH UNIQUE INDEX 'PK_D2I1_NMC_RECENCY''#$A
     // '23000:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'D2I1_NMC_RECENCY' WITH UNIQUE INDEX 'PK_D2I1_NMC_RECENCY''#$A
-    //
+    // '23000:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]UNIQUE CONSTRAINT (INFORMIX.PK_H2AI12_NMC_RECENCY) VIOLATED.'
     //
     //
     Result := set_PrimaryKeyViolation;
@@ -2695,7 +2698,7 @@ begin
     // '42000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
     // '42S02:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]D2I1_NMC_RECENCY NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
     // '42S02:[Sybase][ODBC Driver][SQL Anywhere]Table 'Z_SERVICE' not found'
-    //
+    // '42S02:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]THE SPECIFIED TABLE (_H2AI12_NMC_RECENCY_) IS NOT IN THE DATABASE.'
     //
     Result := set_TableNotFound;
     Exit;

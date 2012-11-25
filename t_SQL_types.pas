@@ -104,7 +104,7 @@ const
   'GETDATE()',         // ASE
   'GETDATE()',         // ASA
   'SYSDATE',           // Oracle
-  'CURRENT DATETIME',  // Informix
+  'CURRENT',           // Informix
   'CURRENT TIMESTAMP', // DB2
   'SYSDATE()',         // MySQL
   'CURRENT_TIMESTAMP', // PostgreSQL
@@ -119,7 +119,7 @@ const
   'DATETIME',  // ASE
   'TIMESTAMP', // ASA
   'DATE',      // Oracle
-  'DATETIME',  // Informix
+  'DATETIME YEAR TO FRACTION', // Informix
   'TIMESTAMP', // DB2
   'DATETIME',  // MySQL
   'TIMESTAMP', // PostgreSQL
@@ -239,7 +239,7 @@ const
   '',              // ASE
   'DUMMY',         // ASA (dummy_col INTEGER NOT NULL)
   'DUAL',          // Oracle
-  '',              // Informix
+  'table(set{1})', // Informix
   '',              // DB2
   '',              // MySQL
   '',              // PostgreSQL
@@ -269,7 +269,7 @@ const
   'create view DUAL as select ''ASE'' as ENGINETYPE',       // ASE
   'create view DUAL as select ''ASA'' as ENGINETYPE',       // ASA
   '', // Oracle - with DUAL by default - nothing
-  '', // Informix
+  'create view DUAL(ENGINE_VERSION) as select DBINFO(''version'',''full'') as ENGINE_VERSION from table(set{1})', // Informix
   '', // DB2
   '', // MySQL
   'create view DUAL as select version() as ENGINE_VERSION', // PostgreSQL
@@ -416,7 +416,7 @@ const
     FALSE,  // ASE // OK with FALSE
     FALSE,  // ASA
     FALSE,  // Oracle
-    FALSE,  // Informix
+    TRUE,   // Informix
     FALSE,  // DB2
     TRUE,   // MySQL
     TRUE,   // PostgreSQL // OK with TRUE
@@ -430,7 +430,7 @@ const
     ('[',']'),  // ASE // OK with '[]'
     ('"','"'),  // ASA
     ('"','"'),  // Oracle
-    ('"','"'),  // Informix
+    ('_','_'),  // Informix
     ('"','"'),  // DB2
     ('`','`'),  // MySQL
     ('"','"'),  // PostgreSQL // OK with '"'

@@ -708,13 +708,17 @@ SQL_ODBC_VER reports the version as 03.80 in both Windows 7 and Windows 8.
 #define SQL_DBMS_NAME                       17
 #define SQL_DBMS_VER                        18
 #define SQL_ACCESSIBLE_TABLES               19
-#define SQL_ACCESSIBLE_PROCEDURES        	20
-#define SQL_CURSOR_COMMIT_BEHAVIOR          23
-#define SQL_DATA_SOURCE_READ_ONLY           25
-#define SQL_DEFAULT_TXN_ISOLATION           26
-#define SQL_IDENTIFIER_CASE                 28
-#define SQL_IDENTIFIER_QUOTE_CHAR           29
-#define SQL_MAX_COLUMN_NAME_LEN             30
+#define SQL_ACCESSIBLE_PROCEDURES        	  20
+}
+
+  SQL_CURSOR_COMMIT_BEHAVIOR          = 23;
+  SQL_DATA_SOURCE_READ_ONLY           = 25;
+  SQL_DEFAULT_TXN_ISOLATION           = 26;
+  SQL_IDENTIFIER_CASE                 = 28;
+  SQL_IDENTIFIER_QUOTE_CHAR           = 29;
+  SQL_MAX_COLUMN_NAME_LEN             = 30;
+
+{
 #define SQL_MAXIMUM_COLUMN_NAME_LENGTH		SQL_MAX_COLUMN_NAME_LEN
 #define SQL_MAX_CURSOR_NAME_LEN             31
 #define SQL_MAXIMUM_CURSOR_NAME_LENGTH		SQL_MAX_CURSOR_NAME_LEN
