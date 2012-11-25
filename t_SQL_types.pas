@@ -751,64 +751,6 @@ attributes of the current database system or server. See
 SYSTEM.SERVER_INFO on page 196.
 
 SQL>select * from SYSTEM.SERVER_INFO;
-SERVER_ATTRIBUTE
-ATTRIBUTE_VALUE
-=====================================
-AUTOUPGRADE_ENABLED
-NO
-===
-CATALOG_NAME
-NO
-===
-CATALOG_VERSION_CREATED
-1000.022
-===
-CATALOG_VERSION_CURRENT
-1000.022
-===
-COLLATION_SEQ
-ISO 8859-1
-===
-CURRENT_COLLATION_ID
-0
-===
-IDENTIFIER_LENGTH
-128
-===
-INTERVAL_FRAC_PREC
-6
-===
-INTERVAL_LEAD_PREC
-2
-===
-ROW_LENGTH
-16000
-===
-TIMESTAMP_PREC
-6
-===
-TIME_PREC
-0
-===
-TXN_ISOLATION
-REPEATABLE READ
-===
-USERID_LENGTH
-128
-===
-
-14 rows found
-
-SQL functionality. See
-SYSTEM.SQL_CONFORMANCE on page 198.
-
-
-MIMER/DB error -12101 in function PREPARE
-         Syntax error, 'FROM' IDENTIFIER  assumed missing
-
-MIMER/DB error -12200 in function PREPARE
-         Table DUAL not found,
-         table does not exist or no access privilege
 *)
 
 end.

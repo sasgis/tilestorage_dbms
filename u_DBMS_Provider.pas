@@ -166,6 +166,12 @@ type
 
     function GetMaxNextVersionInts(const ANewVersionPtr: PVersionAA; const AKeepVerNumber: Boolean): Boolean;
 
+    // функция для разбора строкового значения версии в целое число для нецелочисленных версий
+    function ParseVerValueToVerNumber(
+      const AGivenVersionValue: String;
+      out ADoneVerNumber: Boolean
+    ): Integer;
+
     function MakePtrVersionInDB(
       const ANewVersionPtr: PVersionAA;
       const AExclusively: Boolean
@@ -421,6 +427,8 @@ function TDBMS_Provider.AutoCreateServiceVersion(
 var
   VVerIsInt: Boolean;
   VKeepVerNumber: Boolean;
+  VGenerateNewIdVer: Boolean;
+  VFoundAnotherVersionAA: TVersionAA;
 begin
   // запрошенные версии создаются только в эксклюзивном режиме
   if (not AExclusively) then begin
@@ -476,40 +484,53 @@ begin
   VVerIsInt := TryStrToInt(AReqVersionPtr^.ver_value, AReqVersionPtr^.ver_number);
   // flag to keep ver_number=ver_value even if incrementing id_ver
   VKeepVerNumber := FALSE;
+  VGenerateNewIdVer := FALSE;
+  // предобработка для большинства сервисов с версиями (для целочисленной версии)
+  // для простоты отладки реализовано отдельными кусками
+  
+  // если версия целочисленная
+  // и если она влазит в SmallInt (AReqVersionPtr^.ver_number между -32768 to 32767 - для простоты забём на -32768)
+  // и такой id_ver ещё нет
+  // то пробуем пропихнуть запрошенную версию AReqVersionPtr^.ver_value
+  // в поле id_ver (SmallInt)
+  // и в поле ver_number (Integer)
 
-  // TODO:  make it more correctly!!!
-  // use Versions flags
-
-  // check ver_comp
-  case FDBMS_Service_Info.id_ver_comp of
-    TILE_VERSION_COMPARE_ID, TILE_VERSION_COMPARE_NUMBER: begin
-      // id_ver=ver_value OR ver_number=ver_value
-      VKeepVerNumber := TRUE;
-      if VVerIsInt then begin
-        // check if allow to treat ver_value as SmallInt
-        if (AReqVersionPtr^.ver_number<$8000) and (AReqVersionPtr^.ver_number>=0) then begin
-          // allow treat ver_value as SmallInt
-          AReqVersionPtr^.id_ver := AReqVersionPtr^.ver_number;
-        end else begin
-          // cannot treat ver_value as SmallInt
-          // TODO: get max+1 for id_ver and reset TILE_VERSION_COMPARE_ID to TILE_VERSION_COMPARE_NUMBER
-          GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
-        end;
+  if VVerIsInt and (Abs(AReqVersionPtr^.ver_number)<=32767) then begin
+    // версия - небольшое целое число, влазящее в id_ver SmallInt
+    AReqVersionPtr^.id_ver := AReqVersionPtr^.ver_number;
+    VKeepVerNumber := TRUE;
+    if FVersionList.FindItemByIdVerInternal(AReqVersionPtr^.id_ver, @VFoundAnotherVersionAA) then begin
+      // нашлась версия с таким id_ver (но очевидно с другим значением ver_value)
+      ARequestedVersionFound := (VFoundAnotherVersionAA.ver_value = AReqVersionPtr^.ver_value);
+      if ARequestedVersionFound then begin
+        // однако что-то в логике, и версия такая есть
+        Result := ETS_RESULT_OK;
+        Exit;
       end else begin
-        // ver_value is not INT
-        // TODO: get max+1 for id_ver and max+1 for ver_number
-        // and reset TILE_VERSION_COMPARE_ID or TILE_VERSION_COMPARE_NUMBER to TILE_VERSION_COMPARE_DATE
-        GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+        // всё в порядке с логикой - найденная версия с другим значением ver_value
+        // значит ниже надо генерить версию с переданным значением ver_value и с новым уникальным id_ver
+        VGenerateNewIdVer := TRUE;
       end;
+    end else begin
+      // версии с таким id_ver не нашлось - это идеальный вариант
+      // можем создать версию с переданным значением id_ver, ver_number и ver_value
     end;
-    TILE_VERSION_COMPARE_VALUE, TILE_VERSION_COMPARE_DATE: begin
-      // TODO: get max+1 for id_ver and max+1 for ver_number
-      GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
-    end;
-    else {TILE_VERSION_COMPARE_NONE:} begin
-      // TODO: get max+1 for id_ver and max+1 for ver_number
-      GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
-    end;
+  end else if VVerIsInt then begin
+    // версия - большое целое число, не влазящее в в id_ver SmallInt
+    // так что id_ver всё равно генерить, а ver_number и ver_value будут переданными
+    VGenerateNewIdVer := TRUE;
+    VKeepVerNumber := TRUE;
+  end else begin
+    // версия вообще не целое число (например yandex)
+    // в любом случае генерим id_ver
+    // но вот в ver_number возможно что-нибудь тут просунуть
+    VGenerateNewIdVer := TRUE;
+    AReqVersionPtr^.ver_number := ParseVerValueToVerNumber(AReqVersionPtr^.ver_value, VKeepVerNumber);
+  end;
+
+  if VGenerateNewIdVer then begin
+    // генерим новый id_ver (и возможно ver_number)
+    GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
   end;
 
   repeat
@@ -2661,6 +2682,60 @@ begin
   except
     Result := FALSE;
   end;
+end;
+
+function TDBMS_Provider.ParseVerValueToVerNumber(
+  const AGivenVersionValue: String;
+  out ADoneVerNumber: Boolean
+): Integer;
+var
+  p: Integer;
+
+  function _ExtractByte: Byte;
+  var
+    s: String;
+    v: Integer;
+  begin
+    // пропускаем нечисловые с начала
+    while (p<=Length(AGivenVersionValue)) and (not (AGivenVersionValue[p] in ['0','1'..'9'])) do begin
+      Inc(p);
+    end;
+    // копируем числовые
+    s := '';
+    while (p<=Length(AGivenVersionValue)) and ((AGivenVersionValue[p] in ['0','1'..'9'])) do begin
+      s := s + AGivenVersionValue[p];
+      Inc(p);
+    end;
+    // смотрим чего получилось
+    if TryStrToInt(s, v) then
+    if (v>=0) and (v<=255) then begin
+      Result := LoByte(v);
+      Exit;
+    end;
+    
+    Result := 0;
+  end;
+  
+var
+  n1,n2,n3,n4: Byte;
+begin
+  // пробуем распарсить значение типа 2.33.0 и преобразовать в 0*256^0 + 33*256^1 + 2*256^2
+  // чтобы впихнуть это в ver_number - для дальнейшей более быстрой сортировки версий
+  // в любом случае если ничего не получилось - смело можно вернуть 0
+  // здесь строка с версией заведомо не пустая
+  //Result := 0;
+  ADoneVerNumber := FALSE;
+  p := 1;
+
+  // пробуем разобрать byte.byte.byte.byte
+  n1 := _ExtractByte;
+  n2 := _ExtractByte;
+  n3 := _ExtractByte;
+  n4 := _ExtractByte;
+  Result := (Integer(n1) shl 24) or (Integer(n2) shl 16) or (Integer(n3) shl 8) or Integer(n4);
+  ADoneVerNumber := (Result<>0);
+
+  // TODO: добавить другие возможные парсеры
 end;
 
 function TDBMS_Provider.GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
