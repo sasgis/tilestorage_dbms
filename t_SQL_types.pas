@@ -40,7 +40,15 @@ type
 
   TQuotedPlace = (qp_Before, qp_After);
 
-  TSqlOperation = (so_Select, so_Insert, so_Delete, so_EnumVersions, so_Sync, so_Destroy);
+  TSqlOperation = (
+    so_Select,
+    so_Insert,
+    so_Delete,
+    so_EnumVersions,
+    so_SelectInRect,
+    so_Sync,
+    so_Destroy
+  );
 
   TStatementExceptionType = (set_Unknown, set_TableNotFound, set_PrimaryKeyViolation);
 

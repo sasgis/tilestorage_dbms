@@ -6,6 +6,7 @@ interface
 
 uses
   Types,
+  t_types,
   SysUtils;
 
 const
@@ -71,7 +72,10 @@ const
 type
   TSQLParts = record
     RequestedVersionFound: Boolean;
-    SelectSQL, FromSQL, WhereSQL, OrderBySQL: WideString;
+    SelectSQL: TDBMS_String;
+    FromSQL: TDBMS_String;
+    WhereSQL: TDBMS_String;
+    OrderBySQL: WideString;
   end;
   PSQLParts = ^TSQLParts;
 

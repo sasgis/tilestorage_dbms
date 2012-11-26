@@ -209,6 +209,16 @@ type
       const ASQLTile: PSQLTile
     ): Byte;
 
+    function FillTableNamesForTiles(
+      ASQLTile: PSQLTile
+    ): Boolean;
+
+    function CalcBackToTilePos(
+      XInTable, YInTable: Integer;
+      const AXYUpperToTable: TPoint; //ASelectInRectItem: PSelectInRectItem;
+      AXYResult: PPoint
+    ): Boolean;
+
   private
     procedure AddVersionOrderBy(
       const ASQLParts: PSQLParts;
@@ -216,6 +226,17 @@ type
       const ACutOnVersion: Boolean
     );
 
+    // формирование текста SQL для чтения тайлов из разных режимов
+    function GetSQL_SelectTilesInternal(
+      const ASQLTile: PSQLTile;
+      const AVersionIn: Pointer;
+      const AOptionsIn: LongWord;
+      const AInitialWhere: TDBMS_String;
+      const ASelectXY: Boolean;
+      const AExclusively: Boolean;
+      out ASQLTextResult: TDBMS_String
+    ): Byte;
+    
     // формирование текста SQL для получения (SELECT) тайла или маркера TNE
     function GetSQL_SelectTile(
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
@@ -247,6 +268,12 @@ type
       out ASQLTextResult: TDBMS_String
     ): Byte;
 
+    // формирует список команд SQL для получения карты заполнения по нескольким таблица
+    function GetSQL_GetTileRectInfo(
+      const ATileRectInfoIn: PETS_GET_TILE_RECT_IN;
+      const AExclusively: Boolean;
+      ASelectInRectList: TSelectInRectList
+    ): Byte;
 
     // формирует SQL для получения списка версий для текущего сервиса
     function GetSQL_SelectVersions: TDBMS_String;
@@ -548,6 +575,50 @@ begin
     Result := ETS_RESULT_UNKNOWN_VERSION;
     Exit;
   until FALSE;
+end;
+
+function TDBMS_Provider.CalcBackToTilePos(
+  XInTable, YInTable: Integer;
+  const AXYUpperToTable: TPoint;
+  AXYResult: PPoint
+): Boolean;
+var
+  VXYMaskWidth: Byte;
+begin
+  // рассчитываем обратным расчётом тайловые координаты
+  // исходя из параметров деления по таблицам и координат (идентификатора) внутри таблицы
+  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
+
+  // общая часть
+  AXYResult^.X := XInTable;
+  AXYResult^.Y := YInTable;
+
+  // если делились по таблицам - добавим "верхнюю" часть
+  if (0<VXYMaskWidth) then begin
+    AXYResult^.X := AXYResult^.X or (AXYUpperToTable.X shl VXYMaskWidth);
+    AXYResult^.Y := AXYResult^.Y or (AXYUpperToTable.Y shl VXYMaskWidth);
+  end;
+
+  Result := TRUE;
+
+{
+  // прямой расчёт:
+  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
+
+  if (0=VXYMaskWidth) then begin
+    // do not divide
+    ASQLTile^.XYUpperToTable.X := 0;
+    ASQLTile^.XYUpperToTable.Y := 0;
+    ASQLTile^.XYLowerToID := AXY;
+  end else begin
+    // divide
+    VMask := (1 shl VXYMaskWidth)-1;
+    ASQLTile^.XYUpperToTable.X := AXY.X shr VXYMaskWidth;
+    ASQLTile^.XYUpperToTable.Y := AXY.Y shr VXYMaskWidth;
+    ASQLTile^.XYLowerToID.X := AXY.X and VMask;
+    ASQLTile^.XYLowerToID.Y := AXY.Y and VMask;
+  end;
+}
 end;
 
 function TDBMS_Provider.CheckTileInCommonTiles(
@@ -934,23 +1005,26 @@ function TDBMS_Provider.DBMS_GetTileRectInfo(
   const ACallbackPointer: Pointer;
   const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
 ): Byte;
-(*
 var
-  VExclusive, VVersionFound: Boolean;
+  VExclusive: Boolean;
+  //VVersionFound: Boolean;
   VDataset: TDBMS_Dataset;
   VEnumOut: TETS_GET_TILE_RECT_OUT;
-  VETS_VERSION_W: TETS_VERSION_W;
-  VETS_VERSION_A: TETS_VERSION_A;
-  VVersionAA: TVersionAA;
-  VSQLText: TDBMS_String;
-  VVersionValueW, VVersionCommentW: WideString; // keep wide
-  *)
+  //VETS_VERSION_W: TETS_VERSION_W;
+  //VETS_VERSION_A: TETS_VERSION_A;
+  //VVersionAA: TVersionAA;
+  //VSQLText: TDBMS_String;
+  //VVersionValueW, VVersionCommentW: WideString; // keep wide
+  VExclusivelyLocked: Boolean;
+  VSelectInRectList: TSelectInRectList;
+  VSelectInRectItem: PSelectInRectItem;
+  i: Integer;
 begin
-  Result := ETS_RESULT_NOT_IMPLEMENTED;
-(*
+  //Result := ETS_RESULT_NOT_IMPLEMENTED;
+
   VExclusive := ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive);
+  DoBeginWork(VExclusive, so_SelectInRect, VExclusivelyLocked);
   try
     // connect (if not connected)
     Result := InternalProv_Connect(VExclusive);
@@ -958,105 +1032,109 @@ begin
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
-    // if connected - SELECT id_ver from DB
-    VDataset := FConnection.MakePoolDataset;
+    FillChar(VEnumOut, SizeOf(VEnumOut), 0);
+      
+    // при построении карты заполнения, если включено деление на таблицы, может использоваться несколько запросов
+    // поэтому сначала сгенерим все необходимые запросы, а потом будем их выполнять по очереди
+    VSelectInRectList := TSelectInRectList.Create;
     try
-      // fill full sql text and open
-      Result := GetSQL_GetTileRectInfo(ATileRectInfoIn, VExclusive, VSQLText);
+      // генеримся
+      Result := GetSQL_GetTileRectInfo(ATileRectInfoIn, VExclusive, VSelectInRectList);
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
-      FillChar(VEnumOut, SizeOf(VEnumOut), 0);
-      
-      if ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
-        // Ansi record
-        FillChar(VETS_VERSION_A, SizeOf(VETS_VERSION_A), 0);
-        VEnumOut.ResponseValue := @VETS_VERSION_A;
-      end else begin
-        // Wide record
-        FillChar(VETS_VERSION_W, SizeOf(VETS_VERSION_W), 0);
-        VEnumOut.ResponseValue := @VETS_VERSION_W;
-      end;
+      // общее число записей здесь не должно зависеть от способа разбиения на таблицы
+      // следовательно в общем случае здесь оно недоступно
+      // VEnumOut.ResponseCount := -1;
 
-      // open sql
-      try
-        VDataset.OpenSQL(VSQLText);
-      except
-        // failed to select - no table - no versions
-      end;
+      // так как версия всегда только запрошенная - здесь не надо искать вытащенную из БД версию
+      //VEnumOut.TileInfo.szVersionOut := nil;
+      // тело тайла здесь не возвращаем
+      //VEnumOut.TileInfo.ptTileBuffer := nil;
+      // TODO: content-type вроде бы может быть кому-то будет интересен
+      //VEnumOut.TileInfo.szContentTypeOut := nil;
 
-      // get values
-      if (not VDataset.Active) then begin
-        // table not found
-        Result := ETS_RESULT_INVALID_STRUCTURE;
-      end else if VDataset.IsEmpty then begin
-        // nothing
-        Result := ETS_RESULT_OK;
-      end else begin
-        // enum all items
-        if (not VDataset.IsUniDirectional) then begin
-          VEnumOut.ResponseCount := VDataset.RecordCount;
-        end else begin
-          VEnumOut.ResponseCount := -1; // unknown count
+      // по очереди на выход
+      if VSelectInRectList.Count>0 then begin
+        VDataset := FConnection.MakePoolDataset;
+        try
+          // для каждой интересующей нас таблички
+          for i := 0 to VSelectInRectList.Count-1 do begin
+            // рабочая структура
+            VSelectInRectItem := VSelectInRectList.SelectInRectItems[i];
+
+            // для выхода из обоих циклов по ошибке из хоста инициализируем результат
+            Result:=ETS_RESULT_OK;
+
+            // открываемся
+            try
+              VDataset.OpenSQL(VSelectInRectItem^.FullSqlText);
+            except
+              // нет таблицы - нет данных - молча пропускаем
+            end;
+
+            if (VDataset.Active) and (not VDataset.IsEmpty) then begin
+              // что-то открылось - перечислим это в хост
+              VDataset.First;
+              while (not VDataset.Eof) do begin
+                // заполняем параметры
+                VEnumOut.TileInfo.dwOptionsOut := ETS_ROO_SAME_VERSION;
+
+                // заполняем TilePos тайловыми координатами тайла
+                CalcBackToTilePos(
+                  VDataset.FieldByName('x').AsInteger,
+                  VDataset.FieldByName('y').AsInteger,
+                  VSelectInRectItem.TabSQLTile.XYUpperToTable,
+                  @(VEnumOut.TilePos)
+                );
+
+                // заполняем данные о тайле
+                VEnumOut.TileInfo.dtLoadedUTC := VDataset.FieldByName('load_date').AsDateTime;
+                VEnumOut.TileInfo.dwTileSize := VDataset.FieldByName('tile_size').AsInteger;
+                // check if tile of tne
+                if (VEnumOut.TileInfo.dwTileSize<=0) then begin
+                  // tne
+                  VEnumOut.TileInfo.dwOptionsOut := VEnumOut.TileInfo.dwOptionsOut or ETS_ROO_TNE_EXISTS;
+                end else begin
+                  // tile
+                  VEnumOut.TileInfo.dwOptionsOut := VEnumOut.TileInfo.dwOptionsOut or ETS_ROO_TILE_EXISTS;
+                end;
+
+                // зовём хост
+                Result := TETS_GetTileRectInfo_Callback(FHostCallbacks[ETS_INFOCLASS_GetTileRectInfo_Callback])(
+                  FHostPointer,
+                  ACallbackPointer,
+                  ATileRectInfoIn,
+                  @VEnumOut
+                );
+
+                // тут должны выйти из обоих циклов: и из while, и из for
+                if (Result<>ETS_RESULT_OK) then
+                  break;
+
+                // - Следующий!
+                VDataset.Next;
+              end;
+
+            end;
+
+            // тут должны выйти из обоих циклов: и из while, и из for
+            if (Result<>ETS_RESULT_OK) then
+              break;
+          end; // for
+
+        finally
+          FConnection.KillPoolDataset(VDataset);
         end;
-        VDataset.First;
-        while (not VDataset.Eof) do begin
-          // find selected version
-          VVersionFound := FVersionList.FindItemByIdVerInternal(VDataset.FieldByName('id_ver').AsInteger, @VVersionAA);
-
-          if (not VVersionFound) then begin
-            // try to refresh versions
-            ReadVersionsFromDB;
-            VVersionFound := FVersionList.FindItemByIdVerInternal(VDataset.FieldByName('id_ver').AsInteger, @VVersionAA);
-          end;
-
-          if (not VVersionFound) then begin
-            // OMG WTF
-            VVersionAA.id_ver := VDataset.FieldByName('id_ver').AsInteger;
-            VVersionAA.ver_value := '';
-            VVersionAA.ver_comment := '';
-          end;
-
-          // make params for callback
-          if ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
-            // Ansi record
-            VETS_VERSION_A.id_ver := VVersionAA.id_ver;
-            VETS_VERSION_A.ver_value := PAnsiChar(VVersionAA.ver_value);
-            VETS_VERSION_A.ver_comment := PAnsiChar(VVersionAA.ver_comment);
-          end else begin
-            // Wide record
-            VETS_VERSION_W.id_ver := VVersionAA.id_ver;
-            VVersionValueW := VVersionAA.ver_value;
-            VETS_VERSION_W.ver_value := PWideChar(VVersionValueW);
-            VVersionCommentW := VVersionAA.ver_comment;
-            VETS_VERSION_W.ver_comment := PWideChar(VVersionCommentW);
-          end;
-
-          // call host's callback
-          Result := TETS_GetTileRectInfo_Callback(FHostCallbacks[ETS_INFOCLASS_GetTileRectInfo_Callback])(
-            FHostPointer,
-            ACallbackPointer,
-            ATileRectInfoIn,
-            @VEnumOut
-          );
-
-          if (Result<>ETS_RESULT_OK) then
-            break;
-
-          // next record
-          Inc(VEnumOut.ResponseIndex);
-          VDataset.Next;
-        end;
-
       end;
-      
+
     finally
-      FConnection.KillPoolDataset(VDataset);
+      FreeAndNil(VSelectInRectList);
     end;
+
   finally
-    DoEndWork(VExclusive);
+    DoEndWork(VExclusivelyLocked);
   end;
-*)
 end;
 
 function TDBMS_Provider.DBMS_HandleGlobalException(const E: Exception): Byte;
@@ -1480,6 +1558,34 @@ begin
     FProvSync.EndRead;
 end;
 
+function TDBMS_Provider.FillTableNamesForTiles(
+  ASQLTile: PSQLTile
+): Boolean;
+var
+  VXYMaskWidth: Byte;
+  //VNeedToQuote: Boolean; - use Result instead of
+  VEngineType: TEngineType;
+begin
+  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
+
+  ASQLTile^.UnquotedTileTableName := ASQLTile^.ZoomToTableNameChar(Result) +
+                                     ASQLTile^.HXToTableNameChar(VXYMaskWidth) +
+                                     FDBMS_Service_Info.id_div_mode +
+                                     ASQLTile^.HYToTableNameChar(VXYMaskWidth) +
+                                     '_' +
+                                     InternalGetServiceNameByDB;
+
+  VEngineType := FConnection.GetCheckedEngineType;
+
+  // заквотируем или нет
+  Result := Result or c_SQL_QuotedIdentifierForcedForTiles[VEngineType];
+  if Result then begin
+    ASQLTile^.QuotedTileTableName := c_SQL_QuotedIdentifierValue[VEngineType, qp_Before] + ASQLTile^.UnquotedTileTableName + c_SQL_QuotedIdentifierValue[VEngineType, qp_After];
+  end else begin
+    ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
+  end;
+end;
+
 function TDBMS_Provider.GetContentTypeAnsiPointer(
   const Aid_contenttype: SmallInt;
   const AExclusively: Boolean
@@ -1819,6 +1925,120 @@ begin
                     VSQLParts.OrderBySQL;
 end;
 
+function TDBMS_Provider.GetSQL_GetTileRectInfo(
+  const ATileRectInfoIn: PETS_GET_TILE_RECT_IN;
+  const AExclusively: Boolean;
+  ASelectInRectList: TSelectInRectList
+): Byte;
+var
+  VTileXYZMin, VTileXYZMax: TTILE_ID_XYZ;
+  VSQLTileMin, VSQLTileMax: TSQLTile;
+  i,j: Integer;
+  //VInTabMin, VInTabMax: TPoint;
+  //VSQLWhereX, VSQLWhereY: String;
+  VSelectInRectItem: PSelectInRectItem;
+begin
+  // смотрим какие координаты и таблицы по углам запрошенного прямоугольника
+  if (ATileRectInfoIn^.ptTileRect<>nil) then begin
+    // прямоугольник дали - берём min и max
+    VTileXYZMin.z  := ATileRectInfoIn.btTileZoom;
+    VTileXYZMin.xy := ATileRectInfoIn.ptTileRect^.TopLeft;
+    VTileXYZMax.z  := ATileRectInfoIn.btTileZoom;
+    VTileXYZMax.xy := ATileRectInfoIn.ptTileRect^.BottomRight;
+
+    // выщитываем координаты в таблицах
+    Result := InternalCalcSQLTile(@VTileXYZMin, @VSQLTileMin);
+    if (Result<>ETS_RESULT_OK) then
+      Exit;
+    Result := InternalCalcSQLTile(@VTileXYZMax, @VSQLTileMax);
+    if (Result<>ETS_RESULT_OK) then
+      Exit;
+
+    VSelectInRectItem := nil;
+
+    // контрольная проверка
+    if (VSQLTileMin.XYUpperToTable.X<=VSQLTileMax.XYUpperToTable.X) and (VSQLTileMin.XYUpperToTable.Y<=VSQLTileMax.XYUpperToTable.Y) then begin
+      // забацаем цикл по X и Y
+      for i := VSQLTileMin.XYUpperToTable.X to VSQLTileMax.XYUpperToTable.X do
+      for j := VSQLTileMin.XYUpperToTable.Y to VSQLTileMax.XYUpperToTable.Y do
+      try
+        New(VSelectInRectItem);
+        // а тут смотрим, крайние или нет у нас таблички в нашем диапазоне (для некрайних берём таблицу целиком)
+        // потому что преобразование тайловых координат в табличные в рамках одной таблицы всегда связное
+        with VSelectInRectItem^.TabSQLTile do begin
+          XYUpperToTable.X := i;
+          XYUpperToTable.Y := j;
+          Zoom := ATileRectInfoIn.btTileZoom;
+        end;
+
+        with VSelectInRectItem^ do begin
+          InitialWhereClause := '';
+
+          // получим имя таблицы
+          FillTableNamesForTiles(@(VSelectInRectItem^.TabSQLTile));
+
+          // по X
+          if (i=VSQLTileMin.XYUpperToTable.X) then
+            if (i=VSQLTileMax.XYUpperToTable.X) then
+              InitialWhereClause := InitialWhereClause + ' and v.x between ' + IntToStr(VSQLTileMin.XYLowerToID.X) + ' and ' + IntToStr(VSQLTileMax.XYLowerToID.X)
+            else
+              InitialWhereClause := InitialWhereClause + ' and v.x >= ' + IntToStr(VSQLTileMin.XYLowerToID.X)
+          else
+            if (i=VSQLTileMax.XYUpperToTable.X) then
+              InitialWhereClause := InitialWhereClause + ' and v.x <= ' + IntToStr(VSQLTileMax.XYLowerToID.X)
+            {else
+              InitialWhereClause := InitialWhereClause + ''};
+
+
+          // по Y
+          if (j=VSQLTileMin.XYUpperToTable.Y) then
+            if (j=VSQLTileMax.XYUpperToTable.Y) then
+              InitialWhereClause := InitialWhereClause + ' and v.y between ' + IntToStr(VSQLTileMin.XYLowerToID.Y) + ' and ' + IntToStr(VSQLTileMax.XYLowerToID.Y)
+            else
+              InitialWhereClause := InitialWhereClause + ' and v.y >= ' + IntToStr(VSQLTileMin.XYLowerToID.Y)
+          else
+            if (j=VSQLTileMax.XYUpperToTable.Y) then
+              InitialWhereClause := InitialWhereClause + ' and v.y <= ' + IntToStr(VSQLTileMax.XYLowerToID.Y)
+            {else
+              InitialWhereClause := InitialWhereClause + ''};
+        end;
+
+        // а теперь можно забацать SELECT
+        Result := GetSQL_SelectTilesInternal(
+          @(VSelectInRectItem^.TabSQLTile),
+          ATileRectInfoIn^.szVersionIn,
+          ATileRectInfoIn^.dwOptionsIn,
+          VSelectInRectItem^.InitialWhereClause,
+          TRUE,
+          AExclusively,
+          VSelectInRectItem^.FullSqlText
+        );
+          
+        if (Result <> ETS_RESULT_OK) then
+          Abort;
+
+        // добавляемся в список
+        ASelectInRectList.Add(VSelectInRectItem);
+        VSelectInRectItem := nil;
+      except
+        if (nil <> VSelectInRectItem) then begin
+          Dispose(VSelectInRectItem);
+          VSelectInRectItem := nil;
+        end;
+      end;
+
+    // ATileRectInfoIn^.
+
+    end else begin
+      // какая-то бредятина
+      Result := ETS_RESULT_INVALID_STRUCTURE;
+    end;
+  end else begin
+    // прямоугольник не дали - работаем по всем таблицам переданного зума
+    Result := ETS_RESULT_NOT_IMPLEMENTED;
+  end;
+end;
+
 function TDBMS_Provider.GetSQL_InsertIntoService(
   const AExclusively: Boolean;
   out ASQLTextResult: TDBMS_String
@@ -2071,8 +2291,6 @@ function TDBMS_Provider.GetSQL_SelectTile(
 ): Byte;
 var
   VSQLTile: TSQLTile;
-  VSQLParts: TSQLParts;
-  VReqVersion: TVersionAA;
 begin
   // заполняем VSQLTile по переданным значениям
   Result := InternalCalcSQLTile(
@@ -2082,54 +2300,76 @@ begin
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
-  (*
-  // если таблицы ещё нет - НЕ пробуем её создать, а вернём ошибку (всё равно тайла нет)
-  // только в эксклюзивном режиме
-  if AExclusively then begin
-    if not TableExists(VSQLTile.TileTableName) then begin
-      Result := ETS_RESULT_UNKNOWN_TILE_TABLE;
-      Exit;
-      {
-      Result := CreateTableByTemplate(c_Templated_RealTiles, VSQLTile.TileTableName);
-      // проверка результата создания новой таблицы
-      if (Result<>ETS_RESULT_OK) then
-        Exit;
-      }
-    end;
-  end;
-  *)
+  // забацаем SELECT
+  Result := GetSQL_SelectTilesInternal(
+    @VSQLTile,
+    ASelectBufferIn^.szVersionIn,
+    ASelectBufferIn^.dwOptionsIn,
+    // тащим один конкретный тайл
+    'v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y),
+    FALSE, // тащим один известный тайл - его координаты нам ни к чему
+    AExclusively,
+    ASQLTextResult
+  );
+end;
+
+function TDBMS_Provider.GetSQL_SelectTilesInternal(
+  const ASQLTile: PSQLTile;
+  const AVersionIn: Pointer;
+  const AOptionsIn: LongWord;
+  const AInitialWhere: TDBMS_String;
+  const ASelectXY: Boolean;
+  const AExclusively: Boolean;
+  out ASQLTextResult: TDBMS_String
+): Byte;
+var
+  VSQLParts: TSQLParts;
+  VReqVersion: TVersionAA;
+begin
+  Result := ETS_RESULT_OK;
 
   // заготовки
   VSQLParts.SelectSQL := 'SELECT v.id_ver,v.id_contenttype,v.load_date,';
-  VSQLParts.FromSQL := VSQLTile.QuotedTileTableName + ' v';
-  VSQLParts.WhereSQL := '';
+  VSQLParts.FromSQL := ASQLTile^.QuotedTileTableName + ' v';
+  VSQLParts.WhereSQL := AInitialWhere;
   VSQLParts.OrderBySQL := '';
 
-  // забацаем SELECT
+  if ASelectXY then begin
+    // может быть надо вытащить координаты
+    VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'v.x,v.y,';
+  end;
 
   // надо ли учитывать часто используемые тайлы
+  // и вообще интересует ли тело тайлов
   if (ETS_UCT_NO=FDBMS_Service_Info.use_common_tiles) then begin
-    // нет
-    VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'v.tile_size,v.tile_body';
+    // без часто используемых тайлов
+    VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'v.tile_size';
+    if ((AOptionsIn and ETS_ROI_SELECT_TILE_BODY) <> 0) then begin
+      VSQLParts.SelectSQL := VSQLParts.SelectSQL + ',v.tile_body';
+    end;
   end else begin
-    // да
-    VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'isnull(k.common_size,v.tile_size) as tile_size,isnull(k.common_body,v.tile_body) as tile_body';
+    // с часто используемыми тайлами
+    VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'isnull(k.common_size,v.tile_size) as tile_size';
+    if ((AOptionsIn and ETS_ROI_SELECT_TILE_BODY) <> 0) then begin
+      VSQLParts.SelectSQL := VSQLParts.SelectSQL + ',isnull(k.common_body,v.tile_body) as tile_body';
+    end;
+
     VSQLParts.FromSQL := VSQLParts.FromSQL + ' left outer join  u_' + InternalGetServiceNameByDB + ' k on v.tile_size<0 and v.tile_size=-k.id_common_tile and v.id_contenttype=k.id_common_type';
   end;
 
   // забацаем FROM, WHERE и ORDER BY
 
   // определим запрошенную версию
-  if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+  if ((AOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
     // как Ansi
     VSQLParts.RequestedVersionFound := FVersionList.FindItemByAnsiValue(
-      PAnsiChar(ASelectBufferIn^.szVersionIn),
+      PAnsiChar(AVersionIn),
       @VReqVersion
     );
   end else begin
     // как Wide
     VSQLParts.RequestedVersionFound := FVersionList.FindItemByWideValue(
-      PWideChar(ASelectBufferIn^.szVersionIn),
+      PWideChar(AVersionIn),
       @VReqVersion
     );
   end;
@@ -2169,11 +2409,20 @@ begin
     end;
   end;
 
+  // обработка WHERE:
+  // а) если начинается с ' and ' - удалим начало;
+  // б) если вообще нет условий - не будем писать и WHERE
+  if (0<Length(VSQLParts.WhereSQL)) then begin
+    if SameText(System.Copy(VSQLParts.WhereSQL, 1, 5),' and ') then begin
+      System.Delete(VSQLParts.WhereSQL, 1, 5);
+    end;
+
+    VSQLParts.WhereSQL := ' WHERE ' + VSQLParts.WhereSQL;
+  end;
+
+
   // собираем всё вместе
-  ASQLTextResult := VSQLParts.SelectSQL +
-                  ' FROM ' + VSQLParts.FromSQL +
-                 ' WHERE v.x=' + IntToStr(VSQLTile.XYLowerToID.X) +
-                   ' and v.y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
+  ASQLTextResult := VSQLParts.SelectSQL + ' FROM ' + VSQLParts.FromSQL +
                     VSQLParts.WhereSQL +
                     VSQLParts.OrderBySQL;
 end;
@@ -2257,10 +2506,6 @@ function TDBMS_Provider.InternalCalcSQLTile(
   const AXYZ: PTILE_ID_XYZ;
   const ASQLTile: PSQLTile
 ): Byte;
-var
-  VXYMaskWidth: Byte;
-  VNeedToQuote: Boolean;
-  VEngineType: TEngineType;
 begin
   // сохраняем зум (от 1 до 24)
   ASQLTile^.Zoom := AXYZ^.z;
@@ -2268,23 +2513,8 @@ begin
   // делим XY на "верхнюю" и "нижнюю" части
   InternalDivideXY(AXYZ^.xy, ASQLTile);
 
-  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
-  
   // строим имя таблицы для тайлов
-  ASQLTile^.UnquotedTileTableName := ASQLTile^.ZoomToTableNameChar(VNeedToQuote) +
-                                     ASQLTile^.HXToTableNameChar(VXYMaskWidth) +
-                                     FDBMS_Service_Info.id_div_mode +
-                                     ASQLTile^.HYToTableNameChar(VXYMaskWidth) +
-                                     '_' +
-                                     InternalGetServiceNameByDB;
-
-  VEngineType := FConnection.GetCheckedEngineType;
-
-  if VNeedToQuote or c_SQL_QuotedIdentifierForcedForTiles[VEngineType] then begin
-    ASQLTile^.QuotedTileTableName := c_SQL_QuotedIdentifierValue[VEngineType, qp_Before] + ASQLTile^.UnquotedTileTableName + c_SQL_QuotedIdentifierValue[VEngineType, qp_After];
-  end else begin
-    ASQLTile^.QuotedTileTableName := ASQLTile^.UnquotedTileTableName;
-  end;
+  FillTableNamesForTiles(ASQLTile);
 
   Result := ETS_RESULT_OK;
 end;
@@ -2691,20 +2921,20 @@ function TDBMS_Provider.ParseVerValueToVerNumber(
 var
   p: Integer;
 
-  function _ExtractByte: Byte;
+  function _ExtractTailByte: Byte;
   var
     s: String;
     v: Integer;
   begin
-    // пропускаем нечисловые с начала
-    while (p<=Length(AGivenVersionValue)) and (not (AGivenVersionValue[p] in ['0','1'..'9'])) do begin
-      Inc(p);
+    // пропускаем нечисловые
+    while (p>0) and (not (AGivenVersionValue[p] in ['0','1'..'9'])) do begin
+      Dec(p);
     end;
     // копируем числовые
     s := '';
-    while (p<=Length(AGivenVersionValue)) and ((AGivenVersionValue[p] in ['0','1'..'9'])) do begin
-      s := s + AGivenVersionValue[p];
-      Inc(p);
+    while (p>0) and ((AGivenVersionValue[p] in ['0','1'..'9'])) do begin
+      s := AGivenVersionValue[p] + s;
+      Dec(p);
     end;
     // смотрим чего получилось
     if TryStrToInt(s, v) then
@@ -2725,17 +2955,47 @@ begin
   // здесь строка с версией заведомо не пустая
   //Result := 0;
   ADoneVerNumber := FALSE;
-  p := 1;
 
-  // пробуем разобрать byte.byte.byte.byte
-  n1 := _ExtractByte;
-  n2 := _ExtractByte;
-  n3 := _ExtractByte;
-  n4 := _ExtractByte;
+  // для заливки NMC (формально запрос без версии) удобно брать за версию тайла
+  // максимальное значение параметра latestAcquisitionDate (строка вида '2012-05-06 09:05:40.278')
+  // из его EXIF
+  // тогда разные версии тайлов будут разруливаться автоматически
+  // надо только:
+  // а) изначально не указывать для NMC версию;
+  // б) отображать последнюю версию тайла при запросе без версии.
+  // в качестве ver_number для сохранения возможности сортировки берём что-то типа yymmddhh
+  // p :=
+
+  // пробуем разобрать byte.byte.byte.byte (справа налево!)
+  p := Length(AGivenVersionValue);
+  n4 := _ExtractTailByte;
+  n3:= _ExtractTailByte;
+  n2 := _ExtractTailByte;
+  n1 := _ExtractTailByte;
   Result := (Integer(n1) shl 24) or (Integer(n2) shl 16) or (Integer(n3) shl 8) or Integer(n4);
   ADoneVerNumber := (Result<>0);
 
   // TODO: добавить другие возможные парсеры
+(*
+FeatureId:f09f02e6824eb7f8ba05948aa692ead2
+<br>
+Date:2012-05-06 09:05:40.278
+<br>
+Color:Pan Sharpened Natural Color
+<br>
+Resolution:0.50
+<br>
+Source:WV02
+<br>
+LegacyId:1030010017B9D100
+<br>
+Provider:DigitalGlobe
+<br>
+PreviewLink:<a href=https://browse.digitalglobe.com/imagefinder/showBrowseImage?catalogId=1030010017B9D100&imageHeight=1024&imageWidth=1024>
+https://browse.digitalglobe.com/imagefinder/showBrowseImage?catalogId=1030010017B9D100&imageHeight=1024&imageWidth=1024</a>
+<br>MetadataLink:<a href=https://browse.digitalglobe.com/imagefinder/showBrowseMetadata?buffer=1.0&catalogId=1030010017B9D100&imageHeight=natres&imageWidth=natres>https://browse.digitalglobe.com/imagefinder/showBrowseMetadata?buffer=1.0&catalogId=1030010017B9D100&imageHeight=natres&imageWidth=natres</a>
+
+*)
 end;
 
 function TDBMS_Provider.GetStatementExceptionType(const AException: Exception): TStatementExceptionType;

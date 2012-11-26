@@ -5,8 +5,11 @@ unit u_ExecuteSQLArray;
 interface
 
 uses
+  Types,
   SysUtils,
   Classes,
+  t_types,
+  t_DBMS_Template,
   Contnrs;
 
 type
@@ -25,6 +28,22 @@ type
       const ASkipErrorsOnExec: Boolean
     );
     function GetSQLItem(const AIndex: Integer): TExecuteSQLItem;
+  end;
+
+  PSelectInRectItem = ^TSelectInRectItem;
+  TSelectInRectItem = record
+    TabSQLTile: TSQLTile;
+    InitialWhereClause: TDBMS_String;
+    FullSqlText: TDBMS_String;
+  end;
+
+  TSelectInRectList = class(TList)
+  private
+    function GetSelectInRectItems(AIndex: Integer): PSelectInRectItem;
+  protected
+    procedure Notify(Ptr: Pointer; Action: TListNotification); override;
+  public
+    property SelectInRectItems[AIndex: Integer]: PSelectInRectItem read GetSelectInRectItems;
   end;
 
 implementation
@@ -47,6 +66,23 @@ end;
 function TExecuteSQLArray.GetSQLItem(const AIndex: Integer): TExecuteSQLItem;
 begin
   Result := (Items[AIndex] as TExecuteSQLItem);
+end;
+
+{ TSelectInRectList }
+
+function TSelectInRectList.GetSelectInRectItems(AIndex: Integer): PSelectInRectItem;
+begin
+  Result := PSelectInRectItem(Items[AIndex]);
+end;
+
+procedure TSelectInRectList.Notify(Ptr: Pointer; Action: TListNotification);
+var VSelectInRectItem: PSelectInRectItem;
+begin
+  inherited;
+  if (Action=lnDeleted) then begin
+    VSelectInRectItem := Ptr;
+    Dispose(VSelectInRectItem);
+  end;
 end;
 
 end.
