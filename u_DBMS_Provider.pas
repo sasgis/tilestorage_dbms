@@ -219,6 +219,13 @@ type
       AXYResult: PPoint
     ): Boolean;
 
+    function GetSQL_AddIntWhereClause(
+      var AWhereClause: TDBMS_String;
+      const AFieldName: TDBMS_String;
+      const AWithMinBound, AWithMaxBound: Boolean;
+      const AMinBoundValue, AMaxBoundValue: Integer
+    ): Boolean;
+
   private
     procedure AddVersionOrderBy(
       const ASQLParts: PSQLParts;
@@ -1007,21 +1014,13 @@ function TDBMS_Provider.DBMS_GetTileRectInfo(
 ): Byte;
 var
   VExclusive: Boolean;
-  //VVersionFound: Boolean;
   VDataset: TDBMS_Dataset;
   VEnumOut: TETS_GET_TILE_RECT_OUT;
-  //VETS_VERSION_W: TETS_VERSION_W;
-  //VETS_VERSION_A: TETS_VERSION_A;
-  //VVersionAA: TVersionAA;
-  //VSQLText: TDBMS_String;
-  //VVersionValueW, VVersionCommentW: WideString; // keep wide
   VExclusivelyLocked: Boolean;
   VSelectInRectList: TSelectInRectList;
   VSelectInRectItem: PSelectInRectItem;
   i: Integer;
 begin
-  //Result := ETS_RESULT_NOT_IMPLEMENTED;
-
   VExclusive := ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusive, so_SelectInRect, VExclusivelyLocked);
@@ -1836,6 +1835,42 @@ begin
   end;
 end;
 
+function TDBMS_Provider.GetSQL_AddIntWhereClause(
+  var AWhereClause: TDBMS_String;
+  const AFieldName: TDBMS_String;
+  const AWithMinBound, AWithMaxBound: Boolean;
+  const AMinBoundValue, AMaxBoundValue: Integer
+): Boolean;
+begin
+  Result := FALSE;
+  if AWithMinBound then begin
+    if AWithMaxBound then begin
+      // with maximum
+      if (AMinBoundValue=AMaxBoundValue) then begin
+        // вообще одно значение
+        AWhereClause := AWhereClause + ' and v.' + AFieldName + ' = ' + IntToStr(AMinBoundValue);
+      end else begin
+        // диапазон
+        AWhereClause := AWhereClause + ' and v.' + AFieldName + ' between ' + IntToStr(AMinBoundValue) + ' and ' + IntToStr(AMaxBoundValue);
+      end;
+    end else begin
+      // without maximum
+      // только отсечка снизу
+      AWhereClause := AWhereClause + ' and v.' + AFieldName + ' >= ' + IntToStr(AMinBoundValue);
+    end;
+  end else begin
+    // without minimum
+    if AWithMaxBound then begin
+      // with maximum
+      // только отсечка сверху
+      AWhereClause := AWhereClause + ' and v.' + AFieldName + ' <= ' + IntToStr(AMaxBoundValue);
+    end else begin
+      // no filtering at all
+      // вообще не трогаем текст WHERE
+    end;
+  end;
+end;
+
 function TDBMS_Provider.GetSQL_DeleteTile(
   const ADeleteBuffer: PETS_DELETE_TILE_IN;
   out ADeleteSQLResult: TDBMS_String
@@ -1934,8 +1969,6 @@ var
   VTileXYZMin, VTileXYZMax: TTILE_ID_XYZ;
   VSQLTileMin, VSQLTileMax: TSQLTile;
   i,j: Integer;
-  //VInTabMin, VInTabMax: TPoint;
-  //VSQLWhereX, VSQLWhereY: String;
   VSelectInRectItem: PSelectInRectItem;
 begin
   // смотрим какие координаты и таблицы по углам запрошенного прямоугольника
@@ -1945,6 +1978,9 @@ begin
     VTileXYZMin.xy := ATileRectInfoIn.ptTileRect^.TopLeft;
     VTileXYZMax.z  := ATileRectInfoIn.btTileZoom;
     VTileXYZMax.xy := ATileRectInfoIn.ptTileRect^.BottomRight;
+    // исключаем верхнюю границу, так как из саса нижная граница включается, а верхняя исключается
+    VTileXYZMax.xy.X := VTileXYZMax.xy.X-1;
+    VTileXYZMax.xy.Y := VTileXYZMax.xy.Y-1;
 
     // выщитываем координаты в таблицах
     Result := InternalCalcSQLTile(@VTileXYZMin, @VSQLTileMin);
@@ -1958,7 +1994,7 @@ begin
 
     // контрольная проверка
     if (VSQLTileMin.XYUpperToTable.X<=VSQLTileMax.XYUpperToTable.X) and (VSQLTileMin.XYUpperToTable.Y<=VSQLTileMax.XYUpperToTable.Y) then begin
-      // забацаем цикл по X и Y
+      // забацаем цикл по X и Y (так как здесь цикл фактически по таблицам - верхняя граница включается)
       for i := VSQLTileMin.XYUpperToTable.X to VSQLTileMax.XYUpperToTable.X do
       for j := VSQLTileMin.XYUpperToTable.Y to VSQLTileMax.XYUpperToTable.Y do
       try
@@ -1978,29 +2014,24 @@ begin
           FillTableNamesForTiles(@(VSelectInRectItem^.TabSQLTile));
 
           // по X
-          if (i=VSQLTileMin.XYUpperToTable.X) then
-            if (i=VSQLTileMax.XYUpperToTable.X) then
-              InitialWhereClause := InitialWhereClause + ' and v.x between ' + IntToStr(VSQLTileMin.XYLowerToID.X) + ' and ' + IntToStr(VSQLTileMax.XYLowerToID.X)
-            else
-              InitialWhereClause := InitialWhereClause + ' and v.x >= ' + IntToStr(VSQLTileMin.XYLowerToID.X)
-          else
-            if (i=VSQLTileMax.XYUpperToTable.X) then
-              InitialWhereClause := InitialWhereClause + ' and v.x <= ' + IntToStr(VSQLTileMax.XYLowerToID.X)
-            {else
-              InitialWhereClause := InitialWhereClause + ''};
-
+          GetSQL_AddIntWhereClause(
+            InitialWhereClause,
+            'x',
+            (i=VSQLTileMin.XYUpperToTable.X),
+            (i=VSQLTileMax.XYUpperToTable.X),
+            VSQLTileMin.XYLowerToID.X,
+            VSQLTileMax.XYLowerToID.X
+          );
 
           // по Y
-          if (j=VSQLTileMin.XYUpperToTable.Y) then
-            if (j=VSQLTileMax.XYUpperToTable.Y) then
-              InitialWhereClause := InitialWhereClause + ' and v.y between ' + IntToStr(VSQLTileMin.XYLowerToID.Y) + ' and ' + IntToStr(VSQLTileMax.XYLowerToID.Y)
-            else
-              InitialWhereClause := InitialWhereClause + ' and v.y >= ' + IntToStr(VSQLTileMin.XYLowerToID.Y)
-          else
-            if (j=VSQLTileMax.XYUpperToTable.Y) then
-              InitialWhereClause := InitialWhereClause + ' and v.y <= ' + IntToStr(VSQLTileMax.XYLowerToID.Y)
-            {else
-              InitialWhereClause := InitialWhereClause + ''};
+          GetSQL_AddIntWhereClause(
+            InitialWhereClause,
+            'y',
+            (j=VSQLTileMin.XYUpperToTable.Y),
+            (j=VSQLTileMax.XYUpperToTable.Y),
+            VSQLTileMin.XYLowerToID.Y,
+            VSQLTileMax.XYLowerToID.Y
+          );
         end;
 
         // а теперь можно забацать SELECT
