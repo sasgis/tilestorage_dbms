@@ -48,6 +48,11 @@ type
       const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
     ): Byte;
 
+    function DBMS_ExecOption(
+      const ACallbackPointer: Pointer;
+      const AExecOptionIn: PETS_EXEC_OPTION_IN
+    ): Byte;
+
   end;
 
   TStub_DBMS_Provider = packed record

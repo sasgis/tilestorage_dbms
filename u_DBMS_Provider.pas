@@ -150,6 +150,11 @@ type
     function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
 
     function GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
+
+    function UpdateServiceVerComp(
+      const ANewVerCompMode: AnsiChar;
+      out AErrorText: String
+    ): Byte;
   private
     function CreateAllBaseTablesFromScript: Byte;
     
@@ -339,6 +344,10 @@ type
       const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
     ): Byte;
 
+    function DBMS_ExecOption(
+      const ACallbackPointer: Pointer;
+      const AExecOptionIn: PETS_EXEC_OPTION_IN
+    ): Byte;
 
   public
     constructor Create(
@@ -1005,6 +1014,217 @@ begin
     end;
   finally
     DoEndWork(VExclusivelyLocked);
+  end;
+end;
+
+function TDBMS_Provider.DBMS_ExecOption(
+  const ACallbackPointer: Pointer;
+  const AExecOptionIn: PETS_EXEC_OPTION_IN
+): Byte;
+const
+  c_EO_SetTLM         = 'SetTLM';
+  c_EO_SetVerComp     = 'SetVerComp';
+
+var
+  VFullPrefix: String;
+
+  function _AddReturnFooter: String;
+  begin
+    Result := '<br>' + // additional!
+              '<a href="'+VFullPrefix+'">Return to Options</a>';
+  end;
+
+  function _AddTileLoadModeLine(
+    const AFlag: Byte;
+    const ADescription: String
+  ): String;
+  var
+    VEnabled: Boolean;
+  begin
+    VEnabled := ((FStatusBuffer^.tile_load_mode and AFlag) <> 0);
+
+    if VEnabled then begin
+      // enabled - click to disable
+      Result := 'dis';
+    end else begin
+      // disabled - click to enable
+      Result := 'en';
+    end;
+
+    Result := '<tr><td>' + ADescription + '</td><td>' + BoolToStr(VEnabled, TRUE) + '</td><td>' +
+              'Click <a href="' +
+              VFullPrefix + '/' + c_EO_SetTLM + '/' + IntToStr(AFlag) + '/' + IntToStr(Ord(not VEnabled)) +
+              '">HERE</a> to ' + Result + 'able</td></tr>';
+  end;
+
+  function _AddVerCompItem(const AVerCompMode: AnsiChar): String;
+  begin
+    if (AVerCompMode=FDBMS_Service_Info.id_ver_comp) then begin
+      // current mode
+      Result := 'Current';
+    end else begin
+      Result := '<a href="' + VFullPrefix + '/' + c_EO_SetVerComp + '/' + AVerCompMode + '">Select</a>';
+    end;
+  end;
+
+  procedure _TrimLeftDelims(var AFromSource: String);
+  begin
+    while (Length(AFromSource)>0) and (AFromSource[1]='/') do begin
+      System.Delete(AFromSource,1,1);
+    end;
+  end;
+
+  function _ExtractPart(var AFromSource: String): String;
+  var p: Integer;
+  begin
+    if (0=Length(AFromSource)) then begin
+      Result := '';
+      Exit;
+    end;
+
+    p := System.Pos('/', AFromSource);
+    if (p>0) then begin
+      Result := System.Copy(AFromSource, 1, p-1);
+      System.Delete(AFromSource, 1, p);
+      _TrimLeftDelims(AFromSource);
+    end else begin
+      Result := AFromSource;
+      AFromSource := '';
+    end;
+  end;
+
+var
+  VValueW: WideString;
+  VRequest: String;
+  VResponse: String;
+  VSetTLMValue: String;
+  VSetTLMIndex: Integer;
+begin
+  Result := ETS_RESULT_OK;
+  VResponse := '';
+  // get input values
+  VRequest := '';
+  if ((AExecOptionIn^.dwOptionsIn and ETS_EOI_ANSI_VALUES) <> 0) then begin
+    VFullPrefix := PAnsiChar(AExecOptionIn^.szFullPrefix);
+    if (AExecOptionIn^.szRequest<>nil) then begin
+      VRequest    := PAnsiChar(AExecOptionIn^.szRequest);
+    end;
+  end else begin
+    VValueW     := PWideChar(AExecOptionIn^.szFullPrefix);
+    VFullPrefix := VValueW;
+    if (AExecOptionIn^.szRequest<>nil) then begin
+      VValueW     := PWideChar(AExecOptionIn^.szRequest);
+      VRequest    := VValueW;
+    end;
+  end;
+
+  _TrimLeftDelims(VRequest);
+
+  try
+    if (0=Length(VRequest)) then begin
+      // get information for empty request
+
+      VResponse := '<h1>Options</h1>';
+
+      if (nil=FConnection) or (ETS_RESULT_OK<>FConnection.EnsureConnected(FALSE, nil)) then begin
+        VResponse := VResponse +
+                     '<br>' +
+                     'Not connected';
+        Exit;
+      end;
+
+      VResponse := VResponse +
+                   '<br>' +
+                   'Server defined as ' + c_SQL_Engine_Name[FConnection.GetCheckedEngineType] + '<br>';
+
+      // show version compare information
+      
+      VResponse := VResponse +
+                   '<br>' +
+                   'How to compare versions' + '<br>' +
+                   '<table><tr><td>None</td><td>By ID</td><td>By Value</td><td>By Date</td><td>By Number</td></tr><tr><td>';
+
+      VResponse := VResponse + _AddVerCompItem(TILE_VERSION_COMPARE_NONE);
+      VResponse := VResponse + '</td><td>';
+      VResponse := VResponse + _AddVerCompItem(TILE_VERSION_COMPARE_ID);
+      VResponse := VResponse + '</td><td>';
+      VResponse := VResponse + _AddVerCompItem(TILE_VERSION_COMPARE_VALUE);
+      VResponse := VResponse + '</td><td>';
+      VResponse := VResponse + _AddVerCompItem(TILE_VERSION_COMPARE_DATE);
+      VResponse := VResponse + '</td><td>';
+      VResponse := VResponse + _AddVerCompItem(TILE_VERSION_COMPARE_NUMBER);
+
+      VResponse := VResponse + '</td></tr></table>';
+
+      // show tile_load_mode parsed information
+      VResponse := VResponse +
+                   '<br>' +
+                   '<table><tr><td>What to do if tile not found</td><td>Enabled</td><td>Change</td></tr>';
+      VResponse := VResponse + _AddTileLoadModeLine(ETS_TLM_WITHOUT_VERSION, 'Show tile without version if no tile for request with version');
+      VResponse := VResponse + _AddTileLoadModeLine(ETS_TLM_PREV_VERSION,    'Show tile with prevoius version if no tile for request with version');
+      VResponse := VResponse + _AddTileLoadModeLine(ETS_TLM_LAST_VERSION,    'Show tile with last version if no tile for request without version');
+      VResponse := VResponse + '</table>';
+      Exit;
+    end;
+
+    // extract first command
+    VSetTLMValue := _ExtractPart(VRequest);
+
+    if SameText(c_EO_SetTLM, VSetTLMValue) then begin
+      // SetTLM
+      // remains 3 chars like '4/1' or '2/0'
+      // ignore others
+      if (3<=Length(VRequest)) then
+      if TryStrToInt(VRequest[1], VSetTLMIndex) then
+      if LoByte(VSetTLMIndex) in [ETS_TLM_WITHOUT_VERSION, ETS_TLM_PREV_VERSION, ETS_TLM_LAST_VERSION] then begin
+        // ok
+        if VRequest[3]='1' then begin
+          // enable
+          FStatusBuffer^.tile_load_mode := FStatusBuffer^.tile_load_mode or LoByte(VSetTLMIndex);
+          VResponse := 'Enabled' + '<br>' + _AddReturnFooter;
+        end else begin
+          // disable
+          FStatusBuffer^.tile_load_mode := FStatusBuffer^.tile_load_mode and not LoByte(VSetTLMIndex);
+          VResponse := 'Disabled' + '<br>' + _AddReturnFooter;
+        end;
+        AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE;
+      end;
+    end else if SameText(c_EO_SetVerComp, VSetTLMValue) then begin
+      // SetVerComp
+      // remains ONE char
+      if (1<=Length(VRequest)) then
+      case VRequest[1] of
+        TILE_VERSION_COMPARE_NONE,
+        TILE_VERSION_COMPARE_ID,
+        TILE_VERSION_COMPARE_VALUE,
+        TILE_VERSION_COMPARE_DATE,
+        TILE_VERSION_COMPARE_NUMBER: begin
+          // ok
+          Result := UpdateServiceVerComp(VRequest[1], VSetTLMValue);
+          // check result
+          if (ETS_RESULT_OK=Result) then begin
+            // success
+            VResponse := 'Updated successfully' + '<br>' + _AddReturnFooter;
+            AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE;
+          end else begin
+            // failed
+            VResponse := 'Error(' + IntToStr(Result) + '): ' + VSetTLMValue + '<br>' + _AddReturnFooter;
+          end;
+        end;
+      end;
+    end;
+
+  finally
+    if (0<Length(VResponse)) then begin
+      // allocate memory and copy response
+      VSetTLMIndex := (Length(VResponse)+1)*SizeOf(Char);
+      AExecOptionIn.szResponse := GetMemory(VSetTLMIndex);
+      CopyMemory(AExecOptionIn.szResponse, PChar(VResponse), VSetTLMIndex);
+      AExecOptionIn.dwLength := Length(VResponse);
+      if SizeOf(Char)=SizeOf(AnsiChar) then begin
+        AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_ANSI_VALUES;
+      end;
+    end;
   end;
 end;
 
@@ -3157,6 +3377,34 @@ function TDBMS_Provider.SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_
 begin
   Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
             DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat, ADateTime, FFormatSettings));
+end;
+
+function TDBMS_Provider.UpdateServiceVerComp(
+  const ANewVerCompMode: AnsiChar;
+  out AErrorText: String
+  ): Byte;
+var
+  VSQLText: String;
+begin
+  Result := FConnection.EnsureConnected(FALSE, nil);
+  if (ETS_RESULT_OK<>Result) then
+    Exit;
+
+  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+                ' SET id_ver_comp=' + DBMSStrToDB(ANewVerCompMode) +
+              ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
+
+  try
+    FConnection.ExecuteDirectSQL(VSQLText);
+    // success
+    FStatusBuffer^.id_ver_comp := ANewVerCompMode;
+    FDBMS_Service_Info.id_ver_comp := ANewVerCompMode;
+  except
+    on E: Exception do begin
+      AErrorText := E.Message;
+      Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
+    end;
+  end;
 end;
 
 function TDBMS_Provider.VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;

@@ -72,6 +72,16 @@ function ETS_GetTileRectInfo(
   const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
 ): Byte; stdcall; export;
 
+function ETS_ExecOption(
+  const AProvider_Handle: PETS_Provider_Handle;
+  const ACallbackPointer: Pointer;
+  const AExecOptionIn: PETS_EXEC_OPTION_IN
+): Byte; stdcall; export;
+
+function ETS_FreeMem(
+  const ABuffer: Pointer
+): Byte; stdcall; export;
+  
 implementation
 
 function ETS_Initialize(
@@ -400,6 +410,57 @@ begin
         Result := ETS_RESULT_PROVIDER_EXCEPTION;
       end;
     end;
+  end;
+end;
+
+function ETS_ExecOption(
+  const AProvider_Handle: PETS_Provider_Handle;
+  const ACallbackPointer: Pointer;
+  const AExecOptionIn: PETS_EXEC_OPTION_IN
+): Byte; stdcall; export;
+begin
+  try
+    if (nil=AProvider_Handle) then begin
+      Result := ETS_RESULT_INVALID_PROVIDER_PTR;
+      Exit;
+    end;
+
+    (*
+    if (nil=ACallbackPointer) then begin
+      Result := ETS_RESULT_INVALID_CALLBACK_PTR;
+      Exit;
+    end;
+    *)
+
+    if (nil=AExecOptionIn) then begin
+      Result := ETS_RESULT_INVALID_INPUT_BUFFER;
+      Exit;
+    end;
+
+    Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_ExecOption(
+      ACallbackPointer,
+      AExecOptionIn
+    );
+  except
+    on E: Exception do begin
+      try
+        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
+      except
+        Result := ETS_RESULT_PROVIDER_EXCEPTION;
+      end;
+    end;
+  end;
+end;
+
+function ETS_FreeMem(
+  const ABuffer: Pointer
+): Byte; stdcall; export;
+begin
+  if (ABuffer<>nil) then begin
+    FreeMemory(ABuffer);
+    Result := ETS_RESULT_OK;
+  end else begin
+    Result := ETS_RESULT_INVALID_INPUT_BUFFER;
   end;
 end;
 

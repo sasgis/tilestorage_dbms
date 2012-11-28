@@ -35,6 +35,8 @@ exports
   ETS_InsertTNE,
   ETS_DeleteTile,
   ETS_EnumTileVersions,
+  ETS_ExecOption,
+  ETS_FreeMem,
   ETS_GetTileRectInfo;
 
 begin
