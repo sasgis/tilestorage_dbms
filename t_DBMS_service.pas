@@ -12,6 +12,12 @@ type
     id_div_mode: AnsiChar; // Z_DIV_MODE identifier
     work_mode: AnsiChar; // in ['0','S','R'] ('0' by default)
     use_common_tiles: AnsiChar; // boolean ('0' by default)
+    // пол€, по€вившиес€ во второй версии модели
+    // у всех значение по умолчанию в Ѕƒ равно 0
+    tile_load_mode: SmallInt;    // ETS_TLM_*
+    tile_save_mode: SmallInt;    // ETS_TSM_*
+    tile_hash_mode: SmallInt;    // ETS_THM_*
+    ver_by_tile_mode: SmallInt;  // ETS_VTM_*
   public
     function XYMaskWidth: Byte; //inline;
   end;

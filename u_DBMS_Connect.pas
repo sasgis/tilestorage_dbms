@@ -86,6 +86,13 @@ type
       const ADefaultValue: AnsiChar
     ): AnsiChar;
 
+    // вернёт значение поля, если оно есть, иначе значение по умолчанию
+    // по умолчанию значение по умолчанию такое, чтобы оно было отрицательным, с чистым нижним байтом
+    function GetOptionalSmallInt(
+      const AFieldName: TDBMS_String;
+      const ADefaultValue: SmallInt = SmallInt($FF00)
+    ): SmallInt;
+
     // get CLOB value, returns (NOT NULL)
     function ClobAsWideString(
       const AFieldName: TDBMS_String;
@@ -1282,7 +1289,11 @@ var
   VStream: TStream;
   {$ifend}
 begin
-  F := Self.FieldByName(AFieldName);
+  F := Self.FindField(AFieldName);
+  if (nil=F) then begin
+    Result := nil;
+    Exit;
+  end;
 (*
   if (F is TVarBytesField) then begin
     // бинарное хранилище
@@ -1450,6 +1461,28 @@ begin
 
   // unsupported fields
   Result := ADefaultValue;
+end;
+
+function TDBMS_Dataset.GetOptionalSmallInt(
+  const AFieldName: TDBMS_String;
+  const ADefaultValue: SmallInt
+): SmallInt;
+var
+  VField: TField;
+begin
+  VField := Self.FindField(AFieldName);
+
+  // if field not found or is NULL - use default value
+  if (nil=VField) or (VField.IsNull) then begin
+    Result := ADefaultValue;
+    Exit;
+  end;
+
+  try
+    Result := VField.AsInteger;
+  except
+    Result := ADefaultValue;
+  end;
 end;
 
 procedure TDBMS_Dataset.OpenSQL(const ASQLText: TDBMS_String);

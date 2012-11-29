@@ -8,3 +8,4 @@ __history/*
 *.~*
 *.bak
 *.groupproj.local
+model/*.pdb

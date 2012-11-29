@@ -155,6 +155,13 @@ type
       const ANewVerCompMode: AnsiChar;
       out AErrorText: String
     ): Byte;
+
+    function UpdateTileLoadMode(
+      const ANewTLMFlag: Byte;
+      const AEnabled: Boolean;
+      out AErrorText: String
+    ): Byte;
+    
   private
     function CreateAllBaseTablesFromScript: Byte;
     
@@ -1178,15 +1185,26 @@ begin
       if TryStrToInt(VRequest[1], VSetTLMIndex) then
       if LoByte(VSetTLMIndex) in [ETS_TLM_WITHOUT_VERSION, ETS_TLM_PREV_VERSION, ETS_TLM_LAST_VERSION] then begin
         // ok
-        if VRequest[3]='1' then begin
-          // enable
-          FStatusBuffer^.tile_load_mode := FStatusBuffer^.tile_load_mode or LoByte(VSetTLMIndex);
-          VResponse := 'Enabled' + '<br>' + _AddReturnFooter;
+        // если 3-й символ равен 1 - включаем, иначе выключаем
+        Result := UpdateTileLoadMode(LoByte(VSetTLMIndex), (VRequest[3]='1'), VSetTLMValue);
+        // check
+        if (ETS_RESULT_OK=Result) then begin
+          // success
+          if (VRequest[3]='1') then
+            VResponse := 'Enabled'
+          else
+            VResponse := 'Disabled';
+
+          if (0<Length(VSetTLMValue)) then begin
+            VResponse := VResponse + '<br>' + VSetTLMValue;
+          end;
+
+          VResponse := VResponse + '<br>' + _AddReturnFooter;
         end else begin
-          // disable
-          FStatusBuffer^.tile_load_mode := FStatusBuffer^.tile_load_mode and not LoByte(VSetTLMIndex);
-          VResponse := 'Disabled' + '<br>' + _AddReturnFooter;
+          // failed
+          VResponse := 'Error(' + IntToStr(Result) + '): ' + VSetTLMValue + '<br>' + _AddReturnFooter;
         end;
+
         AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE;
       end;
     end else if SameText(c_EO_SetVerComp, VSetTLMValue) then begin
@@ -1624,7 +1642,10 @@ begin
           VOut.dwOptionsOut := VOut.dwOptionsOut or ETS_ROO_TILE_EXISTS;
           // get body
           VStream := VDataset.CreateFieldBlobReadStream('tile_body');
-          VOut.ptTileBuffer := (VStream as TCustomMemoryStream).Memory;
+          if (nil=VStream) then
+            VOut.ptTileBuffer := nil
+          else
+            VOut.ptTileBuffer := (VStream as TCustomMemoryStream).Memory;
         end;
 
         // version
@@ -2881,6 +2902,11 @@ begin
     id_div_mode := TILE_DIV_ERROR;
     work_mode := ETS_SWM_DEFAULT;
     use_common_tiles := ETS_UCT_NO;
+    // вторая версия полей
+    tile_load_mode    := 0;
+    tile_save_mode    := 0;
+    tile_hash_mode    := 0;
+    ver_by_tile_mode  := 0;
   end;
 end;
 
@@ -3037,6 +3063,12 @@ begin
     FDBMS_Service_Info.use_common_tiles := VDataset.GetAnsiCharFlag('use_common_tiles', ETS_UCT_NO);
     FDBMS_Service_OK := TRUE;
 
+    // следующие поля появились только во второй версии Z_SERVICE, так что их может не быть
+    FDBMS_Service_Info.tile_load_mode   := VDataset.GetOptionalSmallInt('tile_load_mode');
+    FDBMS_Service_Info.tile_save_mode   := VDataset.GetOptionalSmallInt('tile_save_mode');
+    FDBMS_Service_Info.tile_hash_mode   := VDataset.GetOptionalSmallInt('tile_hash_mode');
+    FDBMS_Service_Info.ver_by_tile_mode := VDataset.GetOptionalSmallInt('ver_by_tile_mode');
+
     // копируем параметры в опции хранилища
     if (FStatusBuffer<>nil) then
     with (FStatusBuffer^) do begin
@@ -3044,6 +3076,9 @@ begin
       id_ver_comp      := FDBMS_Service_Info.id_ver_comp;
       work_mode        := FDBMS_Service_Info.work_mode;
       use_common_tiles := FDBMS_Service_Info.use_common_tiles;
+      // вторая версия полей
+      tile_load_mode   := LoByte(FDBMS_Service_Info.tile_load_mode);
+      tile_save_mode   := LoByte(FDBMS_Service_Info.tile_save_mode);
     end;
 
     Result := ETS_RESULT_OK;
@@ -3384,8 +3419,9 @@ function TDBMS_Provider.UpdateServiceVerComp(
   out AErrorText: String
   ): Byte;
 var
-  VSQLText: String;
+  VSQLText: TDBMS_String;
 begin
+  AErrorText := '';
   Result := FConnection.EnsureConnected(FALSE, nil);
   if (ETS_RESULT_OK<>Result) then
     Exit;
@@ -3402,6 +3438,42 @@ begin
   except
     on E: Exception do begin
       AErrorText := E.Message;
+      Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
+    end;
+  end;
+end;
+
+function TDBMS_Provider.UpdateTileLoadMode(
+  const ANewTLMFlag: Byte;
+  const AEnabled: Boolean;
+  out AErrorText: String
+): Byte;
+var
+  VSQLText: TDBMS_String;
+begin
+  AErrorText := '';
+  Result := FConnection.EnsureConnected(FALSE, nil);
+  if (ETS_RESULT_OK<>Result) then
+    Exit;
+
+  // даже если в БД не обновимся - в памяти всё равно надо менять значения
+  if AEnabled then
+    FStatusBuffer^.tile_load_mode     := FStatusBuffer^.tile_load_mode or ANewTLMFlag
+  else
+    FStatusBuffer^.tile_load_mode     := FStatusBuffer^.tile_load_mode and not ANewTLMFlag;
+
+  FDBMS_Service_Info.tile_load_mode := FStatusBuffer^.tile_load_mode;
+
+  // забацаем запрос
+  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+                ' SET tile_load_mode='  + IntToStr(FStatusBuffer^.tile_load_mode) +
+              ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
+
+  try
+    FConnection.ExecuteDirectSQL(VSQLText);
+  except
+    on E: Exception do begin
+      AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
       Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
     end;
   end;
