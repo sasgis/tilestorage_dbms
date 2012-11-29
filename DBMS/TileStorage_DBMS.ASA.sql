@@ -201,6 +201,10 @@ create table IF NOT EXISTS Z_SERVICE (
    work_mode            char(1)                        default '0' not null
          constraint CKC_WORK_MODE_Z_SERVICE check (work_mode in ('0','S','R')),
    use_common_tiles     char(1)                        default '0' not null,
+   tile_load_mode       smallint                       default 0 not null,
+   tile_save_mode       smallint                       default 0 not null,
+   tile_hash_mode       smallint                       default 0 not null,
+   ver_by_tile_mode     smallint                       default 0 not null,
    constraint PK_Z_SERVICE primary key (id_service)
 )
 ;
@@ -230,4 +234,27 @@ alter table Z_SERVICE
       references Z_VER_COMP (id_ver_comp)
 ;
 
+
+
+
+create table IF NOT EXISTS Z_VER_BY_TILE (
+   id_ver_by_tile       smallint                       not null,
+   tile_contenttype     smallint                       not null,
+   src_parser           varchar(255)                   not null,
+   src_desc             varchar(255)                   null,
+   src_catalog          varchar(255)                   null,
+   src_root             varchar(63)                    null,
+   src_name             varchar(63)                    null,
+   src_mode             char(1)                        null,
+   dst_mode             char(1)                        null,
+   ver_mode             char(1)                        null,
+   dat_mode             char(1)                        null,
+   num_mode             char(1)                        null,
+   dsc_mode             char(1)                        null,
+   auxillary_ver        smallint                       null,
+   auxillary_dat        TIMESTAMP                      null,
+   auxillary_num        int                            null,
+   constraint PK_Z_VER_BY_TILE primary key (id_ver_by_tile, tile_contenttype)
+)
+;
 
