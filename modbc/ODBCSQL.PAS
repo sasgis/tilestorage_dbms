@@ -91,6 +91,17 @@ const
   SQL_TIMESTAMP  = 11;
   {end of Odbc2}
 
+  // DB2
+  SQL_GRAPHIC              = -95;
+  SQL_VARGRAPHIC           = -96;
+  SQL_LONGVARGRAPHIC       = -97;
+  SQL_BLOB                 = -98;
+  SQL_CLOB                 = -99;
+  SQL_DBCLOB               = -350;
+  SQL_DATALINK             = -400;
+  SQL_USER_DEFINED_TYPE    = -450;
+
+
   SQL_NO_TOTAL   = -4;
 
   // C datatype to SQL datatype mapping SQL types

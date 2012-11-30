@@ -242,6 +242,20 @@ begin
         cSize := 0;
         FSize := 0;
       end;
+    SQL_BLOB: begin
+      // DB2 BLOB
+      FDataType := ftBlob;
+      BufDataType := SQL_BINARY;
+      cSize := 0;
+      FSize := 0;
+    end;
+    SQL_CLOB: begin
+      // DB2 CLOB
+      FDataType := ftMemo;
+      BufDataType := SQL_CHAR;
+      cSize := 0;
+      FSize := 0;
+    end
     else
     begin
       FDataType := ftUnknown;

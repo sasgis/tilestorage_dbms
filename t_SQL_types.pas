@@ -58,6 +58,7 @@ type
 
 const
   c_SQLCMD_FROM_DUAL  = 'SELECT * FROM DUAL'; // if 'select @@version as v into DUAL' executed from model
+  c_SQLCMD_FROM_SYSDUMMY1 = 'SELECT * FROM SYSIBM.SYSDUMMY1'; // DB2 only!
   //c_SQLCMD_MySQL_DUAL = 'SELECT /*!1 111 AS F, */ * FROM DUAL'; //  /*!1 */ works at version 1 and higher
   //c_SQLCMD_Version_F  = 'SELECT version()'; // PostgreSQL, MySQL
 
@@ -248,7 +249,7 @@ const
   'DUMMY',         // ASA (dummy_col INTEGER NOT NULL)
   'DUAL',          // Oracle
   'table(set{1})', // Informix
-  '',              // DB2
+  'SYSIBM.SYSDUMMY1', // DB2
   '',              // MySQL
   '',              // PostgreSQL
   'SYSTEM.ONEROW', // Mimer
@@ -278,7 +279,7 @@ const
   'create view DUAL as select ''ASA'' as ENGINETYPE',       // ASA
   '', // Oracle - with DUAL by default - nothing
   'create view DUAL(ENGINE_VERSION) as select DBINFO(''version'',''full'') as ENGINE_VERSION from table(set{1})', // Informix
-  '', // DB2
+  'create view DUAL as select * from SYSIBM.SYSVERSIONS',   // DB2
   '', // MySQL
   'create view DUAL as select version() as ENGINE_VERSION', // PostgreSQL
   'create view DUAL as select ''MIMER'' as ENGINETYPE from SYSTEM.ONEROW', // Mimer
@@ -425,7 +426,7 @@ const
     FALSE,  // ASA
     FALSE,  // Oracle
     TRUE,   // Informix
-    FALSE,  // DB2
+    TRUE,   // DB2
     TRUE,   // MySQL
     TRUE,   // PostgreSQL // OK with TRUE
     FALSE,  // Mimer // OK with FALSE
