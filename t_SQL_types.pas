@@ -112,7 +112,7 @@ const
   'GETDATE()',         // MSSQL
   'GETDATE()',         // ASE
   'GETDATE()',         // ASA
-  'SYSDATE',           // Oracle
+  'SYSTIMESTAMP',      // Oracle
   'CURRENT',           // Informix
   'CURRENT TIMESTAMP', // DB2
   'SYSDATE()',         // MySQL
@@ -127,7 +127,7 @@ const
   'DATETIME',  // MSSQL
   'DATETIME',  // ASE
   'TIMESTAMP', // ASA
-  'DATE',      // Oracle
+  'TIMESTAMP', // Oracle
   'DATETIME YEAR TO FRACTION', // Informix
   'TIMESTAMP', // DB2
   'DATETIME',  // MySQL
@@ -142,7 +142,7 @@ const
   '',          // MSSQL
   '',          // ASE
   '',          // ASA
-  '',          // Oracle
+  'TIMESTAMP', // Oracle
   '',          // Informix
   '',          // DB2
   '',          // MySQL
@@ -150,6 +150,21 @@ const
   'TIMESTAMP', // Mimer
   '',          // Firebird
   ''
+  );
+
+  // do not add empty version (because '' treats by server as NULL)
+  c_SQL_Empty_Version_Denied: array [TEngineType] of Boolean = (
+  FALSE, // MSSQL
+  FALSE, // ASE
+  FALSE, // ASA
+  TRUE,  // Oracle
+  FALSE, // Informix
+  FALSE, // DB2
+  FALSE, // MySQL
+  FALSE, // PostgreSQL
+  FALSE, // Mimer
+  FALSE, // Firebird
+  TRUE   // always TRUE here!
   );
 
   // type to store BigInt (8 bytes with sign) from -9223372036854775808 to 9223372036854775807
@@ -421,7 +436,7 @@ const
 
   // prefix and suffix for identifiers for tiles
   c_SQL_QuotedIdentifierForcedForTiles: array [TEngineType] of Boolean = (
-    FALSE,  // MSSQL
+    TRUE,   // MSSQL
     FALSE,  // ASE // OK with FALSE
     FALSE,  // ASA
     FALSE,  // Oracle
@@ -446,6 +461,21 @@ const
     ('"','"'),  // Mimer // OK with '"'
     ('"','"'),  // Firebird
     ('"','"')
+  );
+
+  // default (very old!) datetime for empty version
+  c_SQL_DateTimeForEmptyVersion: array [TEngineType] of TDateTime = (
+    2,   // MSSQL
+    0,   // ASE // OK with FALSE
+    0,   // ASA
+    0,   // Oracle
+    0,   // Informix
+    0,   // DB2
+    0,   // MySQL
+    0,   // PostgreSQL // OK with TRUE
+    0,   // Mimer // OK with FALSE
+    0,   // Firebird
+    0
   );
 
   // cast blob into hex literal and do not use :param (for dbExpress)
