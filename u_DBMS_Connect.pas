@@ -22,7 +22,7 @@ uses
   u_ODBC,
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
-  ZConnection,
+  u_DBMS_Zeos,
   ZDataset,
 {$else}
   // DBX
@@ -41,7 +41,7 @@ type
 {$elseif defined(USE_DIRECT_ODBC)}
     TODBCConnection
 {$elseif defined(ETS_USE_ZEOS)}
-    TZConnection
+    TZeosDatabase
 {$else}
     TSQLConnection
 {$ifend}
@@ -831,7 +831,7 @@ begin
   Result := FSQLConnection.ExecuteDirectSQL(ASQLText, ASilentOnError);
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
-  TODO
+  Result := FSQLConnection.ExecuteDirect(ASQLText);
 {$else}
   // DBX
   TODO
@@ -844,18 +844,23 @@ function TDBMS_Connection.ExecuteDirectWithBlob(
   const ABufferSize: Integer;
   const ASilentOnError: Boolean
 ): Boolean;
+var
+  VDBMS_Dataset: TDBMS_Dataset;
 begin
   // блобы у нас только для параметра ':tile_body' aka c_RTL_Tile_Body_Paramname
 {$if defined(USE_DIRECT_ODBC)}
   Result := FSQLConnection.ExecuteDirectWithBlob(ASQLText, c_RTL_Tile_Body_Paramname, ABufferAddr, ABufferSize, ASilentOnError);
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
-  TODO:
-          // добавим параметр (как BLOB)
-          VInsertDataset.SetParamBlobData(
-            c_RTL_Tile_Body_Paramsrc,
-          );
-  
+  VDBMS_Dataset := Self.MakePoolDataset;
+  try
+    VDBMS_Dataset.SQL.Text := ASQLText;
+    VDBMS_Dataset.SetParamBlobData(c_RTL_Tile_Body_Paramsrc, ABufferAddr, ABufferSize);
+    VDBMS_Dataset.ExecSQL;
+    Result := TRUE;
+  finally
+    Self.KillPoolDataset(VDBMS_Dataset);
+  end;
 {$else}
   // DBX
   TODO:

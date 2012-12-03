@@ -3437,7 +3437,13 @@ begin
   // что-то иное
   Result := set_Unknown;
 {$else}
-  Result := (System.Pos('VIOLATION', VMessage)>0) and (System.Pos('CONSTRAINT', VMessage)>0);
+  // ZEOS and DBX
+  if (System.Pos('VIOLATION', VMessage)>0) and (System.Pos('CONSTRAINT', VMessage)>0) then begin
+    Result := set_PrimaryKeyViolation;
+    Exit;
+  end;
+
+  Result := set_TableNotFound;
 {$ifend}
 end;
 
