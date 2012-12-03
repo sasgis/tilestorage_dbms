@@ -181,7 +181,9 @@ type
     // функция для разбора строкового значения версии в целое число для нецелочисленных версий
     function ParseVerValueToVerNumber(
       const AGivenVersionValue: String;
-      out ADoneVerNumber: Boolean
+      out ADoneVerNumber: Boolean;
+      out ADateTimeIsDefined: Boolean;
+      out ADateTimeValue: TDateTime
     ): Integer;
 
     function MakePtrVersionInDB(
@@ -479,6 +481,7 @@ var
   VKeepVerNumber: Boolean;
   VGenerateNewIdVer: Boolean;
   VFoundAnotherVersionAA: TVersionAA;
+  VDateTimeIsDefined: Boolean;
 begin
   // запрошенные версии создаются только в эксклюзивном режиме
   if (not AExclusively) then begin
@@ -500,9 +503,19 @@ begin
 
   // если пустая версия
   if (0=Length(AReqVersionPtr^.ver_value)) then begin
+    // возможно СУБД не допускает пустую версию
+    if c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+      Result := ETS_RESULT_EMPTY_VERSION_DENIED;
+      Exit;
+    end;
+    
     // TODO: try to use 0 as id_ver
     if (not VersionExistsInDBWithIdVer(0)) then begin
-      MakeEmptyVersionInDB(0, AExclusively);
+      // создаём пустую версию только если СУБД это допускает
+      if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+        MakeEmptyVersionInDB(0, AExclusively);
+      end;
+      // читаем список версий
       ReadVersionsFromDB(AExclusively);
       ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(0, AReqVersionPtr);
       if ARequestedVersionFound then begin
@@ -514,7 +527,9 @@ begin
     // TODO: failed - use min(min-1,-1) as id_ver
     (*
     if (not VersionExistsInDBWithIdVer(-1)) then begin
-      MakeEmptyVersionInDB(-1);
+      if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+        MakeEmptyVersionInDB(-1);
+      end;
       ReadVersionsFromDB;
       ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(-1, AReqVersionPtr);
       if ARequestedVersionFound then begin
@@ -530,7 +545,7 @@ begin
     Exit;
   end;
 
-  AReqVersionPtr^.ver_date := NowUTC;
+  VDateTimeIsDefined := FALSE;
   VVerIsInt := TryStrToInt(AReqVersionPtr^.ver_value, AReqVersionPtr^.ver_number);
   // flag to keep ver_number=ver_value even if incrementing id_ver
   VKeepVerNumber := FALSE;
@@ -575,12 +590,16 @@ begin
     // в любом случае генерим id_ver
     // но вот в ver_number возможно что-нибудь тут просунуть
     VGenerateNewIdVer := TRUE;
-    AReqVersionPtr^.ver_number := ParseVerValueToVerNumber(AReqVersionPtr^.ver_value, VKeepVerNumber);
+    AReqVersionPtr^.ver_number := ParseVerValueToVerNumber(AReqVersionPtr^.ver_value, VKeepVerNumber, VDateTimeIsDefined, AReqVersionPtr^.ver_date);
   end;
 
   if VGenerateNewIdVer then begin
     // генерим новый id_ver (и возможно ver_number)
     GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+  end;
+
+  if (not VDateTimeIsDefined) then begin
+    AReqVersionPtr^.ver_date := NowUTC;
   end;
 
   repeat
@@ -2967,7 +2986,10 @@ begin
     // если версий нет вообще - создадим запись для пустой версии (без версии)
     try
       if (0=FVersionList.Count) then begin
-        MakeEmptyVersionInDB(0, AExclusively);
+        // создаём только если СУБД допускает пустую версию
+        if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+          MakeEmptyVersionInDB(0, AExclusively);
+        end;
         ReadVersionsFromDB(AExclusively);
       end;
     except
@@ -3149,7 +3171,7 @@ begin
   // создание записи в БД для пустой версии текущего сервиса
   VNewVersion.id_ver := AIdVersion;
   VNewVersion.ver_value :='';
-  VNewVersion.ver_date := 0; //NowUTC;
+  VNewVersion.ver_date := c_SQL_DateTimeForEmptyVersion[FConnection.GetCheckedEngineType]; //NowUTC;
   VNewVersion.ver_number := AIdVersion;
   VNewVersion.ver_comment := '';
   Result := MakePtrVersionInDB(@VNewVersion, AExclusively);
@@ -3202,10 +3224,73 @@ end;
 
 function TDBMS_Provider.ParseVerValueToVerNumber(
   const AGivenVersionValue: String;
-  out ADoneVerNumber: Boolean
+  out ADoneVerNumber: Boolean;
+  out ADateTimeIsDefined: Boolean;
+  out ADateTimeValue: TDateTime
 ): Integer;
 var
   p: Integer;
+
+  function _IsRoscosmos(out ADateTime: TDateTime): Boolean;
+  var st: TSystemTime;
+  begin
+    // проверка что формат 2011-08-25_18-15-38
+    Result := (19=Length(AGivenVersionValue));
+    if Result then begin
+      Result := (AGivenVersionValue[5] in ['-','_']) and
+                (AGivenVersionValue[8] in ['-','_']) and
+                (AGivenVersionValue[11] in ['-','_']) and
+                (AGivenVersionValue[14] in ['-','_']) and
+                (AGivenVersionValue[17] in ['-','_']);
+    end;
+    // year
+    if Result then begin
+      Result := TryStrToInt(System.Copy(AGivenVersionValue,1,4), p);
+      if Result then
+        st.wYear := p;
+    end;
+    // month
+    if Result then begin
+      Result := TryStrToInt(System.Copy(AGivenVersionValue,6,2), p);
+      if Result then
+        st.wMonth := p;
+    end;
+    // day
+    if Result then begin
+      Result := TryStrToInt(System.Copy(AGivenVersionValue,9,2), p);
+      if Result then
+        st.wDay := p;
+    end;
+    // hour
+    if Result then begin
+      Result := TryStrToInt(System.Copy(AGivenVersionValue,12,2), p);
+      if Result then
+        st.wHour := p;
+    end;
+    // minute
+    if Result then begin
+      Result := TryStrToInt(System.Copy(AGivenVersionValue,15,2), p);
+      if Result then
+        st.wMinute := p;
+    end;
+    // second
+    if Result then begin
+      Result := TryStrToInt(System.Copy(AGivenVersionValue,18,2), p);
+      if Result then
+        st.wSecond := p;
+    end;
+    if Result then begin
+      // others
+      st.wMilliseconds := 0;
+      // convert
+      try
+        ADateTime := SystemTimeToDateTime(st);
+        // ok
+      except
+        Result := FALSE;
+      end;
+    end;
+  end;
 
   function _ExtractTailByte: Byte;
   var
@@ -3241,6 +3326,17 @@ begin
   // здесь строка с версией заведомо не пустая
   //Result := 0;
   ADoneVerNumber := FALSE;
+  ADateTimeIsDefined := FALSE;
+
+  // для роскосмоса версия в виде 2011-08-25_18-15-38
+  // дату из неё понятно как получаем
+  // номер получаем как разницу (в секундах) между датой и фиксированной датой (со знаком)
+  if _IsRoscosmos(ADateTimeValue) then begin
+    ADateTimeIsDefined := TRUE;
+    ADoneVerNumber := TRUE;
+    Result := Round((ADateTimeValue-c_ZeroVersionNumber_DateTime)*86400);
+    Exit;
+  end;
 
   // для заливки NMC (формально запрос без версии) удобно брать за версию тайла
   // максимальное значение параметра latestAcquisitionDate (строка вида '2012-05-06 09:05:40.278')
@@ -3298,41 +3394,50 @@ begin
   end;
   
   if (VMessage = '23000:') or (VMessage = '23505:') then begin
-    // это код ODBC для нарушения уникальности
-    // '23000:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]VIOLATION OF PRIMARY KEY CONSTRAINT 'PK_D2I1_NMC_RECENCY'. CANNOT INSERT DUPLICATE KEY IN OBJECT 'DBO.D2I1_NMC_RECENCY'.'
-    // '23000:[MIMER][ODBC MIMER DRIVER][MIMER SQL]PRIMARY KEY CONSTRAINT VIOLATED, ATTEMPT TO INSERT DUPLICATE KEY IN TABLE SYSADM.DZ_NMC_RECENCY'
-    // '23505:ОШИБКА: повторяющееся значение ключа нарушает ограничение уникальности "PK_D2I1_NMC_RECENCY"'#$A'Ключ "(X, Y, ID_VER)=(644, 149, 0)" уже существует.;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
-    // '23000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'D2I1_NMC_RECENCY' WITH UNIQUE INDEX 'PK_D2I1_NMC_RECENCY''#$A
-    // '23000:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'D2I1_NMC_RECENCY' WITH UNIQUE INDEX 'PK_D2I1_NMC_RECENCY''#$A
-    // '23000:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]UNIQUE CONSTRAINT (INFORMIX.PK_H2AI12_NMC_RECENCY) VIOLATED.'
-    // '23000:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]DUPLICATE ENTRY '0-0-0' FOR KEY 'PRIMARY''
-    // '23505:[IBM][CLI DRIVER][DB2/NT] SQL0803N  ONE OR MORE VALUES IN THE INSERT STATEMENT, UPDATE STATEMENT, OR FOREIGN KEY UPDATE CAUSED BY A DELETE STATEMENT ARE NOT VALID BECAUSE THE PRIMARY KEY, UNIQUE CONSTRAINT OR UNIQUE INDEX IDENTIFIED BY "1" CONSTRAINS TABLE "DB2ADMIN.FAI4_BINGSAT" FROM HAVING DUPLICATE VALUES FOR THE INDEX KEY.  SQLSTATE=23505'
+    // это код ODBC для нарушения уникальности (не обязательно описано как PRIMARY KEY)
+    // for PostgreSQL
+    // '23505:7:ОШИБКА: повторяющееся значение ключа нарушает ограничение уникальности "PK_I53I24_BINGSAT"'#$A'Ключ "(X, Y, ID_VER)=(814, 441, 1134)" уже существует.;'#$A'ERROR WHILE EXECUTING THE QUERY'
+    // others
+    // '23000:2627:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Нарушение "PK_FAI4_KSSAT" ограничения PRIMARY KEY. Не удается вставить повторяющийся ключ в объект "DBO.FAI4_KSSAT". Повторяющееся значение ключа: (511, 582, 0).'
+    // '23000:2601:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'FAI4_KSSAT' WITH UNIQUE INDEX 'PK_FAI4_KSSAT''#$A
+    // '23000:-268:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]UNIQUE CONSTRAINT (INFORMIX.PK_F9I4_BINGSAT) VIOLATED.'
+    // '23000:-10101:[MIMER][ODBC MIMER DRIVER][MIMER SQL]PRIMARY KEY CONSTRAINT VIOLATED, ATTEMPT TO INSERT DUPLICATE KEY IN TABLE SYSADM.F9I4_BINGSAT'
+    // '23000:1062:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]DUPLICATE ENTRY '945-811-1134' FOR KEY 'PRIMARY''
+    // '23000:-803:[ODBC FIREBIRD DRIVER][FIREBIRD]VIOLATION OF PRIMARY OR UNIQUE KEY CONSTRAINT "PK_F9I4_BINGSAT" ON TABLE "F9I4_BINGSAT"'
+    // '23000:-193:[SYBASE][ODBC DRIVER][SQL ANYWHERE]PRIMARY KEY FOR TABLE 'F9I4_BINGSAT' IS NOT UNIQUE: PRIMARY KEY VALUE ('755,794,0')'
+    // '23505:-803:[IBM][CLI DRIVER][DB2/NT] SQL0803N  ONE OR MORE VALUES IN THE INSERT STATEMENT, UPDATE STATEMENT, OR FOREIGN KEY UPDATE CAUSED BY A DELETE STATEMENT ARE NOT VALID BECAUSE THE PRIMARY KEY, UNIQUE CONSTRAINT OR UNIQUE INDEX IDENTIFIED BY "1" CONSTRAINS TABLE "DB2ADMIN.F9I4_BINGSAT" FROM HAVING DUPLICATE VALUES FOR THE INDEX KEY.  SQLSTATE=23505'#$D#$A
+    // '23000:1:[ORACLE][ODBC][ORA]ORA-00001: UNIQUE CONSTRAINT (DB2ADMIN.PK_8I_KSSAT) VIOLATED'#$A
     //
     Result := set_PrimaryKeyViolation;
     Exit;
   end;
 
   if (VMessage = '42S02:') or (VMessage = '42P01:') or (VMessage = '42000:') then begin
-    // это код ODBC для для отсутствия отношения
-    // '42S02:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]INVALID OBJECT NAME 'C1I0_NMC_RECENCY'.'
-    // '42S02:[MIMER][ODBC MIMER DRIVER][MIMER SQL]TABLE 1Z_NMC_RECENCY NOT FOUND, TABLE DOES NOT EXIST OR NO ACCESS PRIVILEGE'
-    // '42P01:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
-    // '42000:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
-    // '42S02:[DATADIRECT][ODBC SYBASE WIRE PROTOCOL DRIVER][SQL SERVER]D2I1_NMC_RECENCY NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'#$A
-    // '42S02:[Sybase][ODBC Driver][SQL Anywhere]Table 'Z_SERVICE' not found'
-    // '42S02:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]THE SPECIFIED TABLE (_H2AI12_NMC_RECENCY_) IS NOT IN THE DATABASE.'
-    // '42S02:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]TABLE 'TEST.Z_SERVICE' DOESN'T EXIST'
-    // '42S02:[IBM][CLI DRIVER][DB2/NT] SQL0204N  "DB2ADMIN.FAI4_BINGSAT" IS AN UNDEFINED NAME.  SQLSTATE=42704'
+    // это код ODBC для для отсутствия отношения (таблицы или вьюхи)
+    // for PostgreSQL
+    // '42P01:7:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
+    // others
+    // '42S02:208:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Недопустимое имя объекта "FAI4_KSSAT".'
+    // '42000:208:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'
+    // '42S02:-206:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]THE SPECIFIED TABLE (_F9I4_BINGSAT_) IS NOT IN THE DATABASE.'
+    // '42S02:-12200:[MIMER][ODBC MIMER DRIVER][MIMER SQL]TABLE Z_SERVICE NOT FOUND, TABLE DOES NOT EXIST OR NO ACCESS PRIVILEGE'
+    // '42S02:1146:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]TABLE 'TEST.Z_SERVICE' DOESN'T EXIST'
+    // '42S02:-204:[ODBC FIREBIRD DRIVER][FIREBIRD]DYNAMIC SQL ERROR'#$A'SQL ERROR CODE = -204'#$A'TABLE UNKNOWN'#$A'Z_SERVICE'#$A'AT LINE 1, COLUMN 25'
+    // '42S02:-141:[SYBASE][ODBC DRIVER][SQL ANYWHERE]TABLE 'Z_SERVICE' NOT FOUND'
+    // '42S02:-204:[IBM][CLI DRIVER][DB2/NT] SQL0204N  "DB2ADMIN.Z_SERVICE" IS AN UNDEFINED NAME.  SQLSTATE=42704'#$D#$A
+    // '42S02:942:[ORACLE][ODBC][ORA]ORA-00942: TABLE OR VIEW DOES NOT EXIST'#$A
     //
     Result := set_TableNotFound;
     Exit;
   end;
 
+  // 'ZZZZZ:1105:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]CAN'T ALLOCATE SPACE FOR OBJECT 'SYSLOGS' IN DATABASE 'SAS_ASE' BECAUSE 'LOGSEGMENT' SEGMENT IS FULL/HAS NO FREE EXTENTS. IF YOU RAN OUT OF SPACE IN SYSLOGS, DUMP THE TRANSACTION LOG. OTHERWISE, USE ALTER DATABASE TO INCREASE THE SIZE OF THE SEGMENT.'#$A
+  // 'ZZZZZ:3475:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]THERE IS NO SPACE AVAILABLE IN SYSLOGS TO LOG A RECORD FOR WHICH SPACE HAS BEEN RESERVED IN DATABASE 'GIS' (ID 4). THIS PROCESS WILL RETRY AT INTERVALS OF ONE MINUTE.'#$A
+
   // что-то иное
   Result := set_Unknown;
 {$else}
   Result := (System.Pos('VIOLATION', VMessage)>0) and (System.Pos('CONSTRAINT', VMessage)>0);
-  // FB: 'violation of PRIMARY or UNIQUE KEY constraint "PK_C2I1_NMC_RECENCY" on table "C2I1_nmc_recency"'
 {$ifend}
 end;
 
@@ -3410,8 +3515,11 @@ end;
 
 function TDBMS_Provider.SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
 begin
-  Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
-            DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat, ADateTime, FFormatSettings));
+  if (FConnection<>nil) and (FConnection.GetCheckedEngineType=et_MSSQL) then
+    Result := DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat_MSSQL, ADateTime, FFormatSettings))
+  else
+    Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
+              DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat_Common, ADateTime, FFormatSettings));
 end;
 
 function TDBMS_Provider.UpdateServiceVerComp(

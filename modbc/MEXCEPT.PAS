@@ -124,7 +124,7 @@ begin
       if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
       begin
         SqlState := StrPas(pSqlState);
-        Message := StrPas(psqlstate) + ':' + StrPas(pmessage);
+        Message := StrPas(psqlstate) + ':' + IntToStr(NativeError) + ':' + StrPas(pmessage);
       end else
       begin
          Message := tError(nError);
