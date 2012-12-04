@@ -70,7 +70,8 @@ const
   c_DateTimeToDBFormat_Common = 'YYYY' + c_Date_Separator + 'MM' + c_Date_Separator + 'DD HH' + c_Time_Separator + 'NN' + c_Time_Separator + 'SS';
   c_DateTimeToDBFormat_MSSQL  = 'YYYYMMDD HH:NN:SS';
 
-  c_ZeroVersionNumber_DateTime: TDateTime = 36526; // 36526 = '2000-01-01 00:00:00.00000'
+  // для показа в списке версий
+  c_DateTimeToListOfVersions = 'YYYY' + c_Date_Separator + 'MM' + c_Date_Separator + 'DD HH' + c_Time_Separator + 'NN' + c_Time_Separator + 'SS.ZZZ';
 
 type
   TSQLParts = record

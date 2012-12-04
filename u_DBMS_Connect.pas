@@ -87,10 +87,9 @@ type
     ): AnsiChar;
 
     // вернёт значение поля, если оно есть, иначе значение по умолчанию
-    // по умолчанию значение по умолчанию такое, чтобы оно было отрицательным, с чистым нижним байтом
     function GetOptionalSmallInt(
       const AFieldName: TDBMS_String;
-      const ADefaultValue: SmallInt = SmallInt($FF00)
+      const ADefaultValue: SmallInt = 0
     ): SmallInt;
 
     // get CLOB value, returns (NOT NULL)
@@ -158,6 +157,10 @@ type
     function GetInternalParameter(const AInternalParameterName: String): String;
     function ForcedSchemaPrefix: String;
     function FullSyncronizeSQL: Boolean;
+
+    // текст ошибки при подключении
+    function GetConnectionErrorMessage: String;
+    procedure ResetConnectionError;
   end;
 
   TDBMS_Connection = class(TInterfacedObject, IDBMS_Connection)
@@ -173,6 +176,9 @@ type
     // если будет более одной DLL - переделать на TStringList
     FInternalLoadLibraryStd: THandle;
     FInternalLoadLibraryAlt: THandle;
+    // кэшируем результат коннекта к серверу
+    FConnectionErrorMessage: String;
+    FConnectionErrorCode: Byte;
   protected
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     function ApplyAuthenticationInfo: Byte;
@@ -213,6 +219,9 @@ type
     function GetInternalParameter(const AInternalParameterName: String): String;
     function ForcedSchemaPrefix: String;
     function FullSyncronizeSQL: Boolean;
+
+    function GetConnectionErrorMessage: String;
+    procedure ResetConnectionError;
   public
     constructor Create;
     destructor Destroy; override;
@@ -763,6 +772,8 @@ begin
   FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
   FETS_INTERNAL_SCHEMA := '';
+  FConnectionErrorMessage := '';
+  FConnectionErrorCode := ETS_RESULT_OK;
 end;
 
 destructor TDBMS_Connection.Destroy;
@@ -844,8 +855,10 @@ function TDBMS_Connection.ExecuteDirectWithBlob(
   const ABufferSize: Integer;
   const ASilentOnError: Boolean
 ): Boolean;
+{$if not defined(USE_DIRECT_ODBC)}
 var
   VDBMS_Dataset: TDBMS_Dataset;
+{$ifend}
 begin
   // блобы у нас только для параметра ':tile_body' aka c_RTL_Tile_Body_Paramname
 {$if defined(USE_DIRECT_ODBC)}
@@ -881,6 +894,9 @@ begin
   if FSQLConnection.Connected then begin
     // connected
     Result := ETS_RESULT_OK;
+  end else if (FConnectionErrorCode<>ETS_RESULT_OK) then begin
+    // critical error - cannot connect to server
+    Result := FConnectionErrorCode;
   end else begin
     // not connected
     if AllowTryToConnect then begin
@@ -904,16 +920,31 @@ begin
       // try to connect
       try
         FSQLConnection.Connected := TRUE;
+        FConnectionErrorMessage := '';
+        FConnectionErrorCode := ETS_RESULT_OK;
       except
         on E: Exception do begin
-          //ExceptObject;
-          if (ExceptObject<>nil) and (E.Message='xxx') then
-            Result := ETS_RESULT_AUTH_FAILED
-          else
-            Result := ETS_RESULT_NOT_CONNECTED;
+          // '08001:17:[Microsoft][ODBC SQL Server Driver][TCP/IP Sockets]SQL-сервер не существует, или отсутствует доступ.'
+          // '28P01:210:ВАЖНО: пользователь "postgres" не прошёл проверку подлинности (по паролю)'
+          // '08001:101:Could not connect to the server;'#$A'No connection could be made because the target machine actively refused it.'#$D#$A' [::1:5432]'
+          // '08001:30012:[Sybase][ODBC Driver]Client unable to establish a connection'
+          // '08001:-100:[Sybase][ODBC Driver][SQL Anywhere]Database server not found'
+          // 'HY000:2003:[MySQL][ODBC 5.2(w) Driver]Can't connect to MySQL server on '127.0.0.1' (10061)'
+          // '08001:-21054:[MIMER][ODBC Mimer Driver]Database server for database sasgis_yandex not started'
+          // '08004:-904:[ODBC Firebird Driver]unavailable database'
+          // 'HY000:12541:[Oracle][ODBC][Ora]ORA-12541: TNS:no listener'#$A
+          // 'HY000:12514:[Oracle][ODBC][Ora]ORA-12514: TNS:listener does not currently know of service requested in connect descriptor'#$A
+          // 'HY000:12528:[Oracle][ODBC][Ora]ORA-12528: TNS:listener: all appropriate instances are blocking new connections'#$A
+          // '08001:1001:[Relex][Linter ODBC Driver] SQLConnect: #1001 очередь ядра Linter не найдена (нет активного ядра)'
+          // '08001:-30081:[IBM][CLI Driver] SQL30081N  A communication error has been detected. Communication protocol being used: "TCP/IP".  Communication API being used: "SOCKETS".  Location where the error was detected: "192.168.1.8".  Communication function detecting the error: "connect".  Protocol specific error code(s): "10061", "*", "*".  SQLSTATE=08001'#$D#$A
+          // '08004:-908:[Informix][Informix ODBC Driver][Informix]Attempt to connect to database server (ol_informix1170) failed.'
+
+          FConnectionErrorMessage := E.Message;
+          FConnectionErrorCode := ETS_RESULT_NOT_CONNECTED;
+          Result := ETS_RESULT_NOT_CONNECTED;
           Exit;
         end;
-        // Result := ETS_RESULT_AUTH_FAILED;
+
       end;
 
       KeepAuthenticationInfo;
@@ -949,6 +980,11 @@ end;
 function TDBMS_Connection.GetCheckedEngineType: TEngineType;
 begin
   Result := GetEngineType(cetm_Check);
+end;
+
+function TDBMS_Connection.GetConnectionErrorMessage: String;
+begin
+  Result := FConnectionErrorMessage;
 end;
 
 function TDBMS_Connection.GetEngineType(const ACheckMode: TCheckEngineTypeMode): TEngineType;
@@ -1166,6 +1202,12 @@ begin
   finally
     FSyncPool.EndWrite;
   end;
+end;
+
+procedure TDBMS_Connection.ResetConnectionError;
+begin
+  //FConnectionErrorMessage := '';
+  FConnectionErrorCode := ETS_RESULT_OK;
 end;
 
 { TDBMS_ConnectionList }

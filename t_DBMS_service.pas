@@ -17,7 +17,7 @@ type
     tile_load_mode: SmallInt;    // ETS_TLM_*
     tile_save_mode: SmallInt;    // ETS_TSM_*
     tile_hash_mode: SmallInt;    // ETS_THM_*
-    ver_by_tile_mode: SmallInt;  // ETS_VTM_*
+    new_ver_by_tile: SmallInt;   // ETS_VTM_*
   public
     function XYMaskWidth: Byte; //inline;
   end;

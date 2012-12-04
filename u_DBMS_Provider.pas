@@ -161,7 +161,18 @@ type
       const AEnabled: Boolean;
       out AErrorText: String
     ): Byte;
-    
+
+    function UpdateTileSaveMode(
+      const ANewTSMFlag: Byte;
+      const AEnabled: Boolean;
+      out AErrorText: String
+    ): Byte;
+
+    function UpdateVerByTileMode(
+      const ANewVerByTileMode: SmallInt;
+      out AErrorText: String
+    ): Byte;
+
   private
     function CreateAllBaseTablesFromScript: Byte;
     
@@ -171,9 +182,19 @@ type
     // автоматическое создание версии для сервиса
     function AutoCreateServiceVersion(
       const AExclusively: Boolean;
+      const AVersionAutodetected: Boolean;
       const AInsertBuffer: PETS_INSERT_TILE_IN;
       const AReqVersionPtr: PVersionAA;
       out ARequestedVersionFound: Boolean
+    ): Byte;
+
+    function TryToObtainVerByTile(
+      const AExclusively: Boolean;
+      var ARequestedVersionFound: Boolean;
+      const AIdContentType: SmallInt;
+      var AVersionAutodetected: Boolean;
+      const AInsertBuffer: PETS_INSERT_TILE_IN;
+      AReqVersionPtr: PVersionAA
     ): Byte;
 
     function GetMaxNextVersionInts(const ANewVersionPtr: PVersionAA; const AKeepVerNumber: Boolean): Boolean;
@@ -371,6 +392,8 @@ implementation
 
 uses
   u_Synchronizer,
+  u_Exif_Parser,
+  u_Tile_Parser,
   u_DBMS_Template;
 
 { TDBMS_Provider }
@@ -472,6 +495,7 @@ end;
 
 function TDBMS_Provider.AutoCreateServiceVersion(
   const AExclusively: Boolean;
+  const AVersionAutodetected: Boolean;
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AReqVersionPtr: PVersionAA;
   out ARequestedVersionFound: Boolean
@@ -489,78 +513,72 @@ begin
     Exit;
   end;
 
-  // получим запрошенную версию
-  if (nil=AInsertBuffer^.szVersionIn) then begin
-    // нет версии
-    AReqVersionPtr^.ver_value := '';
-  end else if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
-    // как Ansi
-    AReqVersionPtr^.ver_value := AnsiString(PAnsiChar(AInsertBuffer^.szVersionIn));
+  if AVersionAutodetected then begin
+    VVerIsInt := FALSE;
+    VGenerateNewIdVer := TRUE;
   end else begin
-    // как Wide
-    AReqVersionPtr^.ver_value := WideString(PWideChar(AInsertBuffer^.szVersionIn));
-  end;
+    // версия не определена автоматически - получим запрошенную версию
+    if (nil=AInsertBuffer^.szVersionIn) then begin
+      // нет версии
+      AReqVersionPtr^.ver_value := '';
+    end else if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+      // как Ansi
+      AReqVersionPtr^.ver_value := AnsiString(PAnsiChar(AInsertBuffer^.szVersionIn));
+    end else begin
+      // как Wide
+      AReqVersionPtr^.ver_value := WideString(PWideChar(AInsertBuffer^.szVersionIn));
+    end;
 
-  // если пустая версия
-  if (0=Length(AReqVersionPtr^.ver_value)) then begin
-    // возможно СУБД не допускает пустую версию
-    if c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
-      Result := ETS_RESULT_EMPTY_VERSION_DENIED;
+    // если пустая версия
+    if (0=Length(AReqVersionPtr^.ver_value)) then begin
+      // возможно СУБД не допускает пустую версию
+      if c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+        Result := ETS_RESULT_EMPTY_VERSION_DENIED;
+        Exit;
+      end;
+
+      // TODO: try to use 0 as id_ver
+      if (not VersionExistsInDBWithIdVer(0)) then begin
+        // создаём пустую версию только если СУБД это допускает
+        if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+          MakeEmptyVersionInDB(0, AExclusively);
+        end;
+        // читаем список версий
+        ReadVersionsFromDB(AExclusively);
+        ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(0, AReqVersionPtr);
+        if ARequestedVersionFound then begin
+          Result := ETS_RESULT_OK;
+          Exit;
+        end;
+      end;
+
+      ARequestedVersionFound := FALSE;
+      Result := ETS_RESULT_UNKNOWN_VERSION;
       Exit;
     end;
-    
-    // TODO: try to use 0 as id_ver
-    if (not VersionExistsInDBWithIdVer(0)) then begin
-      // создаём пустую версию только если СУБД это допускает
-      if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
-        MakeEmptyVersionInDB(0, AExclusively);
-      end;
-      // читаем список версий
-      ReadVersionsFromDB(AExclusively);
-      ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(0, AReqVersionPtr);
-      if ARequestedVersionFound then begin
-        Result := ETS_RESULT_OK;
-        Exit;
-      end;
-    end;
 
-    // TODO: failed - use min(min-1,-1) as id_ver
-    (*
-    if (not VersionExistsInDBWithIdVer(-1)) then begin
-      if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
-        MakeEmptyVersionInDB(-1);
-      end;
-      ReadVersionsFromDB;
-      ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(-1, AReqVersionPtr);
-      if ARequestedVersionFound then begin
-        Result := ETS_RESULT_OK;
-        Exit;
-      end;
-    end;
-    *)
+    VDateTimeIsDefined := FALSE;
+    VVerIsInt := TryStrToInt(AReqVersionPtr^.ver_value, AReqVersionPtr^.ver_number);
+    // flag to keep ver_number=ver_value even if incrementing id_ver
+    VKeepVerNumber := FALSE;
+    VGenerateNewIdVer := FALSE;
+    // предобработка для большинства сервисов с версиями (для целочисленной версии)
+    // для простоты отладки реализовано отдельными кусками
 
-    // TODO: make correct loop
-    ARequestedVersionFound := FALSE;
-    Result := ETS_RESULT_UNKNOWN_VERSION;
-    Exit;
+    // если версия целочисленная
+    // и если она влазит в SmallInt (AReqVersionPtr^.ver_number между -32768 to 32767 - для простоты забём на -32768)
+    // и такой id_ver ещё нет
+    // то пробуем пропихнуть запрошенную версию AReqVersionPtr^.ver_value
+    // в поле id_ver (SmallInt)
+    // и в поле ver_number (Integer)
   end;
 
-  VDateTimeIsDefined := FALSE;
-  VVerIsInt := TryStrToInt(AReqVersionPtr^.ver_value, AReqVersionPtr^.ver_number);
-  // flag to keep ver_number=ver_value even if incrementing id_ver
-  VKeepVerNumber := FALSE;
-  VGenerateNewIdVer := FALSE;
-  // предобработка для большинства сервисов с версиями (для целочисленной версии)
-  // для простоты отладки реализовано отдельными кусками
-  
-  // если версия целочисленная
-  // и если она влазит в SmallInt (AReqVersionPtr^.ver_number между -32768 to 32767 - для простоты забём на -32768)
-  // и такой id_ver ещё нет
-  // то пробуем пропихнуть запрошенную версию AReqVersionPtr^.ver_value
-  // в поле id_ver (SmallInt)
-  // и в поле ver_number (Integer)
-
-  if VVerIsInt and (Abs(AReqVersionPtr^.ver_number)<=32767) then begin
+  if AVersionAutodetected then begin
+    // если сработало автоопределение версии по тайлу - значит всё кроме id_ver уже определено
+    VDateTimeIsDefined := TRUE;
+    VKeepVerNumber := TRUE;
+    VGenerateNewIdVer := TRUE;
+  end else if VVerIsInt and (Abs(AReqVersionPtr^.ver_number)<=32767) then begin
     // версия - небольшое целое число, влазящее в id_ver SmallInt
     AReqVersionPtr^.id_ver := AReqVersionPtr^.ver_number;
     VKeepVerNumber := TRUE;
@@ -1049,7 +1067,12 @@ function TDBMS_Provider.DBMS_ExecOption(
 ): Byte;
 const
   c_EO_SetTLM         = 'SetTLM';
+  c_EO_SetTSM         = 'SetTSM';
+  c_EO_SetVerByTile   = 'SetVerByTile';
   c_EO_SetVerComp     = 'SetVerComp';
+  c_EO_GetVersions    = 'GetVersions';
+  c_EO_ReloadVersions = 'ReloadVersions';
+  c_EO_ResetConnError = 'ResetConnError';
 
 var
   VFullPrefix: String;
@@ -1060,14 +1083,16 @@ var
               '<a href="'+VFullPrefix+'">Return to Options</a>';
   end;
 
-  function _AddTileLoadModeLine(
+  function _AddTileLoadSaveModeLine(
+    const AOption: Byte; // FStatusBuffer^.tile_load_mode or FStatusBuffer^.tile_save_mode
     const AFlag: Byte;
+    const AExecOptionName: String; // c_EO_SetTLM or c_EO_SetTSM
     const ADescription: String
   ): String;
   var
     VEnabled: Boolean;
   begin
-    VEnabled := ((FStatusBuffer^.tile_load_mode and AFlag) <> 0);
+    VEnabled := ((AOption and AFlag) <> 0);
 
     if VEnabled then begin
       // enabled - click to disable
@@ -1079,8 +1104,29 @@ var
 
     Result := '<tr><td>' + ADescription + '</td><td>' + BoolToStr(VEnabled, TRUE) + '</td><td>' +
               'Click <a href="' +
-              VFullPrefix + '/' + c_EO_SetTLM + '/' + IntToStr(AFlag) + '/' + IntToStr(Ord(not VEnabled)) +
+              VFullPrefix + '/' + AExecOptionName + '/' + IntToStr(AFlag) + '/' + IntToStr(Ord(not VEnabled)) +
               '">HERE</a> to ' + Result + 'able</td></tr>';
+  end;
+
+  function _AddTileLoadModeLine(
+    const AFlag: Byte;
+    const ADescription: String
+  ): String;
+  begin
+    Result := _AddTileLoadSaveModeLine(FStatusBuffer^.tile_load_mode, AFlag, c_EO_SetTLM, ADescription);
+  end;
+
+  function _AddTileSaveModeLine(
+    const AFlag: Byte;
+    const ADescription: String
+  ): String;
+  begin
+    Result := _AddTileLoadSaveModeLine(FStatusBuffer^.tile_save_mode, AFlag, c_EO_SetTSM, ADescription);
+  end;
+
+  function _AddTable3ColHeader(const AFirstColCaption: String): String;
+  begin
+    Result := '<table><tr><td>'+AFirstColCaption+'</td><td>Enabled</td><td>Change</td></tr>';
   end;
 
   function _AddVerCompItem(const AVerCompMode: AnsiChar): String;
@@ -1091,6 +1137,17 @@ var
     end else begin
       Result := '<a href="' + VFullPrefix + '/' + c_EO_SetVerComp + '/' + AVerCompMode + '">Select</a>';
     end;
+  end;
+
+  function _AddVerByTileItem(const AVerByTileValue: SmallInt; const ACaption: String): String;
+  begin
+    if (AVerByTileValue=FDBMS_Service_Info.new_ver_by_tile) then begin
+      // current mode
+      Result := 'Current';
+    end else begin
+      Result := '<a href="' + VFullPrefix + '/' + c_EO_SetVerByTile + '/' + IntToStr(AVerByTileValue) + '">Select</a>';
+    end;
+    Result := '<tr><td>' + ACaption + '</td><td>' + Result + '</td></tr>';
   end;
 
   procedure _TrimLeftDelims(var AFromSource: String);
@@ -1117,6 +1174,72 @@ var
       Result := AFromSource;
       AFromSource := '';
     end;
+  end;
+
+  function _AddPreamble(var AResponseText: String): Boolean;
+  begin
+    AResponseText := AResponseText +
+                 '<br>' +
+                 'Service code is "' + FDBMS_Service_Code + '"' +
+                 '<br>' +
+                 'Database server defined as ' + c_SQL_Engine_Name[FConnection.GetCheckedEngineType] + '<br>';
+
+    Result := (nil<>FConnection) and (ETS_RESULT_OK=FConnection.EnsureConnected(FALSE, nil));
+    if (not Result) then begin
+      AResponseText := AResponseText +
+                   '<br>' +
+                   '<h1>Not connected</h1>' +
+                   '<br>' +
+                   FConnection.GetConnectionErrorMessage +
+                   '<br>' +
+                   '<br>' +
+                   'Click <a href="' + VFullPrefix + '/' + c_EO_ResetConnError + '">HERE</a> to reset connection information if you want another try';
+
+
+    end;
+  end;
+
+  procedure _ReloadVersions;
+  var
+    VExclusivelyLocked: Boolean;
+  begin
+    DoBeginWork(TRUE, so_ReloadVersions, VExclusivelyLocked);
+    try
+      ReadVersionsFromDB(TRUE);
+    finally
+      DoEndWork(VExclusivelyLocked);
+    end;
+  end;
+
+  procedure _AddListOfVersions(var AResponseText: String);
+  var
+    VExclusivelyLocked: Boolean;
+    i: SmallInt;
+    pVer: PVersionAA;
+  begin
+    AResponseText := AResponseText +
+                   '<br>' +
+                   '<br>' +
+                   '<table><tr><td>id_ver</td><td>ver_value</td><td>ver_date</td><td>ver_number</td><td>ver_comment</td></tr>';
+    DoBeginWork(FALSE, so_OutputVersions, VExclusivelyLocked);
+    try
+      if (FVersionList.Count>0) then
+      for i := 0 to FVersionList.Count - 1 do begin
+        pVer := FVersionList.GetItemByIndex(i);
+        if (pVer<>nil) then begin
+          AResponseText := AResponseText +
+                     '<tr><td>'+IntToStr(pVer^.id_ver)+
+                     '</td><td>'+pVer^.ver_value+
+                     '</td><td>'+FormatDateTime(c_DateTimeToListOfVersions, pVer^.ver_date)+
+                     '</td><td>'+IntToStr(pVer^.ver_number)+
+                     '</td><td>'+pVer^.ver_comment+'</td></tr>';
+        end;
+      end;
+    finally
+      DoEndWork(VExclusivelyLocked);
+    end;
+
+    AResponseText := AResponseText + '</table>';
   end;
 
 var
@@ -1152,17 +1275,9 @@ begin
 
       VResponse := '<h1>Options</h1>';
 
-      if (nil=FConnection) or (ETS_RESULT_OK<>FConnection.EnsureConnected(FALSE, nil)) then begin
-        VResponse := VResponse +
-                     '<br>' +
-                     'Not connected';
+      if not _AddPreamble(VResponse) then
         Exit;
-      end;
-
-      VResponse := VResponse +
-                   '<br>' +
-                   'Server defined as ' + c_SQL_Engine_Name[FConnection.GetCheckedEngineType] + '<br>';
-
+      
       // show version compare information
       
       VResponse := VResponse +
@@ -1185,11 +1300,40 @@ begin
       // show tile_load_mode parsed information
       VResponse := VResponse +
                    '<br>' +
-                   '<table><tr><td>What to do if tile not found</td><td>Enabled</td><td>Change</td></tr>';
+                   _AddTable3ColHeader('What to do if tile not found');
       VResponse := VResponse + _AddTileLoadModeLine(ETS_TLM_WITHOUT_VERSION, 'Show tile without version if no tile for request with version');
       VResponse := VResponse + _AddTileLoadModeLine(ETS_TLM_PREV_VERSION,    'Show tile with prevoius version if no tile for request with version');
       VResponse := VResponse + _AddTileLoadModeLine(ETS_TLM_LAST_VERSION,    'Show tile with last version if no tile for request without version');
       VResponse := VResponse + '</table>';
+
+
+      // show tile_save_mode parsed information
+      VResponse := VResponse +
+                   '<br>' +
+                   _AddTable3ColHeader('Storage can parse saving tile to obtain its version');
+      VResponse := VResponse + _AddTileSaveModeLine(ETS_TSM_PARSE_EMPTY,   'Allow to parse tile without version');
+      VResponse := VResponse + _AddTileSaveModeLine(ETS_TSM_PARSE_UNKNOWN, 'Allow to parse tile with unknown version');
+      VResponse := VResponse + _AddTileSaveModeLine(ETS_TSM_PARSE_KNOWN,   'Allow to parse tile with known version');
+      VResponse := VResponse + _AddTileSaveModeLine(ETS_TSM_ALLOW_NO_EXIF, 'Can save tile without version for parser (for another zoom generation)');
+      VResponse := VResponse + '</table>';
+
+      // VER_by_TILE algorithm
+      VResponse := VResponse +
+                   '<br>' +
+                   'Select algorithm to use by tile parser' + '<br>' +
+                   '<table><tr><td>Algorithm</td><td>State</td></tr>';
+
+      VResponse := VResponse + _AddVerByTileItem(c_Tile_Parser_None,            'None');
+      VResponse := VResponse + _AddVerByTileItem(c_Tile_Parser_Exif_NMC_Unique, 'NMC by unique TileIdentifier');
+      VResponse := VResponse + _AddVerByTileItem(c_Tile_Parser_Exif_NMC_Latest, 'NMC by latest AcquisitionDate');
+      //VResponse := VResponse + _AddVerByTileItem(c_Tile_Parser_Exif_DG_Catalog, 'DG Catalog mode');
+
+      VResponse := VResponse + '</table>';
+
+
+      // show list of versions
+      VResponse := VResponse + '<br>' +
+                   '<a href="'+VFullPrefix+'/'+c_EO_GetVersions+'">Show list of Versions</a>';
       Exit;
     end;
 
@@ -1198,7 +1342,7 @@ begin
 
     if SameText(c_EO_SetTLM, VSetTLMValue) then begin
       // SetTLM
-      // remains 3 chars like '4/1' or '2/0'
+      // remains: 3 chars like '4/1' or '2/0'
       // ignore others
       if (3<=Length(VRequest)) then
       if TryStrToInt(VRequest[1], VSetTLMIndex) then
@@ -1226,9 +1370,55 @@ begin
 
         AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE;
       end;
+    end else if SameText(c_EO_SetTSM, VSetTLMValue) then begin
+      // SetTSM
+      // remains: 3-4 chars like '4/1' or '8/0' or '16/1'
+      // ignore others
+      if (3<=Length(VRequest)) then
+      if TryStrToInt(Copy(VRequest,1,Length(VRequest)-2), VSetTLMIndex) then
+      if LoByte(VSetTLMIndex) in [ETS_TSM_PARSE_EMPTY, ETS_TSM_PARSE_UNKNOWN, ETS_TSM_PARSE_KNOWN,ETS_TSM_ALLOW_NO_EXIF] then begin
+        // ok
+        // если 3-й символ равен 1 - включаем, иначе выключаем
+        Result := UpdateTileSaveMode(LoByte(VSetTLMIndex), (VRequest[Length(VRequest)]='1'), VSetTLMValue);
+        // check
+        if (ETS_RESULT_OK=Result) then begin
+          // success
+          if (VRequest[Length(VRequest)]='1') then
+            VResponse := 'Enabled'
+          else
+            VResponse := 'Disabled';
+
+          if (0<Length(VSetTLMValue)) then begin
+            VResponse := VResponse + '<br>' + VSetTLMValue;
+          end;
+
+          VResponse := VResponse + '<br>' + _AddReturnFooter;
+        end else begin
+          // failed
+          VResponse := 'Error(' + IntToStr(Result) + '): ' + VSetTLMValue + '<br>' + _AddReturnFooter;
+        end;
+        // здесь не надо сбрасывать кэш в памяти
+      end;
+    end else if SameText(c_EO_SetVerByTile, VSetTLMValue) then begin
+      // SetVerByTile
+      // remains: Smallint
+      if TryStrToInt(VRequest, VSetTLMIndex) then
+      if Abs(VSetTLMIndex)<=32767 then begin
+        // ok
+        Result := UpdateVerByTileMode(VSetTLMIndex, VSetTLMValue);
+        // check result
+        if (ETS_RESULT_OK=Result) then begin
+          // success
+          VResponse := 'Updated successfully' + '<br>' + _AddReturnFooter;
+        end else begin
+          // failed
+          VResponse := 'Error(' + IntToStr(Result) + '): ' + VSetTLMValue + '<br>' + _AddReturnFooter;
+        end;
+        // здесь не надо сбрасывать кэш в памяти
+      end;
     end else if SameText(c_EO_SetVerComp, VSetTLMValue) then begin
       // SetVerComp
-      // remains ONE char
+      // remains: ONE char
       if (1<=Length(VRequest)) then
       case VRequest[1] of
         TILE_VERSION_COMPARE_NONE,
@@ -1249,6 +1439,58 @@ begin
           end;
         end;
       end;
+    end else if SameText(c_EO_ResetConnError, VSetTLMValue) then begin
+      // ResetConnError
+      VResponse := '<h1>Reset connection information</h1>';
+      if (FConnection=nil) then begin
+        // nothing to reset
+        VResponse := VResponse +
+                   '<br>' +
+                   'No connection - nothing to reset';
+      end else begin
+        // can reset
+        FConnection.ResetConnectionError;
+        VResponse := VResponse +
+                   '<br>' +
+                   'Done';
+      end;
+
+      // последнее
+      VResponse := VResponse +
+                   '<br>' +
+                   _AddReturnFooter;
+    end else if SameText(c_EO_GetVersions, VSetTLMValue) then begin
+      // GetVersions
+      // enumerate all versions and show
+      if SameText(VRequest, c_EO_ReloadVersions) then begin
+        _ReloadVersions;
+      end;
+
+      VResponse := '<h1>Versions</h1>';
+
+      if not _AddPreamble(VResponse) then
+        Exit;
+
+      VResponse := VResponse +
+                   '<br>' +
+                   'Total count = ' + IntToStr(FVersionList.Count);
+
+      if vf_EmptyVersion in FVersionList.VersionFlags then begin
+        VResponse := VResponse +
+                   '<br>' +
+                   'Empty version has id_ver = ' + IntToStr(FVersionList.EmptyVersionIdVer);
+      end;
+
+      if (FVersionList.Count>0) then begin
+        _AddListOfVersions(VResponse);
+      end;
+
+      // add reload link
+      VResponse := VResponse +
+                   '<br>' +
+                   'Click <a href="'+VFullPrefix+'/'+c_EO_GetVersions+'/'+c_EO_ReloadVersions+'">HERE</a> to reload Versions from DB';
+
+      VResponse := VResponse + '<br>' + _AddReturnFooter;
     end;
 
   finally
@@ -2426,39 +2668,8 @@ var
   VUseCommonTiles: Boolean;
   VNewTileSize: LongInt;
   VNewTileBody: TDBMS_String;
+  VVersionAutodetected: Boolean;
 begin
-  // смотрим что за версию подсунули
-  if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
-    // как Ansi
-    VRequestedVersionFound := FVersionList.FindItemByAnsiValue(
-      PAnsiChar(AInsertBuffer^.szVersionIn),
-      @VReqVersion
-    );
-  end else begin
-    // как Wide
-    VRequestedVersionFound := FVersionList.FindItemByWideValue(
-      PWideChar(AInsertBuffer^.szVersionIn),
-      @VReqVersion
-    );
-  end;
-
-  if (not VRequestedVersionFound) then begin
-    // если такой версии нет - пробуем создать её автоматически
-    Result := AutoCreateServiceVersion(
-      AExclusively,
-      AInsertBuffer,
-      @VReqVersion,
-      VRequestedVersionFound);
-    // проверяем результат создания новой версии
-    if (Result<>ETS_RESULT_OK) then
-      Exit;
-  end;
-
-  if (not VRequestedVersionFound) then begin
-    Result := ETS_RESULT_UNKNOWN_VERSION;
-    Exit;
-  end;
-
   // если нет начитанных типов тайлов - надо читать
   if (0=FContentTypeList.Count) then begin
     if (not AExclusively) then begin
@@ -2467,7 +2678,7 @@ begin
     end;
     ReadContentTypesFromDB(AExclusively);
   end;
-  
+
   // смотрим что за тип тайла подсунули
   if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_CONTENTTYPE_IN) <> 0) then begin
     // как Ansi
@@ -2492,6 +2703,55 @@ begin
 
   if (not VRequestedContentTypeFound) then begin
     Result := ETS_RESULT_UNKNOWN_CONTENTTYPE;
+    Exit;
+  end;
+
+  VVersionAutodetected := FALSE;
+
+  // смотрим что за версию подсунули
+  if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
+    VRequestedVersionFound := FVersionList.FindItemByAnsiValue(
+      PAnsiChar(AInsertBuffer^.szVersionIn),
+      @VReqVersion
+    );
+  end else begin
+    // как Wide
+    VRequestedVersionFound := FVersionList.FindItemByWideValue(
+      PWideChar(AInsertBuffer^.szVersionIn),
+      @VReqVersion
+    );
+  end;
+
+  // автоопределение версии по тайлу (если разрешено)
+  if (FDBMS_Service_Info.new_ver_by_tile<>c_Tile_Parser_None) then begin
+    Result := TryToObtainVerByTile(
+      AExclusively,
+      VRequestedVersionFound,
+      VIdContentType,
+      VVersionAutodetected,
+      AInsertBuffer,
+      @VReqVersion
+    );
+    if (Result<>ETS_RESULT_OK) then
+      Exit;
+  end;
+
+  if (not VRequestedVersionFound) then begin
+    // если такой версии нет - пробуем создать её автоматически
+    Result := AutoCreateServiceVersion(
+      AExclusively,
+      VVersionAutodetected,
+      AInsertBuffer,
+      @VReqVersion,
+      VRequestedVersionFound);
+    // проверяем результат создания новой версии
+    if (Result<>ETS_RESULT_OK) then
+      Exit;
+  end;
+
+  if (not VRequestedVersionFound) then begin
+    Result := ETS_RESULT_UNKNOWN_VERSION;
     Exit;
   end;
 
@@ -2925,7 +3185,7 @@ begin
     tile_load_mode    := 0;
     tile_save_mode    := 0;
     tile_hash_mode    := 0;
-    ver_by_tile_mode  := 0;
+    new_ver_by_tile   := 0;
   end;
 end;
 
@@ -3089,7 +3349,7 @@ begin
     FDBMS_Service_Info.tile_load_mode   := VDataset.GetOptionalSmallInt('tile_load_mode');
     FDBMS_Service_Info.tile_save_mode   := VDataset.GetOptionalSmallInt('tile_save_mode');
     FDBMS_Service_Info.tile_hash_mode   := VDataset.GetOptionalSmallInt('tile_hash_mode');
-    FDBMS_Service_Info.ver_by_tile_mode := VDataset.GetOptionalSmallInt('ver_by_tile_mode');
+    FDBMS_Service_Info.new_ver_by_tile  := VDataset.GetOptionalSmallInt('new_ver_by_tile');
 
     // копируем параметры в опции хранилища
     if (FStatusBuffer<>nil) then
@@ -3210,11 +3470,12 @@ begin
     // выполним SQL для вставки записи о новой версии напрямую
     FConnection.ExecuteDirectSQL(
       'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
-      '(id_ver,ver_value,ver_date,ver_number) VALUES (' +
+      '(id_ver,ver_value,ver_date,ver_number,ver_comment) VALUES (' +
       IntToStr(ANewVersionPtr^.id_ver) + ',' +
       DBMSStrToDB(ANewVersionPtr^.ver_value) + ',' +
       SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
-      IntToStr(ANewVersionPtr^.ver_number) + ')'
+      IntToStr(ANewVersionPtr^.ver_number) + ',' +
+      DBMSStrToDB(ANewVersionPtr^.ver_comment) + ')'
     );
     Result := TRUE;
   except
@@ -3230,67 +3491,6 @@ function TDBMS_Provider.ParseVerValueToVerNumber(
 ): Integer;
 var
   p: Integer;
-
-  function _IsRoscosmos(out ADateTime: TDateTime): Boolean;
-  var st: TSystemTime;
-  begin
-    // проверка что формат 2011-08-25_18-15-38
-    Result := (19=Length(AGivenVersionValue));
-    if Result then begin
-      Result := (AGivenVersionValue[5] in ['-','_']) and
-                (AGivenVersionValue[8] in ['-','_']) and
-                (AGivenVersionValue[11] in ['-','_']) and
-                (AGivenVersionValue[14] in ['-','_']) and
-                (AGivenVersionValue[17] in ['-','_']);
-    end;
-    // year
-    if Result then begin
-      Result := TryStrToInt(System.Copy(AGivenVersionValue,1,4), p);
-      if Result then
-        st.wYear := p;
-    end;
-    // month
-    if Result then begin
-      Result := TryStrToInt(System.Copy(AGivenVersionValue,6,2), p);
-      if Result then
-        st.wMonth := p;
-    end;
-    // day
-    if Result then begin
-      Result := TryStrToInt(System.Copy(AGivenVersionValue,9,2), p);
-      if Result then
-        st.wDay := p;
-    end;
-    // hour
-    if Result then begin
-      Result := TryStrToInt(System.Copy(AGivenVersionValue,12,2), p);
-      if Result then
-        st.wHour := p;
-    end;
-    // minute
-    if Result then begin
-      Result := TryStrToInt(System.Copy(AGivenVersionValue,15,2), p);
-      if Result then
-        st.wMinute := p;
-    end;
-    // second
-    if Result then begin
-      Result := TryStrToInt(System.Copy(AGivenVersionValue,18,2), p);
-      if Result then
-        st.wSecond := p;
-    end;
-    if Result then begin
-      // others
-      st.wMilliseconds := 0;
-      // convert
-      try
-        ADateTime := SystemTimeToDateTime(st);
-        // ok
-      except
-        Result := FALSE;
-      end;
-    end;
-  end;
 
   function _ExtractTailByte: Byte;
   var
@@ -3331,22 +3531,12 @@ begin
   // для роскосмоса версия в виде 2011-08-25_18-15-38
   // дату из неё понятно как получаем
   // номер получаем как разницу (в секундах) между датой и фиксированной датой (со знаком)
-  if _IsRoscosmos(ADateTimeValue) then begin
+  if ParseFullyQualifiedDateTime(AGivenVersionValue, ADateTimeValue) then begin
     ADateTimeIsDefined := TRUE;
     ADoneVerNumber := TRUE;
-    Result := Round((ADateTimeValue-c_ZeroVersionNumber_DateTime)*86400);
+    Result := GetVersionNumberForDateTimeAsZeroDifference(ADateTimeValue);
     Exit;
   end;
-
-  // для заливки NMC (формально запрос без версии) удобно брать за версию тайла
-  // максимальное значение параметра latestAcquisitionDate (строка вида '2012-05-06 09:05:40.278')
-  // из его EXIF
-  // тогда разные версии тайлов будут разруливаться автоматически
-  // надо только:
-  // а) изначально не указывать для NMC версию;
-  // б) отображать последнюю версию тайла при запросе без версии.
-  // в качестве ver_number для сохранения возможности сортировки берём что-то типа yymmddhh
-  // p :=
 
   // пробуем разобрать byte.byte.byte.byte (справа налево!)
   p := Length(AGivenVersionValue);
@@ -3415,6 +3605,7 @@ begin
   if (VMessage = '42S02:') or (VMessage = '42P01:') or (VMessage = '42000:') then begin
     // это код ODBC для для отсутствия отношения (таблицы или вьюхи)
     // for PostgreSQL
+    // '42P01:1:ОШИБКА: отношение "C1I0_NMC_RECENCY" не существует;'#$A'ERROR WHILE PREPARING PARAMETERS'
     // '42P01:7:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
     // others
     // '42S02:208:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Недопустимое имя объекта "FAI4_KSSAT".'
@@ -3434,6 +3625,9 @@ begin
   // 'ZZZZZ:1105:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]CAN'T ALLOCATE SPACE FOR OBJECT 'SYSLOGS' IN DATABASE 'SAS_ASE' BECAUSE 'LOGSEGMENT' SEGMENT IS FULL/HAS NO FREE EXTENTS. IF YOU RAN OUT OF SPACE IN SYSLOGS, DUMP THE TRANSACTION LOG. OTHERWISE, USE ALTER DATABASE TO INCREASE THE SIZE OF THE SEGMENT.'#$A
   // 'ZZZZZ:3475:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]THERE IS NO SPACE AVAILABLE IN SYSLOGS TO LOG A RECORD FOR WHICH SPACE HAS BEEN RESERVED IN DATABASE 'GIS' (ID 4). THIS PROCESS WILL RETRY AT INTERVALS OF ONE MINUTE.'#$A
 
+  // dead connection:
+  // '42P01:26:COULD NOT SEND QUERY(CONNECTION DEAD);'#$A'COULD NOT SEND QUERY(CONNECTION DEAD)'
+  
   // что-то иное
   Result := set_Unknown;
 {$else}
@@ -3528,6 +3722,138 @@ begin
               DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat_Common, ADateTime, FFormatSettings));
 end;
 
+function TDBMS_Provider.TryToObtainVerByTile(
+  const AExclusively: Boolean;
+  var ARequestedVersionFound: Boolean;
+  const AIdContentType: SmallInt;
+  var AVersionAutodetected: Boolean;
+  const AInsertBuffer: PETS_INSERT_TILE_IN;
+  AReqVersionPtr: PVersionAA
+): Byte;
+var
+  VExifAttr: PByte;
+  VLen: DWORD;
+  VNeedFindVersion: Boolean;
+begin
+  // смотрим настройки сохранения тайлов
+  // при каких условиях (в зависимости от найденной версии)
+  // надо или нет парсить тайл
+  if (c_Tile_Parser_None=FDBMS_Service_Info.new_ver_by_tile) then begin
+    // отключено вообще - ничего не трогаем
+    Result := ETS_RESULT_OK;
+    Exit;
+  end else if (0=Length(AReqVersionPtr^.ver_value)) then begin
+    // запрошена пустая версия
+    if ((FDBMS_Service_Info.tile_save_mode and ETS_TSM_PARSE_EMPTY) = 0) then begin
+      // для пустой версии парсер тайлов отключен
+      Result := ETS_RESULT_OK;
+      Exit;
+    end;
+  end else if ARequestedVersionFound then begin
+    // запрошенная версия найдена
+    if ((FDBMS_Service_Info.tile_save_mode and ETS_TSM_PARSE_KNOWN) = 0) then begin
+      // для найденных версий парсер тайлов отключен
+      Result := ETS_RESULT_OK;
+      Exit;
+    end;
+  end else begin
+    // запрошенная версия не найдена
+    if ((FDBMS_Service_Info.tile_save_mode and ETS_TSM_PARSE_UNKNOWN) = 0) then begin
+      // для ненайденных версий парсер тайлов отключен
+      Result := ETS_RESULT_OK;
+      Exit;
+    end;
+  end;
+
+  VNeedFindVersion := FALSE;
+  
+  case FDBMS_Service_Info.new_ver_by_tile of
+    // парсер как для тайлов GE - тащим дату из тайла
+    (*
+    c_Tile_Parser_Exif_GE: begin
+      // парсим тайл как jpeg и достаём из него гуглодату (больше там ничего нет)
+      if not FindExifInJpeg(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, TRUE, $0000, VExifAttr, VLen) then begin
+        Result := ETS_RESULT_INVALID_EXIF;
+        Exit;
+      end;
+      Result := ParseExifForGE(
+        VExifAttr,
+        VLen,
+        VNeedFindVersion,
+        AReqVersionPtr
+      );
+      if (Result<>ETS_RESULT_OK) then
+        Exit;
+    end;
+    *)
+    
+    c_Tile_Parser_Exif_NMC_Unique, c_Tile_Parser_Exif_NMC_Latest: begin
+      // парсим тайл как jpeg и достаём из него EXIF ($9286=UserComment)
+      if not FindExifInJpeg(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE, $9286, VExifAttr, VLen) then begin
+        // а тут чтобы можно было генерить зумы наверх, возможно надо сделать поблажку
+        if ((FDBMS_Service_Info.tile_save_mode and ETS_TSM_ALLOW_NO_EXIF) <> 0) then
+          Result := ETS_RESULT_OK
+        else
+          Result := ETS_RESULT_INVALID_EXIF;
+        Exit;
+      end;
+      // здесь типа EXIF достали - определяем из него параметры версии (кроме id_ver)
+      Result := ParseExifForNMC(
+        VExifAttr,
+        VLen,
+        // версию фильтруем только если она найдена и не пустая
+        ARequestedVersionFound and (0<Length(AReqVersionPtr^.ver_value)),
+        AReqVersionPtr^.ver_value,
+        // признак что надо брать уникальный идентификатор версии тайла
+        (c_Tile_Parser_Exif_NMC_Unique=FDBMS_Service_Info.new_ver_by_tile),
+        VNeedFindVersion,
+        AReqVersionPtr
+      );
+      if (Result<>ETS_RESULT_OK) then
+        Exit;
+      AVersionAutodetected := TRUE;
+    end;
+
+    (*
+    c_Tile_Parser_Exif_DG_Catalog: begin
+      // парсер для каталога DigitalGlobe - очень похоже на NMC
+      if not FindExifInJpeg(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE, $9286, VExifAttr, VLen) then begin
+        Result := ETS_RESULT_INVALID_EXIF;
+        Exit;
+      end;
+      // здесь типа EXIF достали - определяем из него параметры версии (кроме id_ver)
+      Result := ParseExifUserComment(
+        VExifAttr,
+        VLen,
+        ARequestedVersionFound,
+        AReqVersionPtr^.ver_value,
+        VNeedFindVersion,
+        AReqVersionPtr
+      );
+      if (Result<>ETS_RESULT_OK) then
+        Exit;
+    end;
+    *)
+
+    else begin
+      // неизвестный алгоритм - пока что будем ругаться
+      Result := ETS_RESULT_UNKNOWN_VERBYTILE;
+      Exit;
+    end;
+  end;
+
+  // если версия поменялась - надо найтись
+  if (Result=ETS_RESULT_OK) then
+  if VNeedFindVersion then begin
+    ARequestedVersionFound := FVersionList.FindItemByAnsiValue(
+      PAnsiChar(AReqVersionPtr^.ver_value),
+      AReqVersionPtr
+    );
+  end;
+
+
+end;
+
 function TDBMS_Provider.UpdateServiceVerComp(
   const ANewVerCompMode: AnsiChar;
   out AErrorText: String
@@ -3588,6 +3914,73 @@ begin
   except
     on E: Exception do begin
       AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
+      Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
+    end;
+  end;
+end;
+
+function TDBMS_Provider.UpdateTileSaveMode(
+  const ANewTSMFlag: Byte;
+  const AEnabled: Boolean;
+  out AErrorText: String
+): Byte;
+var
+  VSQLText: TDBMS_String;
+begin
+  AErrorText := '';
+  Result := FConnection.EnsureConnected(FALSE, nil);
+  if (ETS_RESULT_OK<>Result) then
+    Exit;
+
+  // даже если в БД не обновимся - в памяти всё равно надо менять значения
+  if AEnabled then
+    FStatusBuffer^.tile_save_mode     := FStatusBuffer^.tile_save_mode or ANewTSMFlag
+  else
+    FStatusBuffer^.tile_save_mode     := FStatusBuffer^.tile_save_mode and not ANewTSMFlag;
+
+  FDBMS_Service_Info.tile_save_mode := FStatusBuffer^.tile_save_mode;
+
+  // забацаем запрос
+  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+                ' SET tile_save_mode='  + IntToStr(FStatusBuffer^.tile_save_mode) +
+              ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
+
+  try
+    FConnection.ExecuteDirectSQL(VSQLText);
+  except
+    on E: Exception do begin
+      AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
+      Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
+    end;
+  end;
+end;
+
+function TDBMS_Provider.UpdateVerByTileMode(
+  const ANewVerByTileMode: SmallInt;
+  out AErrorText: String
+): Byte;
+var
+  VSQLText: TDBMS_String;
+begin
+  AErrorText := '';
+  Result := FConnection.EnsureConnected(FALSE, nil);
+  if (ETS_RESULT_OK<>Result) then
+    Exit;
+
+  // забацаем запрос
+  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+                ' SET new_ver_by_tile=' + IntToStr(ANewVerByTileMode) +
+              ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
+
+  try
+    FConnection.ExecuteDirectSQL(VSQLText);
+    // это сильно необязательная функциональность
+    // для её использования будем требовать соответствия структуры БД второй версии модели
+    FStatusBuffer^.new_ver_by_tile := ANewVerByTileMode;
+    FDBMS_Service_Info.new_ver_by_tile := ANewVerByTileMode;
+  except
+    on E: Exception do begin
+      AErrorText := E.Message;
       Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
     end;
   end;

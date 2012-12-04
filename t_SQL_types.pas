@@ -45,6 +45,8 @@ type
     so_Insert,
     so_Delete,
     so_EnumVersions,
+    so_ReloadVersions,
+    so_OutputVersions,
     so_SelectInRect,
     so_Sync,
     so_Destroy

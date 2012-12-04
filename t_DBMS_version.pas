@@ -15,6 +15,8 @@ type
     ver_date: TDateTime;
     ver_number: LongInt;
     ver_comment: AnsiString;
+  public
+    procedure Clear;
   end;
   PVersionAA = ^TVersionAA;
 
@@ -74,6 +76,8 @@ type
       const Aid_ver: SmallInt;
       const AVerInfo: PVersionAA
     ): Boolean;
+
+    function GetItemByIndex(const AIndex: SmallInt): PVersionAA;
 
     property VersionFlags: TVersionFlags read FVersionFlags;
     property EmptyVersionIdVer: SmallInt read FEmptyVersionIdVer;
@@ -255,6 +259,17 @@ begin
   Result := FindItemByAnsiValueInternal(VValueA, AVerInfo);
 end;
 
+function TVersionList.GetItemByIndex(const AIndex: SmallInt): PVersionAA;
+begin
+  if (FCount>0) then
+  if (AIndex>=0) then
+  if (AIndex<FCount) then begin
+    Result := @(FItemsAA[AIndex]);
+    Exit;
+  end;
+  Result := nil;
+end;
+
 procedure TVersionList.SetCapacity(const ACapacity: Integer);
 begin
   if (ACapacity<FCount) then begin
@@ -263,6 +278,17 @@ begin
   end;
 
   SetLength(FItemsAA, ACapacity);
+end;
+
+{ TVersionAA }
+
+procedure TVersionAA.Clear;
+begin
+  id_ver:=0;
+  ver_value:='';
+  ver_date:=0;
+  ver_number:=0;
+  ver_comment:='';
 end;
 
 end.
