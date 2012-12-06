@@ -27,8 +27,8 @@ const
   // если 4 - синхронизируются запросы типа SELECT к хранилищу снаружи DLL
   c_SYNC_SQL_MODE_Query_In_EXE = 4;
 
-  // схема для всех таблиц
-  ETS_INTERNAL_SCHEMA          = ETS_INTERNAL_PARAMS_PREFIX + 'SCHEMA';
+  // префикс схемы для всех таблиц (длямо как он будет подставляться в SQL)
+  ETS_INTERNAL_SCHEMA_PREFIX   = ETS_INTERNAL_PARAMS_PREFIX + 'SCHEMA';
 
   // будет добавляться к каждому запросу при генерации структуры из скрипта
   ETS_INTERNAL_SCRIPT_APPENDER = ETS_INTERNAL_PARAMS_PREFIX + 'SCRIPT_APPENDER';

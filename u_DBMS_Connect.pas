@@ -26,8 +26,8 @@ uses
   ZDataset,
 {$else}
   // DBX
+  u_DBMS_DBX,
   DBXCommon,
-  DBXDynaLink,
   SQLExpr,
 {$ifend}
   t_ETS_Path,
@@ -43,7 +43,7 @@ type
 {$elseif defined(ETS_USE_ZEOS)}
     TZeosDatabase
 {$else}
-    TSQLConnection
+    TDBXDatabase
 {$ifend}
   )
   protected
@@ -172,7 +172,8 @@ type
     FODBCDescription: WideString;
     // внутренние параметры из ini
     FInternalParams: TStringList;
-    FETS_INTERNAL_SCHEMA: String;
+    // формально это не схема, а префикс полностью (при необходимости - с точкой и сразу quoted)
+    FETS_INTERNAL_SCHEMA_PREFIX: String;
     // если будет более одной DLL - переделать на TStringList
     FInternalLoadLibraryStd: THandle;
     FInternalLoadLibraryAlt: THandle;
@@ -443,12 +444,9 @@ begin
     FInternalLoadLibraryAlt := LoadLibraryEx(PChar(AParamValue), 0, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (FInternalLoadLibraryAlt<>0) then
       Exit;
-  end else if SameText(ETS_INTERNAL_SCHEMA, AParamName) then begin
+  end else if SameText(ETS_INTERNAL_SCHEMA_PREFIX, AParamName) then begin
     // для более быстрого доступа
-    FETS_INTERNAL_SCHEMA := AParamValue;
-    if (0<Length(FETS_INTERNAL_SCHEMA)) then begin
-      FETS_INTERNAL_SCHEMA := FETS_INTERNAL_SCHEMA + '.';
-    end;
+    FETS_INTERNAL_SCHEMA_PREFIX := AParamValue;
     Exit;
   end else if SameText(ETS_INTERNAL_SYNC_SQL_MODE, AParamName) then begin
     // для более быстрого доступа
@@ -483,32 +481,8 @@ begin
 end;
 
 function TDBMS_Connection.TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
-{$if defined(ETS_USE_DBX)}
-var
-  VDataset: TDBMS_Dataset;
-{$ifend}
 begin
-{$if defined(USE_DIRECT_ODBC)}
-  // ODBC
   Result := FSQLConnection.TableExistsDirect(AFullyQualifiedQuotedTableName);
-{$elseif defined(ETS_USE_ZEOS)}
-  // ZEOS
-  Result := FSQLConnection.TableExistsDirect(AFullyQualifiedQuotedTableName);
-{$else}
-  // DBX
-  VDataset := FSQLConnection.MakePoolDataset;
-  try
-    try
-      // простая универсальная проверка существования и доступности таблицы
-      VDataset.OpenSQL('select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1');
-      Result := VDataset.Active;
-    except
-      Result := FALSE;
-    end;
-  finally
-    FSQLConnection.KillPoolDataset(VDataset);
-  end;
-{$ifend}
 end;
 
 function TDBMS_Connection.ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
@@ -771,7 +745,7 @@ begin
   FInternalLoadLibraryStd := 0;
   FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
-  FETS_INTERNAL_SCHEMA := '';
+  FETS_INTERNAL_SCHEMA_PREFIX := '';
   FConnectionErrorMessage := '';
   FConnectionErrorCode := ETS_RESULT_OK;
 end;
@@ -845,7 +819,8 @@ begin
   Result := FSQLConnection.ExecuteDirect(ASQLText);
 {$else}
   // DBX
-  TODO
+  FSQLConnection.ExecuteDirect(ASQLText);
+  Result := TRUE;
 {$ifend}
 end;
 
@@ -876,13 +851,15 @@ begin
   end;
 {$else}
   // DBX
-  TODO:
-
-          // добавим параметр (как BLOB)
-          VInsertDataset.SetParamBlobData(
-            c_RTL_Tile_Body_Paramsrc,
-          );
-
+  VDBMS_Dataset := Self.MakePoolDataset;
+  try
+    VDBMS_Dataset.SQL.Text := ASQLText;
+    VDBMS_Dataset.SetParamBlobData(c_RTL_Tile_Body_Paramsrc, ABufferAddr, ABufferSize);
+    VDBMS_Dataset.ExecSQL;
+    Result := TRUE;
+  finally
+    Self.KillPoolDataset(VDBMS_Dataset);
+  end;
 {$ifend}
 end;
 
@@ -958,7 +935,7 @@ end;
 
 function TDBMS_Connection.ForcedSchemaPrefix: String;
 begin
-  Result := FETS_INTERNAL_SCHEMA;
+  Result := FETS_INTERNAL_SCHEMA_PREFIX;
 end;
 
 function TDBMS_Connection.FullSyncronizeSQL: Boolean;
@@ -1005,7 +982,7 @@ begin
 {$elseif defined(ETS_USE_ZEOS)}
         FEngineType := GetEngineTypeByZEOSLibProtocol(FSQLConnection.Protocol);
 {$else}
-        FEngineType := GetEngineTypeByDBXDriverName(FSQLConnection.DriverName, FODBCDescription);
+        FEngineType := GetEngineTypeByDBXDriverName(FSQLConnection.DriverName, FODBCDescription, VSecondarySQLCheckServerTypeMode);
 {$ifend}
         if (et_Unknown=FEngineType) then begin
           // use sql requests
