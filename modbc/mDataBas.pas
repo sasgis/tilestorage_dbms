@@ -57,6 +57,7 @@ type
     FOldCursor: TCursor;
     FShowWaitCursor: boolean;
     FConnectWithParams: Boolean;
+    FConnectWithInfoMessages: String;
     function GetConnected:Boolean;
     procedure SetParams(Value: TStrings);
     procedure CheckSQLResult( sqlres:SQLRETURN);
@@ -181,7 +182,7 @@ type
     property PWD: String read GetPWD;
 
     property ConnectWithParams: Boolean read FConnectWithParams write FConnectWithParams default FALSE;
-
+    property ConnectWithInfoMessages: String read FConnectWithInfoMessages;
   published
     { Published declarations }
     property DataBaseName: String read GetDataBaseName write SetDataBaseName;
@@ -214,7 +215,7 @@ const SQL_NAME_LEN = 128;
 constructor TmDatabase.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-
+  FConnectWithInfoMessages := '';
   FSQL_IDENTIFIER_QUOTE_CHAR_VALUE := '"'; // default value
   FSQL_SCROLL_OPTIONS_VALUE := 0;
   FSQL_BOOKMARK_PERSISTENCE_VALUE := 0;
@@ -361,6 +362,9 @@ begin
 {$if defined(ALLOW_MODBC_DSN_METADATA)}
       FDsnParams:='';
 {$ifend}
+
+      FConnectWithInfoMessages := '';
+      VConnectResult := SQL_NO_DATA;
       try
         if ConnectWithParams then begin
           // via connectionstring
@@ -392,14 +396,20 @@ begin
 
         CheckSQLStrict(VConnectResult);
       except on E: ESQLerror do
-        if E.NativeError = SQL_NO_DATA then
-        begin
-           E.Message:=SmDatabaseNotOpened;
-           raise;
-        end else
-          // '01000:[]Changed database context to 'xxx'.'
-        if (E.SqlState <> '01000') then
-          raise;
+        if (VConnectResult=SQL_SUCCESS_WITH_INFO) then begin
+          // в любом случае это означает что подключение удалось
+          // сохраним для потомков весь текст исключения
+          FConnectWithInfoMessages := E.MessageList.Text;
+        end else begin
+          if E.NativeError = SQL_NO_DATA then
+          begin
+             E.Message:=SmDatabaseNotOpened;
+             raise;
+          end else
+            // '01000:[]Changed database context to 'xxx'.'
+          if (E.SqlState <> '01000') then
+            raise;
+        end;
       end;
 
 {$if defined(ALLOW_MODBC_DSN_METADATA)}
