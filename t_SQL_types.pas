@@ -14,6 +14,7 @@ interface
 
 uses
   SysUtils,
+  t_ETS_Tiles,
   t_types;
 
 type
@@ -52,7 +53,16 @@ type
     so_Destroy
   );
 
-  TStatementExceptionType = (set_Unknown, set_TableNotFound, set_PrimaryKeyViolation);
+  TStatementExceptionType = (
+    set_Success,
+    set_TableNotFound,
+    set_PrimaryKeyViolation,
+    set_NoSpaceAvailable,
+    set_ConnectionIsDead,
+    set_DataTruncation,
+    set_UnsynchronizedStatements,
+    set_Unknown
+  );
 
   TStatementRepeatType = (srt_None, srt_Insert, srt_Update);
 
@@ -468,14 +478,14 @@ const
   // default (very old!) datetime for empty version
   c_SQL_DateTimeForEmptyVersion: array [TEngineType] of TDateTime = (
     2,   // MSSQL
-    0,   // ASE // OK with FALSE
+    0,   // ASE
     0,   // ASA
     0,   // Oracle
     0,   // Informix
     0,   // DB2
     0,   // MySQL
-    0,   // PostgreSQL // OK with TRUE
-    0,   // Mimer // OK with FALSE
+    0,   // PostgreSQL
+    0,   // Mimer
     0,   // Firebird
     0
   );
@@ -495,36 +505,170 @@ const
   FALSE
   );
 
+  // for PostgreSQL
+  // '42P01:1:ОШИБКА: отношение "C1I0_NMC_RECENCY" не существует;'#$A'ERROR WHILE PREPARING PARAMETERS'
+  // '42P01:7:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
+  // others
+  // '42S02:208:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Недопустимое имя объекта "FAI4_KSSAT".'
+  // '42000:208:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'
+  // '42S02:-206:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]THE SPECIFIED TABLE (_F9I4_BINGSAT_) IS NOT IN THE DATABASE.'
+  // '42S02:-12200:[MIMER][ODBC MIMER DRIVER][MIMER SQL]TABLE Z_SERVICE NOT FOUND, TABLE DOES NOT EXIST OR NO ACCESS PRIVILEGE'
+  // '42S02:1146:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]TABLE 'TEST.Z_SERVICE' DOESN'T EXIST'
+  // '42S02:-204:[ODBC FIREBIRD DRIVER][FIREBIRD]DYNAMIC SQL ERROR'#$A'SQL ERROR CODE = -204'#$A'TABLE UNKNOWN'#$A'Z_SERVICE'#$A'AT LINE 1, COLUMN 25'
+  // '42S02:-141:[SYBASE][ODBC DRIVER][SQL ANYWHERE]TABLE 'Z_SERVICE' NOT FOUND'
+  // '42S02:-204:[IBM][CLI DRIVER][DB2/NT] SQL0204N  "DB2ADMIN.Z_SERVICE" IS AN UNDEFINED NAME.  SQLSTATE=42704'#$D#$A
+  // '42S02:942:[ORACLE][ODBC][ORA]ORA-00942: TABLE OR VIEW DOES NOT EXIST'#$A
   // sqlstate for 'table not exists' error
-  c_ODBC_SQLSTATE_TableNotEists : array [TEngineType] of String = (
-    '42S02:',    // Microsoft SQL
-    '42S02:',    // Sybase ASE // 42000 and 42S02
-    '',   // Sybase ASA
-    '',   // Oracle
-    '',   // Informix
-    '',   // DB2
-    '',    // MySQL
-    '42P01:',    // PostgreSQL
-    '42S02:',    // Mimer
-    '',    // Firebird
-    ''       // Unknown or unsupported - use c_RTL_UNKNOWN for scripts, do not insert it here
+  c_ODBC_SQLSTATE_TableNotEists_1 : array [TEngineType] of String = (
+    '42S02:208:',     // Microsoft SQL
+    '42000:208:',     // Sybase ASE
+    '42S02:-141:',    // Sybase ASA
+    '42S02:942:',     // Oracle
+    '42S02:-206:',    // Informix
+    '42S02:-204:',    // DB2
+    '42S02:1146:',    // MySQL
+    '42P01:1:',       // PostgreSQL
+    '42S02:-12200:',  // Mimer
+    '42S02:-204:',    // Firebird
+    '42'              // Unknown or unsupported - use like mask
+  );
+  c_ODBC_SQLSTATE_TableNotEists_2 : array [TEngineType] of String = (
+    '',           // Microsoft SQL
+    '42S02:208:', // Sybase ASE
+    '',           // Sybase ASA
+    '',           // Oracle
+    '',           // Informix
+    '',           // DB2
+    '',           // MySQL
+    '42P01:7:',   // PostgreSQL
+    '',           // Mimer
+    '',           // Firebird
+    ''            // Unknown or unsupported - empty
   );
 
+  // for PostgreSQL
+  // '23505:7:ОШИБКА: повторяющееся значение ключа нарушает ограничение уникальности "PK_I53I24_BINGSAT"'#$A'Ключ "(X, Y, ID_VER)=(814, 441, 1134)" уже существует.;'#$A'ERROR WHILE EXECUTING THE QUERY'
+  // others
+  // '23000:2627:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Нарушение "PK_FAI4_KSSAT" ограничения PRIMARY KEY. Не удается вставить повторяющийся ключ в объект "DBO.FAI4_KSSAT". Повторяющееся значение ключа: (511, 582, 0).'
+  // '23000:2601:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'FAI4_KSSAT' WITH UNIQUE INDEX 'PK_FAI4_KSSAT''#$A
+  // '23000:-268:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]UNIQUE CONSTRAINT (INFORMIX.PK_F9I4_BINGSAT) VIOLATED.'
+  // '23000:-10101:[MIMER][ODBC MIMER DRIVER][MIMER SQL]PRIMARY KEY CONSTRAINT VIOLATED, ATTEMPT TO INSERT DUPLICATE KEY IN TABLE SYSADM.F9I4_BINGSAT'
+  // '23000:1062:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]DUPLICATE ENTRY '945-811-1134' FOR KEY 'PRIMARY''
+  // '23000:-803:[ODBC FIREBIRD DRIVER][FIREBIRD]VIOLATION OF PRIMARY OR UNIQUE KEY CONSTRAINT "PK_F9I4_BINGSAT" ON TABLE "F9I4_BINGSAT"'
+  // '23000:-193:[SYBASE][ODBC DRIVER][SQL ANYWHERE]PRIMARY KEY FOR TABLE 'F9I4_BINGSAT' IS NOT UNIQUE: PRIMARY KEY VALUE ('755,794,0')'
+  // '23505:-803:[IBM][CLI DRIVER][DB2/NT] SQL0803N  ONE OR MORE VALUES IN THE INSERT STATEMENT, UPDATE STATEMENT, OR FOREIGN KEY UPDATE CAUSED BY A DELETE STATEMENT ARE NOT VALID BECAUSE THE PRIMARY KEY, UNIQUE CONSTRAINT OR UNIQUE INDEX IDENTIFIED BY "1" CONSTRAINS TABLE "DB2ADMIN.F9I4_BINGSAT" FROM HAVING DUPLICATE VALUES FOR THE INDEX KEY.  SQLSTATE=23505'#$D#$A
+  // '23000:1:[ORACLE][ODBC][ORA]ORA-00001: UNIQUE CONSTRAINT (DB2ADMIN.PK_8I_KSSAT) VIOLATED'#$A
   // sqlstate for primary key constraint violation
   c_ODBC_SQLSTATE_PrimaryKeyViolation : array [TEngineType] of String = (
-    '23000:',    // Microsoft SQL
-    '23000:',    // Sybase ASE
-    '',   // Sybase ASA
-    '',   // Oracle
-    '',   // Informix
-    '',   // DB2
-    '',   // MySQL
-    '23505:',    // PostgreSQL
-    '23000:',    // Mimer
-    '',    // Firebird
-    ''       // Unknown or unsupported - use c_RTL_UNKNOWN for scripts, do not insert it here
+    '23000:2627:',   // Microsoft SQL
+    '23000:2601:',   // Sybase ASE
+    '23000:-193:',   // Sybase ASA
+    '23000:1:',      // Oracle
+    '23000:-268:',   // Informix
+    '23505:-803:',   // DB2
+    '23000:1062:',   // MySQL
+    '23505:7:',      // PostgreSQL
+    '23000:-10101:', // Mimer
+    '23000:-803:',   // Firebird
+    '23'             // Unknown or unsupported - use like mask
   );
 
+  // '42000:1105:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0][SQL SERVER]Не удалось выделить место для объекта "DBO.I54I24_YANDEXSAT".'PK_I54I24_YANDEXSAT' в базе данных "SAS_MS", поскольку файловая группа "PRIMARY" переполнена. Выделите место на диске, удалив ненужные файлы или объекты в файловой группе, добавив дополнительные файлы в файловую группу или указав параметр автоматического увеличения размера для существующих файлов в файловой группе.'
+  // 'ZZZZZ:1105:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]CAN'T ALLOCATE SPACE FOR OBJECT 'SYSLOGS' IN DATABASE 'SAS_ASE' BECAUSE 'LOGSEGMENT' SEGMENT IS FULL/HAS NO FREE EXTENTS. IF YOU RAN OUT OF SPACE IN SYSLOGS, DUMP THE TRANSACTION LOG. OTHERWISE, USE ALTER DATABASE TO INCREASE THE SIZE OF THE SEGMENT.'#$A
+  // 'ZZZZZ:3475:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]THERE IS NO SPACE AVAILABLE IN SYSLOGS TO LOG A RECORD FOR WHICH SPACE HAS BEEN RESERVED IN DATABASE 'GIS' (ID 4). THIS PROCESS WILL RETRY AT INTERVALS OF ONE MINUTE.'#$A
+  c_ODBC_SQLSTATE_NoSpaceAvailable_1 : array [TEngineType] of String = (
+    '42000:1105:', // Microsoft SQL
+    'ZZZZZ:1105:', // Sybase ASE
+    '',            // Sybase ASA
+    '',            // Oracle
+    '',            // Informix
+    '',            // DB2
+    '',            // MySQL
+    '',            // PostgreSQL
+    '',            // Mimer
+    '',            // Firebird
+    ''             // Unknown or unsupported - no mask here - empty
+  );
+  c_ODBC_SQLSTATE_NoSpaceAvailable_2 : array [TEngineType] of String = (
+    '',            // Microsoft SQL
+    'ZZZZZ:3475:', // Sybase ASE
+    '',            // Sybase ASA
+    '',            // Oracle
+    '',            // Informix
+    '',            // DB2
+    '',            // MySQL
+    '',            // PostgreSQL
+    '',            // Mimer
+    '',            // Firebird
+    ''             // Unknown or unsupported - no mask here - empty
+  );
+
+  // dead connection for PostgreSQL
+  // '42P01:26:COULD NOT SEND QUERY(CONNECTION DEAD);'#$A'COULD NOT SEND QUERY(CONNECTION DEAD)'
+  // others:
+  // '08S01:10054:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0]Поставщик TCP: Удаленный хост принудительно разорвал существующее подключение.'#$D#$A
+  // '08S02:-1:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0]Поставщик SMUX: Физическое подключение недоступно [XFFFFFFFF]. '
+  c_ODBC_SQLSTATE_ConnectionIsDead_1 : array [TEngineType] of String = (
+    '08S01:10054:',  // Microsoft SQL
+    '',              // Sybase ASE
+    '',              // Sybase ASA
+    '',              // Oracle
+    '',              // Informix
+    '',              // DB2
+    '',              // MySQL
+    '42P01:26:',     // PostgreSQL
+    '',              // Mimer
+    '',              // Firebird
+    ''               // Unknown or unsupported - no mask here - empty
+  );
+  c_ODBC_SQLSTATE_ConnectionIsDead_2 : array [TEngineType] of String = (
+    '08S02:-1:',     // Microsoft SQL
+    '',              // Sybase ASE
+    '',              // Sybase ASA
+    '',              // Oracle
+    '',              // Informix
+    '',              // DB2
+    '',              // MySQL
+    '',              // PostgreSQL
+    '',              // Mimer
+    '',              // Firebird
+    ''               // Unknown or unsupported - no mask here - empty
+  );
+
+  // '22001:8152:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0][SQL SERVER]Символьные или двоичные данные могут быть усечены.'
+  c_ODBC_SQLSTATE_DataTruncation : array [TEngineType] of String = (
+    '22001:8152:',   // Microsoft SQL
+    '',              // Sybase ASE
+    '',              // Sybase ASA
+    '',              // Oracle
+    '',              // Informix
+    '',              // DB2
+    '',              // MySQL
+    '',              // PostgreSQL
+    '',              // Mimer
+    '',              // Firebird
+    ''               // Unknown or unsupported - no mask here - empty
+  );
+
+  // 'HY000:0:[MICROSOFT][ODBC SQL SERVER DRIVER]Подключение занято до получения результатов для другого HSTMT'
+  c_ODBC_SQLSTATE_UnsynchronizedStatements : array [TEngineType] of String = (
+    'HY000:0:',      // Microsoft SQL
+    '',              // Sybase ASE
+    '',              // Sybase ASA
+    '',              // Oracle
+    '',              // Informix
+    '',              // DB2
+    '',              // MySQL
+    '',              // PostgreSQL
+    '',              // Mimer
+    '',              // Firebird
+    ''               // Unknown or unsupported - no mask here - empty
+  );
+
+  
+
+  // максимальная общая длина sqlstate и nativeerror в начале текста исключения
+  c_ODBC_SQLSTATE_MAX_LEN = 15;
 
 function GetEngineTypeByDBXDriverName(
   const ADBXDriverName: String;
@@ -545,6 +689,17 @@ function GetEngineTypeUsingSelectVersionException(const AException: Exception): 
 
 // формирует 16-ричную константу для записи BLOB-а, есть работа через параметры невозможна
 function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
+
+// проверка что текст исключения начинается с AStarter
+function OdbcEceptionStartsWith(const AText, AStarter: String): Boolean;
+
+// стандартный код ошибки независимо от контекста выполнения
+// если да - заполняется AResult
+// если нет - AResult не трогается
+function StandardExceptionType(
+  const AStatementExceptionType: TStatementExceptionType;
+  var AResult: Byte
+): Boolean;
 
 implementation
 
@@ -767,6 +922,48 @@ begin
     // пропихнём остаток
     if (VBytesToCopy>0) then begin
       _AppendPart(Result, _MakeCast(_CopyUpToBytes(VBytesToCopy)));
+    end;
+  end;
+end;
+
+function OdbcEceptionStartsWith(const AText, AStarter: String): Boolean;
+begin
+  if (0=Length(AStarter)) then
+    Result := FALSE
+  else
+    Result := (StrLIComp(@AText[1], @AStarter[1], Length(AStarter)) = 0);
+end;
+
+function StandardExceptionType(
+  const AStatementExceptionType: TStatementExceptionType;
+  var AResult: Byte
+): Boolean;
+begin
+  case AStatementExceptionType of
+    set_NoSpaceAvailable: begin
+      AResult := ETS_RESULT_NO_SPACE_AVAILABLE;
+      Result := TRUE;
+    end;
+    set_ConnectionIsDead: begin
+      AResult := ETS_RESULT_DISCONNECTED;
+      Result := TRUE;
+    end;
+    set_DataTruncation: begin
+      AResult := ETS_RESULT_DATA_TRUNCATION;
+      Result := TRUE;
+    end;
+    set_UnsynchronizedStatements: begin
+      AResult := ETS_RESULT_NEED_EXCLUSIVE;
+      Result := TRUE;
+    end;
+    set_Unknown: begin
+      AResult := ETS_RESULT_UNKNOWN_EXEPTION;
+      Result := TRUE;
+    end;
+    else begin
+      // все остальные зависят от контекста
+      // например set_TableNotFound может быть даже успешным значением
+      Result := FALSE;
     end;
   end;
 end;

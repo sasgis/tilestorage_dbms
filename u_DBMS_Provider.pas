@@ -68,6 +68,9 @@ type
     // настройки формата для дат и чисел
     FFormatSettings: TFormatSettings;
 
+    // неизвестные исключения
+    FUnknownExceptions: TStringList;
+
     // препарированные датасеты для вставки и обновления
     (*
     FInsertDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
@@ -144,6 +147,13 @@ type
       const AExclusively: Boolean
     ): WideString; // keep wide
 
+  private
+    // для списка неизвестных исключений
+    FUnknownExceptionsCS: IReadWriteSync;
+    procedure SaveUnknownException(const AException: Exception);
+    procedure ClearUnknownExceptions;
+    function HasUnknownExceptions: Boolean;
+    function GetUnknownExceptions: String;
   private
     function SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
 
@@ -336,8 +346,6 @@ type
     ): Byte;
     
   private
-    function DBMS_HandleGlobalException(const E: Exception): Byte;
-
     function DBMS_Complete(const AFlags: LongWord): Byte;
 
     // sync provider
@@ -692,6 +700,16 @@ begin
   // TODO: check size and hash
 end;
 
+procedure TDBMS_Provider.ClearUnknownExceptions;
+begin
+  FUnknownExceptionsCS.BeginWrite;
+  try
+    FreeAndNil(FUnknownExceptions);
+  finally
+    FUnknownExceptionsCS.EndWrite;
+  end;
+end;
+
 constructor TDBMS_Provider.Create(
   const AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS;
   const AFlags: LongWord;
@@ -720,6 +738,12 @@ begin
   FGuidesSync := MakeSyncRW_Std(Self);
 
   FConnection := nil;
+
+  // если всё нормально настроено - сюда ничего не залетит
+  // так что заранее создавать этот объект нелогично
+  // достаточно критической секции
+  FUnknownExceptionsCS := MakeSyncSection(Self);
+  FUnknownExceptions := nil;
 
   FVersionList := TVersionList.Create;
   FContentTypeList := TContentTypeList.Create;
@@ -844,12 +868,16 @@ begin
     for i := 0 to VExecuteSQLArray.Count-1 do
     try
       // выполняем напрямую
-      // TODO: после тестирования заменить FALSE на VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec
       FConnection.ExecuteDirectSQL(VExecuteSQLArray.GetSQLItem(i).Text, FALSE);
     except
-      // SilentMode in ExecuteDirectSQL may be a fake
-      if (not VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec) then
-        raise;
+      on E: Exception do begin
+        // тут если стандартные критичные ошибки - надо валить и сообщать юзеру
+        if StandardExceptionType(GetStatementExceptionType(E), Result) then
+          Exit;
+        // прочее покажем в зависимости от настройки
+        if (not VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec) then
+          raise;
+      end;
     end;
   finally
     FreeAndNil(VExecuteSQLArray);
@@ -878,6 +906,7 @@ var
   VExclusive: Boolean;
   VDeleteSQL: TDBMS_String;
   VExclusivelyLocked: Boolean;
+  VStatementExceptionType: TStatementExceptionType;
 begin
   VExclusive := ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -898,27 +927,26 @@ begin
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
+    VStatementExceptionType := set_Success;
     try
       // execute DELETE statement
-      if FConnection.ExecuteDirectSQL(VDeleteSQL, TRUE) then begin
-        // done (successfully DELETEed)
-        Result := ETS_RESULT_OK;
-      end else begin
-        // not deleted - may be:
-        // no tile to delete from existing table
-        // no table at all
-        // disconnected
-        // etc....
+      FConnection.ExecuteDirectSQL(VDeleteSQL, TRUE);
+      // done (successfully DELETEed)
+      // Result := ETS_RESULT_OK;
+    except on E: Exception do
+      VStatementExceptionType := GetStatementExceptionType(E);
+    end;
+
+    // что случилось
+    if not StandardExceptionType(VStatementExceptionType, Result) then
+    case VStatementExceptionType of
+      set_Success, set_TableNotFound: begin
+        // нет таблицы - нет и тайла
         Result := ETS_RESULT_OK;
       end;
-    except
-      on E: Exception do begin
-        // проверка разрыва соединения
-        Result := DBMS_HandleGlobalException(E);
-        if FReconnectPending then
-          Exit;
-        // нет таблицы - нет и тайлов
-        Result := ETS_RESULT_OK;
+      set_PrimaryKeyViolation: begin
+        // такого тут быть не должно
+        Result := ETS_RESULT_INVALID_STRUCTURE;
       end;
     end;
   finally
@@ -940,6 +968,7 @@ var
   VSQLText: TDBMS_String;
   VVersionValueW, VVersionCommentW: WideString; // keep wide
   VExclusivelyLocked: Boolean;
+  VStatementExceptionType: TStatementExceptionType;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -972,18 +1001,34 @@ begin
       end;
 
       // open sql
+      VStatementExceptionType := set_Success;
       try
         VDataset.OpenSQL(VSQLText);
-      except
-        on E: Exception do begin
-          // проверка разрыва соединения
-          Result := DBMS_HandleGlobalException(E);
-          if FReconnectPending then
-            Exit;
+      except on E: Exception do
+        VStatementExceptionType := GetStatementExceptionType(E);
+      end;
+
+      if StandardExceptionType(VStatementExceptionType, Result) then begin
+        // предопределённые известные критичные ошибки
+        Exit
+      end;
+
+      case VStatementExceptionType of
+        set_Success: begin
+          // пусто
+        end;
+        set_TableNotFound: begin
+          // нет таблицы - нет и тайлов
+          Result := ETS_RESULT_OK;
+          Exit;
+        end;
+        set_PrimaryKeyViolation: begin
+          Result := ETS_RESULT_INVALID_STRUCTURE;
+          Exit;
         end;
       end;
 
-      // get values
+      // тут только если нет критической ошибки
       if (not VDataset.Active) then begin
         // table not found
         Result := ETS_RESULT_INVALID_STRUCTURE;
@@ -1068,11 +1113,13 @@ function TDBMS_Provider.DBMS_ExecOption(
 const
   c_EO_SetTLM         = 'SetTLM';
   c_EO_SetTSM         = 'SetTSM';
-  c_EO_SetVerByTile   = 'SetVerByTile';
+  c_EO_SetVerByTile   = 'SetVerByTile';                     
   c_EO_SetVerComp     = 'SetVerComp';
   c_EO_GetVersions    = 'GetVersions';
   c_EO_ReloadVersions = 'ReloadVersions';
   c_EO_ResetConnError = 'ResetConnError';
+  c_EO_GetUnknErrors  = 'GetUnknErrors';
+  c_EO_ClearErrors    = 'ClearErrors';
 
 var
   VFullPrefix: String;
@@ -1334,6 +1381,15 @@ begin
       // show list of versions
       VResponse := VResponse + '<br>' +
                    '<a href="'+VFullPrefix+'/'+c_EO_GetVersions+'">Show list of Versions</a>';
+
+
+      // unknown exceptions
+      if HasUnknownExceptions then begin
+        // has items - add link to show
+        VResponse := VResponse + '<br>' +
+                   '<a href="'+VFullPrefix+'/'+c_EO_GetUnknErrors+'">Show Errors</a>';
+      end;
+
       Exit;
     end;
 
@@ -1459,6 +1515,39 @@ begin
       VResponse := VResponse +
                    '<br>' +
                    _AddReturnFooter;
+    end else if SameText(c_EO_GetUnknErrors, VSetTLMValue) then begin
+      // GetUnknErrors
+      // show all collected unknown errors
+      if SameText(VRequest, c_EO_ClearErrors) then begin
+        ClearUnknownExceptions;
+      end;
+
+      VResponse := '<h1>Errors</h1>';
+
+      VSetTLMValue := GetUnknownExceptions;
+
+      if (0<Length(VSetTLMValue)) then begin
+        // add clear link
+        VResponse := VResponse +
+                   '<br>' +
+                   'Click <a href="'+VFullPrefix+'/'+c_EO_GetUnknErrors+'/'+c_EO_ClearErrors+'">HERE</a> to clear Errors';
+
+        VResponse := VResponse +
+                   '<br>' +
+                   '<br>' +
+                   'List of Errors:' +
+                   '<br>' +
+                   '<br>' +
+                   VSetTLMValue;
+      end else begin
+        VResponse := VResponse +
+                   '<br>' +
+                   'No Errors';
+      end;
+
+
+      VResponse := VResponse + '<br>' + _AddReturnFooter;
+
     end else if SameText(c_EO_GetVersions, VSetTLMValue) then begin
       // GetVersions
       // enumerate all versions and show
@@ -1635,25 +1724,6 @@ begin
   end;
 end;
 
-function TDBMS_Provider.DBMS_HandleGlobalException(const E: Exception): Byte;
-begin
-{$if defined(ETS_USE_ZEOS)}
-  // обрабатываем разрыв соединения сервером
-  if (E<>nil) and (System.Pos('ServerDisconnected', E.Classname)>0) then begin
-    // разорвалось соединение
-    Result := ETS_RESULT_DISCONNECTED;
-    // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
-    FReconnectPending := TRUE;
-  end else begin
-    // все прочие глобальные ошибки
-    Result := ETS_RESULT_PROVIDER_EXCEPTION;
-  end;
-{$else}
-  // для DBX и ODBC не обрабатываем разрыв соединения сервером
-  Result := ETS_RESULT_PROVIDER_EXCEPTION;
-{$ifend}
-end;
-
 function TDBMS_Provider.DBMS_InsertTile(
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean
@@ -1669,6 +1739,7 @@ var
   VExecuteWithBlob: Boolean;
   VBodyAsLiteralValue: TDBMS_String;
   VExclusivelyLocked: Boolean;
+  VStatementExceptionType: TStatementExceptionType;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -1714,6 +1785,7 @@ begin
       VExecuteWithBlob := (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral);
 
       // выполним INSERT
+      VStatementExceptionType := set_Success;
       try
         // может BLOB надо писать как 16-ричный литерал
         if VCastBodyAsHexLiteral then begin
@@ -1732,50 +1804,48 @@ begin
         Result := ETS_RESULT_OK;
       except on E: Exception do
         // обломались со вставкой новой записи
+        VStatementExceptionType := GetStatementExceptionType(E);
+      end;
 
-        // смотрим что за ошибка
-        case GetStatementExceptionType(E) of
-          set_PrimaryKeyViolation: begin
-            // нарушение уникальности по первичному ключу - надо обновляться
-            VStatementRepeatType := srt_Update;
-          end;
-          set_TableNotFound: begin
-            // таблицы нет в БД
-            if (not VExclusive) then begin
-              // таблицы создаём только в эксклюзивном режиме
-              Result := ETS_RESULT_NEED_EXCLUSIVE;
-              Exit;
-            end;
+      if StandardExceptionType(VStatementExceptionType, Result) then begin
+        // предопределённые известные критичные ошибки
+        Exit;
+      end;
 
-            // пробуем создать таблицу по шаблону
-            CreateTableByTemplate(
-                c_Templated_RealTiles,
-                VUnquotedTableNameWithoutPrefix,
-                VQuotedTableNameWithPrefix,
-                AInsertBuffer^.XYZ.z,
-                TRUE
-              );
-
-            // проверяем существование таблицы
-            if (not FConnection.TableExists(VQuotedTableNameWithPrefix)) then begin
-              // не удалось даже создать - валим
-              Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
-              Exit;
-            end;
-
-            // повторяем INSERT
-            VStatementRepeatType := srt_Insert;
-          end;
-          else begin
-            // неисправляемое исключение при выполнении запроса
-            // на всякий случай запросим эксклюзивный режим
-            if GetStatementExceptionType(E) <> set_PrimaryKeyViolation then // просто для отладки
-            if VExclusive then
-              Result := ETS_RESULT_INVALID_STRUCTURE
-            else
-              Result := ETS_RESULT_NEED_EXCLUSIVE;
+      case VStatementExceptionType of
+        set_Success: begin
+          // пусто
+        end;
+        set_TableNotFound: begin
+          // нет таблицы в БД
+          if (not VExclusive) then begin
+            // таблицы создаём только в эксклюзивном режиме
+            Result := ETS_RESULT_NEED_EXCLUSIVE;
             Exit;
           end;
+
+          // пробуем создать таблицу по шаблону
+          CreateTableByTemplate(
+            c_Templated_RealTiles,
+            VUnquotedTableNameWithoutPrefix,
+            VQuotedTableNameWithPrefix,
+            AInsertBuffer^.XYZ.z,
+            TRUE
+          );
+
+          // проверяем существование таблицы
+          if (not FConnection.TableExists(VQuotedTableNameWithPrefix)) then begin
+            // не удалось даже создать - валим
+            Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
+            Exit;
+          end;
+
+          // повторяем INSERT для только что созданной таблицы
+          VStatementRepeatType := srt_Insert;
+        end;
+        set_PrimaryKeyViolation: begin
+          // нарушение уникальности по первичному ключу - надо обновляться
+          VStatementRepeatType := srt_Update;
         end;
       end;
 
@@ -1792,6 +1862,7 @@ begin
           VInsertSQL := VUpdateSQL;
         end;
 
+        VStatementExceptionType := set_Success;
         try
           // здесь в VInsertSQL может быть и текст для UPDATE
           if VExecuteWithBlob then begin
@@ -1807,29 +1878,37 @@ begin
           Result := ETS_RESULT_OK;
         except on E: Exception do
           // смотрим что за ошибка
-          case GetStatementExceptionType(E) of
-            set_PrimaryKeyViolation: begin
-              // если при INSERT - уйдём на новый виток - на этот раз UPDATE
-              // если при UPDATE - уйдём в слезах рекаверить датабазу из обломков былой роскоши
-              if (VStatementRepeatType=srt_Update) then begin
-                Result := ETS_RESULT_INVALID_STRUCTURE;
-                Exit;
-              end else
-                VStatementRepeatType := srt_Update;
-            end;
-            set_TableNotFound: begin
-              // какая-то бредятина
+          VStatementExceptionType := GetStatementExceptionType(E);
+        end;
+
+        if StandardExceptionType(VStatementExceptionType, Result) then begin
+          // предопределённые известные критичные ошибки
+          Exit;
+        end;
+
+        case VStatementExceptionType of
+          set_Success: begin
+            Result := ETS_RESULT_OK;
+            Exit;
+          end;
+          set_TableNotFound: begin
+            // таблицы так и нет - возможно нет линкуемой таблицы, а не основной
+            Result := ETS_RESULT_INVALID_STRUCTURE;
+            Exit;
+          end;
+          set_PrimaryKeyViolation: begin
+            // если при INSERT - уйдём на новый виток - на этот раз UPDATE
+            // если при UPDATE - уйдём в слезах рекаверить датабазу из обломков былой роскоши
+            if (VStatementRepeatType=srt_Update) then begin
               Result := ETS_RESULT_INVALID_STRUCTURE;
               Exit;
-            end;
-            else begin
-              // тоже не лучше
-              Result := ETS_RESULT_INVALID_STRUCTURE;
-              Exit;
+            end else begin
+              // будем исполнять update
+              VStatementRepeatType := srt_Update;
             end;
           end;
-        end;
-      end;
+        end; // of case
+      end; // of while
   finally
     DoEndWork(VExclusivelyLocked);
   end;
@@ -1848,6 +1927,7 @@ var
   VSQLText: TDBMS_String;
   VVersionW, VContentTypeW: WideString; // keep wide
   VExclusivelyLocked: Boolean;
+  VStatementExceptionType: TStatementExceptionType;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -1871,15 +1951,30 @@ begin
       FillChar(VOut, SizeOf(VOut), 0);
 
       // open sql
+      VStatementExceptionType := set_Success;
       try
         VDataset.OpenSQL(VSQLText);
-      except
-        on E: Exception do begin
-          // проверка разрыва соединения
-          Result := DBMS_HandleGlobalException(E);
-          if FReconnectPending then
-            Exit;
-          // тут могут быть разные ошибки, типа таблица не найдена
+      except on E: Exception do
+        VStatementExceptionType := GetStatementExceptionType(E);
+      end;
+
+      if StandardExceptionType(VStatementExceptionType, Result) then begin
+        // предопределённые известные критичные ошибки
+        Exit;
+      end;
+
+      case VStatementExceptionType of
+        set_Success: begin
+          // пусто
+        end;
+        set_TableNotFound: begin
+          // нет таблицы - нет и тайлов
+          Result := ETS_RESULT_OK;
+          Exit;
+        end;
+        set_PrimaryKeyViolation: begin
+          Result := ETS_RESULT_INVALID_STRUCTURE;
+          Exit;
         end;
       end;
 
@@ -2031,7 +2126,10 @@ begin
   FHostPointer := nil;
   FProvSync := nil;
   FGuidesSync := nil;
-  
+
+  FreeAndNil(FUnknownExceptions);
+  FUnknownExceptionsCS := nil;
+
   inherited Destroy;
 end;
 
@@ -3053,6 +3151,16 @@ begin
     FGuidesSync.EndRead;
 end;
 
+function TDBMS_Provider.HasUnknownExceptions: Boolean;
+begin
+  FUnknownExceptionsCS.BeginWrite;
+  try
+    Result := (nil<>FUnknownExceptions) and (0<FUnknownExceptions.Count);
+  finally
+    FUnknownExceptionsCS.EndWrite;
+  end;
+end;
+
 function TDBMS_Provider.InternalCalcSQLTile(
   const AXYZ: PTILE_ID_XYZ;
   const ASQLTile: PSQLTile
@@ -3267,6 +3375,7 @@ function TDBMS_Provider.InternalProv_ReadServiceInfo(const AExclusively: Boolean
 var
   VDataset: TDBMS_Dataset;
   VSelectCurrentServiceSQL: TDBMS_String;
+  VStatementExceptionType: TStatementExceptionType;
 begin
   FillChar(FDBMS_Service_Info, SizeOf(FDBMS_Service_Info), 0);
   VDataset := FConnection.MakePoolDataset;
@@ -3276,27 +3385,35 @@ begin
 
     // тащим инфу о текущем сервисе
     // исходя из указанного при инициализации внешнего уникального кода сервиса
+    VStatementExceptionType := set_Success;
     try
       VDataset.OpenSQL(VSelectCurrentServiceSQL);
     except on E: Exception do
-      // обломались при открытии датасета - возможно нет таблицы
-      case GetStatementExceptionType(E) of
-        set_TableNotFound: begin
-          // и правда нет таблицы
-        end;
-        else begin
-          // неизвестно что
-        end;
-      end;
+      VStatementExceptionType := GetStatementExceptionType(E);
     end;
 
-    if (not VDataset.Active) then begin
-      // не открылось - создаём базовые таблицы из скрипта
-      CreateAllBaseTablesFromScript;
-      // переоткрываемся
-      try
-        VDataset.OpenSQL(VSelectCurrentServiceSQL);
-      except
+    if StandardExceptionType(VStatementExceptionType, Result) then begin
+      // предопределённые известные критичные ошибки
+      InternalProv_ClearServiceInfo;
+      Exit;
+    end;
+    
+    case VStatementExceptionType of
+      set_Success: begin
+        // ok
+      end;
+      set_TableNotFound: begin
+        // нет таблицы с сервисами
+        // создаём базовые таблицы из скрипта
+        CreateAllBaseTablesFromScript;
+        // переоткрываемся
+        try
+          VDataset.OpenSQL(VSelectCurrentServiceSQL);
+        except
+        end;
+      end;
+      set_PrimaryKeyViolation: begin
+        // тут пусто потому что нет смысла повторять обработчик ниже
       end;
     end;
 
@@ -3546,92 +3663,125 @@ begin
   n1 := _ExtractTailByte;
   Result := (Integer(n1) shl 24) or (Integer(n2) shl 16) or (Integer(n3) shl 8) or Integer(n4);
   ADoneVerNumber := (Result<>0);
-
-  // TODO: добавить другие возможные парсеры
-(*
-FeatureId:f09f02e6824eb7f8ba05948aa692ead2
-<br>
-Date:2012-05-06 09:05:40.278
-<br>
-Color:Pan Sharpened Natural Color
-<br>
-Resolution:0.50
-<br>
-Source:WV02
-<br>
-LegacyId:1030010017B9D100
-<br>
-Provider:DigitalGlobe
-<br>
-PreviewLink:<a href=https://browse.digitalglobe.com/imagefinder/showBrowseImage?catalogId=1030010017B9D100&imageHeight=1024&imageWidth=1024>
-https://browse.digitalglobe.com/imagefinder/showBrowseImage?catalogId=1030010017B9D100&imageHeight=1024&imageWidth=1024</a>
-<br>MetadataLink:<a href=https://browse.digitalglobe.com/imagefinder/showBrowseMetadata?buffer=1.0&catalogId=1030010017B9D100&imageHeight=natres&imageWidth=natres>https://browse.digitalglobe.com/imagefinder/showBrowseMetadata?buffer=1.0&catalogId=1030010017B9D100&imageHeight=natres&imageWidth=natres</a>
-
-*)
 end;
 
 function TDBMS_Provider.GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
-var VMessage: String;
+var
+  VMessage: String;
+{$if defined(USE_DIRECT_ODBC)}
+  VEngineType: TEngineType;
+{$ifend}
 begin
   VMessage := UpperCase(AException.Message);
 {$if defined(USE_DIRECT_ODBC)}
-  // смотрим по SQLSTATE
-  VMessage := System.Copy(VMessage, 1, 6);
+  // смотрим по SQLSTATE и родному коду ошибки
+  // сразу отсечём лишнее
+  VMessage := System.Copy(VMessage, 1, c_ODBC_SQLSTATE_MAX_LEN);
 
   if (0=Length(VMessage)) then begin
+    // нет кода ошибки
     Result := set_Unknown;
     Exit;
   end;
+
+  if (nil=FConnection) then
+    VEngineType := et_Unknown
+  else
+    VEngineType := FConnection.GetCheckedEngineType;
   
-  if (VMessage = '23000:') or (VMessage = '23505:') then begin
-    // это код ODBC для нарушения уникальности (не обязательно описано как PRIMARY KEY)
-    // for PostgreSQL
-    // '23505:7:ОШИБКА: повторяющееся значение ключа нарушает ограничение уникальности "PK_I53I24_BINGSAT"'#$A'Ключ "(X, Y, ID_VER)=(814, 441, 1134)" уже существует.;'#$A'ERROR WHILE EXECUTING THE QUERY'
-    // others
-    // '23000:2627:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Нарушение "PK_FAI4_KSSAT" ограничения PRIMARY KEY. Не удается вставить повторяющийся ключ в объект "DBO.FAI4_KSSAT". Повторяющееся значение ключа: (511, 582, 0).'
-    // '23000:2601:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO INSERT DUPLICATE KEY ROW IN OBJECT 'FAI4_KSSAT' WITH UNIQUE INDEX 'PK_FAI4_KSSAT''#$A
-    // '23000:-268:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]UNIQUE CONSTRAINT (INFORMIX.PK_F9I4_BINGSAT) VIOLATED.'
-    // '23000:-10101:[MIMER][ODBC MIMER DRIVER][MIMER SQL]PRIMARY KEY CONSTRAINT VIOLATED, ATTEMPT TO INSERT DUPLICATE KEY IN TABLE SYSADM.F9I4_BINGSAT'
-    // '23000:1062:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]DUPLICATE ENTRY '945-811-1134' FOR KEY 'PRIMARY''
-    // '23000:-803:[ODBC FIREBIRD DRIVER][FIREBIRD]VIOLATION OF PRIMARY OR UNIQUE KEY CONSTRAINT "PK_F9I4_BINGSAT" ON TABLE "F9I4_BINGSAT"'
-    // '23000:-193:[SYBASE][ODBC DRIVER][SQL ANYWHERE]PRIMARY KEY FOR TABLE 'F9I4_BINGSAT' IS NOT UNIQUE: PRIMARY KEY VALUE ('755,794,0')'
-    // '23505:-803:[IBM][CLI DRIVER][DB2/NT] SQL0803N  ONE OR MORE VALUES IN THE INSERT STATEMENT, UPDATE STATEMENT, OR FOREIGN KEY UPDATE CAUSED BY A DELETE STATEMENT ARE NOT VALID BECAUSE THE PRIMARY KEY, UNIQUE CONSTRAINT OR UNIQUE INDEX IDENTIFIED BY "1" CONSTRAINS TABLE "DB2ADMIN.F9I4_BINGSAT" FROM HAVING DUPLICATE VALUES FOR THE INDEX KEY.  SQLSTATE=23505'#$D#$A
-    // '23000:1:[ORACLE][ODBC][ORA]ORA-00001: UNIQUE CONSTRAINT (DB2ADMIN.PK_8I_KSSAT) VIOLATED'#$A
-    //
-    Result := set_PrimaryKeyViolation;
+  // проверка нарушения уникальности (не обязательно описано как PRIMARY KEY)
+  if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_PrimaryKeyViolation[et_Unknown]) then begin
+    // залетели по маске - уточним её для определённых СУБД
+    if (et_Unknown=VEngineType) then begin
+      // неизвестный сервер - нет данных для уточнения
+      Result := set_PrimaryKeyViolation;
+      Exit;
+    end else begin
+      // можем уточнить по известному коду ошибки
+      if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_PrimaryKeyViolation[VEngineType]) then begin
+        // оно самое
+        Result := set_PrimaryKeyViolation;
+        Exit;
+      end;
+      // тут окажемся, если код ошибки похожий, но не такой
+    end;
+  end;
+
+
+  // проверка отсутствия отношения (таблицы или вьюхи)
+  if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_TableNotEists_1[et_Unknown]) then begin
+    // залетели по маске - уточним её для определённых СУБД
+    if (et_Unknown=VEngineType) then begin
+      // неизвестный сервер - нет данных для уточнения
+      Result := set_TableNotFound;
+      Exit;
+    end else begin
+      // можем уточнить по известному коду ошибки
+      if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_TableNotEists_1[VEngineType]) then begin
+        Result := set_TableNotFound;
+        Exit;
+      end;
+      if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_TableNotEists_2[VEngineType]) then begin
+        Result := set_TableNotFound;
+        Exit;
+      end;
+      // тут окажемся, если код ошибки похожий, но не такой
+    end;
+  end;
+
+  // может ошибка про то что место кончилось
+  if (0<Length(c_ODBC_SQLSTATE_NoSpaceAvailable_1[VEngineType])) then begin
+    if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_NoSpaceAvailable_1[VEngineType]) then begin
+      Result := set_NoSpaceAvailable;
+      Exit;
+    end;
+    if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_NoSpaceAvailable_2[VEngineType]) then begin
+      Result := set_NoSpaceAvailable;
+      Exit;
+    end;
+  end;
+
+  // может соединение разорвано
+  if (0<Length(c_ODBC_SQLSTATE_ConnectionIsDead_1[VEngineType])) then begin
+    if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ConnectionIsDead_1[VEngineType]) then begin
+      Result := set_ConnectionIsDead;
+      // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
+      FReconnectPending := TRUE;
+      Exit;
+    end;
+    if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ConnectionIsDead_2[VEngineType]) then begin
+      Result := set_ConnectionIsDead;
+      // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
+      FReconnectPending := TRUE;
+      Exit;
+    end;
+  end;
+
+  if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_DataTruncation[VEngineType]) then begin
+    Result := set_DataTruncation;
     Exit;
   end;
 
-  if (VMessage = '42S02:') or (VMessage = '42P01:') or (VMessage = '42000:') then begin
-    // это код ODBC для для отсутствия отношения (таблицы или вьюхи)
-    // for PostgreSQL
-    // '42P01:1:ОШИБКА: отношение "C1I0_NMC_RECENCY" не существует;'#$A'ERROR WHILE PREPARING PARAMETERS'
-    // '42P01:7:ОШИБКА: отношение "Z_SERVICE" не существует;'#$A'ERROR WHILE EXECUTING THE QUERY' // POSTGRESQL
-    // others
-    // '42S02:208:[MICROSOFT][ODBC SQL SERVER DRIVER][SQL SERVER]Недопустимое имя объекта "FAI4_KSSAT".'
-    // '42000:208:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]Z_SERVICE NOT FOUND. SPECIFY OWNER.OBJECTNAME OR USE SP_HELP TO CHECK WHETHER THE OBJECT EXISTS (SP_HELP MAY PRODUCE LOTS OF OUTPUT).'
-    // '42S02:-206:[INFORMIX][INFORMIX ODBC DRIVER][INFORMIX]THE SPECIFIED TABLE (_F9I4_BINGSAT_) IS NOT IN THE DATABASE.'
-    // '42S02:-12200:[MIMER][ODBC MIMER DRIVER][MIMER SQL]TABLE Z_SERVICE NOT FOUND, TABLE DOES NOT EXIST OR NO ACCESS PRIVILEGE'
-    // '42S02:1146:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]TABLE 'TEST.Z_SERVICE' DOESN'T EXIST'
-    // '42S02:-204:[ODBC FIREBIRD DRIVER][FIREBIRD]DYNAMIC SQL ERROR'#$A'SQL ERROR CODE = -204'#$A'TABLE UNKNOWN'#$A'Z_SERVICE'#$A'AT LINE 1, COLUMN 25'
-    // '42S02:-141:[SYBASE][ODBC DRIVER][SQL ANYWHERE]TABLE 'Z_SERVICE' NOT FOUND'
-    // '42S02:-204:[IBM][CLI DRIVER][DB2/NT] SQL0204N  "DB2ADMIN.Z_SERVICE" IS AN UNDEFINED NAME.  SQLSTATE=42704'#$D#$A
-    // '42S02:942:[ORACLE][ODBC][ORA]ORA-00942: TABLE OR VIEW DOES NOT EXIST'#$A
-    //
-    Result := set_TableNotFound;
+  if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_UnsynchronizedStatements[VEngineType]) then begin
+    Result := set_UnsynchronizedStatements;
     Exit;
   end;
 
-  // 'ZZZZZ:1105:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]CAN'T ALLOCATE SPACE FOR OBJECT 'SYSLOGS' IN DATABASE 'SAS_ASE' BECAUSE 'LOGSEGMENT' SEGMENT IS FULL/HAS NO FREE EXTENTS. IF YOU RAN OUT OF SPACE IN SYSLOGS, DUMP THE TRANSACTION LOG. OTHERWISE, USE ALTER DATABASE TO INCREASE THE SIZE OF THE SEGMENT.'#$A
-  // 'ZZZZZ:3475:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]THERE IS NO SPACE AVAILABLE IN SYSLOGS TO LOG A RECORD FOR WHICH SPACE HAS BEEN RESERVED IN DATABASE 'GIS' (ID 4). THIS PROCESS WILL RETRY AT INTERVALS OF ONE MINUTE.'#$A
+  // '25000:3906:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0][SQL SERVER]Не удалось обновить базу данных "SAS_MS", так как она предназначена только для чтения.'
 
-  // dead connection:
-  // '42P01:26:COULD NOT SEND QUERY(CONNECTION DEAD);'#$A'COULD NOT SEND QUERY(CONNECTION DEAD)'
-  
   // что-то иное
   Result := set_Unknown;
+  SaveUnknownException(AException);
 {$else}
   // ZEOS and DBX
+  if (AException<>nil) and (System.Pos('ServerDisconnected', AException.Classname)>0) then begin
+    // разорвалось соединение
+    Result := set_ConnectionIsDead; //ETS_RESULT_DISCONNECTED;
+    // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
+    FReconnectPending := TRUE;
+    Exit;
+  end;
+
   if (System.Pos('VIOLATION', VMessage)>0) and (System.Pos('CONSTRAINT', VMessage)>0) then begin
     Result := set_PrimaryKeyViolation;
     Exit;
@@ -3639,6 +3789,19 @@ begin
 
   Result := set_TableNotFound;
 {$ifend}
+end;
+
+function TDBMS_Provider.GetUnknownExceptions: String;
+begin
+  FUnknownExceptionsCS.BeginWrite;
+  try
+    if (nil=FUnknownExceptions) then
+      Result := ''
+    else
+      Result := FUnknownExceptions.Text;
+  finally
+    FUnknownExceptionsCS.EndWrite;
+  end;
 end;
 
 procedure TDBMS_Provider.ReadContentTypesFromDB(const AExclusively: Boolean);
@@ -3710,6 +3873,25 @@ begin
       FConnection.KillPoolDataset(VDataset);
     end;
   except
+  end;
+end;
+
+procedure TDBMS_Provider.SaveUnknownException(const AException: Exception);
+begin
+  if (nil=AException) then
+    Exit;
+  FUnknownExceptionsCS.BeginWrite;
+  try
+    if (nil=FUnknownExceptions) then begin
+      // создаём и добавляем
+      FUnknownExceptions := TStringList.Create;
+    end else begin
+      // разделяем и добавляем
+      FUnknownExceptions.Add('<br>');
+    end;
+    FUnknownExceptions.Add(AException.Message);
+  finally
+    FUnknownExceptionsCS.EndWrite;
   end;
 end;
 
