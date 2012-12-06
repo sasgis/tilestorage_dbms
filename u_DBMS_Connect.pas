@@ -924,6 +924,16 @@ begin
 
       end;
 
+      if (et_PostgreSQL=GetCheckedEngineType) then begin
+        // установим специальный признак для PostgreSQL
+        // чтобы вставка через ODBC работала независимо
+        // от состояния галочки "bytea as LO"
+        FSQLConnection.ByteaAsLoOff := TRUE;
+      end else begin
+        // по умолчанию для всех остальных
+        FSQLConnection.ByteaAsLoOff := FALSE;
+      end;
+
       KeepAuthenticationInfo;
       Result := ETS_RESULT_OK;
     end else begin

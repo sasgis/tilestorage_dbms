@@ -893,7 +893,14 @@ begin
         SQL_LONGVARCHAR:   ValueType := SQL_CHAR;
         SQL_BINARY,
         SQL_VARBINARY,
-        SQL_LONGVARBINARY: begin ValueType := SQL_BINARY; ParamType := SQL_LONGVARBINARY;end;
+        SQL_LONGVARBINARY: begin
+          ValueType := SQL_BINARY;
+          // for postgresql
+          if Database.ByteaAsLoOff then
+            ParamType := SQL_VARBINARY
+          else
+            ParamType := SQL_LONGVARBINARY;
+        end;
         end;
 
         if (not Params[i].IsNull) then

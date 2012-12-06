@@ -56,6 +56,7 @@ type
     FWaitCursor: TCursor;
     FOldCursor: TCursor;
     FShowWaitCursor: boolean;
+    FByteaAsLoOff: Boolean;
     FConnectWithParams: Boolean;
     FConnectWithInfoMessages: String;
     function GetConnected:Boolean;
@@ -181,6 +182,7 @@ type
     property UID: String read GetUID;
     property PWD: String read GetPWD;
 
+    property ByteaAsLoOff: Boolean read FByteaAsLoOff write FByteaAsLoOff default FALSE;
     property ConnectWithParams: Boolean read FConnectWithParams write FConnectWithParams default FALSE;
     property ConnectWithInfoMessages: String read FConnectWithInfoMessages;
   published
@@ -226,6 +228,7 @@ begin
   FSQL_SCROLL_CONCURRENCY_VALUE := 0;
 {$endif}
 
+  FByteaAsLoOff      := FALSE;
   FConnectWithParams := FALSE;
 
   FDataSetList      := TList.Create;
@@ -786,6 +789,7 @@ function TmDataBase.OpenDirectWithBlob(
 var
   VRes: SQLRETURN;
   VColumnSize: SQLULEN;
+  VParameterType: SQLSMALLINT;
   VStrLen_or_IndPtr: SQLLEN;
   VFullSQLText: String;
 begin
@@ -804,13 +808,22 @@ begin
     VColumnSize := 0;
   end;
 
+  // для PostgreSQL SQL_VARBINARY для bytea и SQL_LONGVARBINARY для lo
+  // то есть первый вариант нужен для PostgreSQL с выключенной галочкой 'bytea as LO'
+  // на самом деле первый вариант для postgresql работает независимо от состояния галочки 'bytea as LO'
+  // '42804:7:ОШИБКА: колонка "tile_body" имеет тип bytea, а выражение - lo;'#$A'Error while executing the query'
+  if FByteaAsLoOff then
+    VParameterType := SQL_VARBINARY
+  else
+    VParameterType := SQL_LONGVARBINARY;
+
   // bind single blob
   VRes := SQLBindParameter (
     AStatementHandle,
     1,
     SQL_PARAM_INPUT,
     SQL_C_BINARY,
-    SQL_LONGVARBINARY,
+    VParameterType,
     VColumnSize,
     0,
     ABufferAddr,
@@ -966,7 +979,12 @@ begin // datatypes depend from driver
     ftFloat:    result := SQL_DOUBLE;
     ftBoolean:  result := SQL_SMALLINT;
     ftMemo:     result := SQL_LONGVARCHAR;
-    ftBlob:     result := SQL_LONGVARBINARY;
+    ftBlob:     begin
+      if FByteaAsLoOff then
+        Result := SQL_VARBINARY
+      else
+        Result := SQL_LONGVARBINARY;
+    end;
     else        result := 0;
   end;
 end;
