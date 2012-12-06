@@ -174,13 +174,7 @@ begin
 
     Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_Sync(AFlags);
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -236,13 +230,7 @@ begin
       ASelectBufferIn
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -267,13 +255,7 @@ begin
       FALSE
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -298,13 +280,7 @@ begin
       TRUE
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -328,13 +304,7 @@ begin
       ADeleteBuffer
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -366,13 +336,7 @@ begin
       ASelectBufferIn
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -403,13 +367,7 @@ begin
       ATileRectInfoIn
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 
@@ -442,13 +400,7 @@ begin
       AExecOptionIn
     );
   except
-    on E: Exception do begin
-      try
-        Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_HandleGlobalException(E);
-      except
-        Result := ETS_RESULT_PROVIDER_EXCEPTION;
-      end;
-    end;
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;
 end;
 

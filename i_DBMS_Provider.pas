@@ -12,8 +12,6 @@ uses
 type
   IDBMS_Provider = interface
   ['{3C04939D-C37A-49FB-A952-2EF06B0E45C0}']
-    function DBMS_HandleGlobalException(const E: Exception): Byte;
-
     function DBMS_Complete(const AFlags: LongWord): Byte;
     function DBMS_Sync(const AFlags: LongWord): Byte;
 
