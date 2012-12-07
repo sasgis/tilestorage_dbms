@@ -182,10 +182,10 @@ type
     FConnectionErrorCode: Byte;
   protected
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
-    function ApplyAuthenticationInfo: Byte;
     procedure KeepAuthenticationInfo;
     function ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
     function ApplyConnectionParams: Byte;
+    function ApplySystemDSNtoConnection: Byte;
     function ApplyParamsToConnection(const AParams: TStrings): Byte;
     function IsTrustedConnection: Boolean;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
@@ -298,79 +298,6 @@ end;
 
 { TDBMS_Connection }
 
-function TDBMS_Connection.ApplyAuthenticationInfo: Byte;
-(*
-var
-  VServer: TDBMS_Server;
-  VUIDParamName, VPwdParamName: WideString;
-  VUsername: WideString;
-  VPassword: WideString;
-*)
-begin
-  // пока что всё только из ini
-(*
-  if SameText(FSQLConnection.DriverName,c_RTL_Interbase) then begin
-    VUIDParamName := 'UID';
-    VPwdParamName := 'PWD';
-  end else begin
-    VUIDParamName := TDBXPropertyNames.UserName;
-    VPwdParamName := TDBXPropertyNames.Password;
-  end;
-
-  VUsername := '';
-  VPassword := '';
-
-  if IsTrustedConnection then begin
-    // if Trusted_Connection=True - keep empty
-    FSQLConnection.Params.Values[VUIDParamName] := '';
-    FSQLConnection.Params.Values[VPwdParamName] := '';
-  end else begin
-    // get info from G_ConnectionList
-    G_ConnectionList.FSyncList.BeginWrite;
-    try
-      VServer := G_ConnectionList.InternalGetServerObject(FPath.Path_Items[0]);
-      if (VServer<>nil) then begin
-        // if failed - returns with error
-        if VServer.FAuthFailed then begin
-          Result := ETS_RESULT_AUTH_FAILED;
-          Exit;
-        end;
-
-        // server found - get flags and values
-        if VServer.FAuthDefined then begin
-          // has some credentials
-          VUsername := VServer.FUsername;
-          VPassword := VServer.FPassword;
-        end else begin
-          // проверим может быть возможно подключение без логина
-          if (0<Length(c_SQL_Integrated_Security[GetCheckedEngineType])) then begin
-            // по идее это возможно
-            VUsername := '';
-            VPassword := '';
-            //FSQLConnection.Params.Values[c_SQL_Integrated_Security[GetCheckedEngineType]] := 'true';
-          end else begin
-            // обязательно нужен логин и пароль
-            // TODO: вычитать его из хранилища
-            VUsername := 'sa';
-            VPassword := '';
-          end;
-        end;
-      end else begin
-        // fuckup - try empty values
-      end;
-    finally
-      G_ConnectionList.FSyncList.EndWrite;
-    end;
-
-    // apply User_Name and Password
-    FSQLConnection.Params.Values[VUIDParamName] := VUsername;
-    FSQLConnection.Params.Values[VPwdParamName] := VPassword;
-  end;
-
-*)
-  Result := ETS_RESULT_OK;
-end;
-
 function TDBMS_Connection.ApplyConnectionParams: Byte;
 var
   VSectionName: String;
@@ -420,17 +347,14 @@ begin
     end;
   end else begin
     // файл ini не найден
+{$if defined(USE_DIRECT_ODBC)}
+    // для ODBC попробуем воспользоваться одноимённым System DSN
+    Result := ApplySystemDSNtoConnection;
+{$else}
+    // не для ODBC ничем не пробуем воспользоваться
     Result := ETS_RESULT_INI_FILE_NOT_FOUND;
+{$ifend}
   end;
-
-  (*
-  // 2. get params from ODBC sources (only by ODBCSERVERNAME) and add DATABASENAME if not defined
-  if Load_DSN_Params_from_ODBC(FPath.Path_Items[0], FODBCDescription) then begin
-    // VDescription is the description of the driver associated with the data source
-    // For example, dBASE or SQL Server
-    ApplyODBCParamsToConnection(nil);
-  end;
-  *)
 end;
 
 procedure TDBMS_Connection.SaveInternalParameter(const AParamName, AParamValue: String);
@@ -696,6 +620,26 @@ begin
 {$ifend}
 end;
 
+function TDBMS_Connection.ApplySystemDSNtoConnection: Byte;
+var VSystemDSNName: WideString;
+begin
+  // применение параметров подключения без ini-шки
+  // доступно не для всех СУБД
+  VSystemDSNName := FPath.Path_Items[0];
+  if Load_DSN_Params_from_ODBC(VSystemDSNName, FODBCDescription) then begin
+    // нашёлся SystemDSN
+    // FSQLConnection.Params['DSN'] := VSystemDSNName;
+    FSQLConnection.DataBaseName := VSystemDSNName;
+{$if not defined(USE_MODBC)}
+    FSQLConnection.LoginPrompt := FALSE;
+{$ifend}
+    Result := ETS_RESULT_OK;
+  end else begin
+    // не наш лось
+    Result := ETS_RESULT_INI_FILE_NOT_FOUND;
+  end;
+end;
+
 function TDBMS_Connection.calc_exclusive_mode: AnsiChar;
 begin
   case FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE of
@@ -879,11 +823,6 @@ begin
     if AllowTryToConnect then begin
       // apply params and try to connect
       Result := ApplyConnectionParams;
-      if (ETS_RESULT_OK<>Result) then
-        Exit;
-
-      // apply auth info
-      Result := ApplyAuthenticationInfo;
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
