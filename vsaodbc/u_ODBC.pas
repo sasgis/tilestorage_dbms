@@ -656,7 +656,7 @@ end;
 
 procedure TSQLFetchableQuery.InternalInitFieldDefs;
 const
-  c_ColumnNameDefaultLength = 64;
+  c_ColumnNameDefaultLength = 128;
   c_DefaultBLOBSize = 0;
 var
   i: SqlSmallint;
