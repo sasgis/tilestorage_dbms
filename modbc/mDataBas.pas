@@ -176,6 +176,7 @@ type
 
     function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 
+    procedure CheckByteaAsLoOff(const ANeedCheck: Boolean);
     procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
 
     property SystemDSN: String read GetDataBaseName;
@@ -258,6 +259,41 @@ procedure TmDataBase.CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETUR
 begin
   if not SQL_SUCCEEDED(sqlres) then
     raise EMODBCExecStatementError.CreateDiag( SQL_HANDLE_STMT, stmthandle, sqlres);
+end;
+
+procedure TmDataBase.CheckByteaAsLoOff(const ANeedCheck: Boolean);
+const
+  c_ColumnNameDefaultLength = 128;
+var
+  h: SQLHANDLE;
+  VRes: SQLRETURN;
+  VSQLText: String;
+  VNameLen, VDataType, VDecimalDigits, VNullable: SQLSMALLINT;
+  VColumnSize: SQLUINTEGER;
+begin
+  if ANeedCheck then begin
+    // проверяем как есть - прямым запросом
+    VSQLText := 'select null::bytea';
+    // только тут от греха всё ловим и при ошибке включаем признак
+    try
+      CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, h));
+      try
+        VRes := SQLExecDirect(h, PChar(VSQLText), Length(VSQLText));
+        CheckStatementResult(h, VRes);
+        VRes := SQLDescribeCol(h, 1, nil, 0, VNameLen, VDataType, VColumnSize, VDecimalDigits, VNullable);
+        CheckStatementResult(h, VRes);
+        // итоговая проверка
+        FByteaAsLoOff := (SQL_VARBINARY=VDataType);
+      finally
+        SQLFreeHandle( SQL_HANDLE_STMT, h);
+      end;
+    except
+      FByteaAsLoOff := TRUE;
+    end;
+  end else begin
+    // по умолчанию
+    FByteaAsLoOff := FALSE;
+  end;
 end;
 
 procedure TmDataBase.CheckSQLResult( sqlres:SQLRETURN);
@@ -440,6 +476,12 @@ begin
       ODBCDriverInfo( SQL_SCROLL_CONCURRENCY, SQLPOINTER(@FSQL_SCROLL_CONCURRENCY_VALUE), sizeof(SQLUINTEGER), nil);
 {$endif}
 
+      // ещё бы надо прочитать:
+      // SQL_DATA_SOURCE_READ_ONLY
+      // SQL_DBMS_NAME
+      // SQL_DBMS_VER
+      // SQL_MAX_CONCURRENT_ACTIVITIES aka SQL_ACTIVE_STATEMENTS
+      // SQL_SPECIAL_CHARACTERS
 
 {$if defined(ALLOW_MODBC_TRANS_ISOLATION)}
       case FTransIsolation of
