@@ -1,4 +1,6 @@
-﻿// используем напрямую ODBC
+﻿////{$define DBMS_REUSE_CONNECTIONS}
+
+// используем напрямую ODBC
 {$define USE_DIRECT_ODBC}
 
 {$if defined(USE_DIRECT_ODBC)}

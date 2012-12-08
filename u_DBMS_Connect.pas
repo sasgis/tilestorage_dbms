@@ -248,6 +248,7 @@ type
     FUsedInPool: Boolean;
   end;
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
   TDBMS_Server = class(TObjectList)
   private
     // credentials
@@ -258,7 +259,9 @@ type
     FAuthOK: Boolean;
     FAuthFailed: Boolean;
   end;
+{$ifend}
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
   TDBMS_ConnectionList = class(TObjectList)
   private
     // list of servers
@@ -272,28 +275,47 @@ type
     constructor Create;
     destructor Destroy; override;
   end;
+{$ifend}
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 var
   G_ConnectionList: TDBMS_ConnectionList;
+{$ifend}
 
 function GetConnectionByPath(const APath: PETS_Path_Divided_W): IDBMS_Connection;
+{$if defined(DBMS_REUSE_CONNECTIONS)}
+{$else}
+var
+  t: TDBMS_Connection;
+{$ifend}
 begin
+{$if defined(DBMS_REUSE_CONNECTIONS)}
   G_ConnectionList.FSyncList.BeginWrite;
   try
     Result := G_ConnectionList.SafeMakeConnection(APath);
   finally
     G_ConnectionList.FSyncList.EndWrite;
   end;
+{$else}
+  // create new connection and add it to p
+  t := TDBMS_Connection.Create;
+  t.FPath.CopyFrom(APath);
+  Result := t;
+{$ifend}
 end;
 
 procedure FreeDBMSConnection(var AConnection: IDBMS_Connection);
 begin
+{$if defined(DBMS_REUSE_CONNECTIONS)}
   G_ConnectionList.FSyncList.BeginWrite;
   try
     AConnection := nil;
   finally
     G_ConnectionList.FSyncList.EndWrite;
   end;
+{$else}
+  AConnection := nil;
+{$ifend}
 end;
 
 { TDBMS_Connection }
@@ -697,8 +719,10 @@ end;
 destructor TDBMS_Connection.Destroy;
 begin
   // called from FreeDBMSConnection - not need to sync
+{$if defined(DBMS_REUSE_CONNECTIONS)}
   G_ConnectionList.InternalRemoveConnection(Self);
-  
+{$ifend}
+
   CompactPool;
 
   try
@@ -838,6 +862,13 @@ begin
         FSQLConnection.Connected := TRUE;
         FConnectionErrorMessage := '';
         FConnectionErrorCode := ETS_RESULT_OK;
+
+        // connected - пропихнём признак в хост
+        if (AStatusBuffer<>nil) then
+        with (AStatusBuffer^) do begin
+          if wSize>=SizeOf(AStatusBuffer^) then
+            malfunction_mode := ETS_PMM_ESTABLISHED;
+        end;
       except
         on E: Exception do begin
           // '08001:17:[Microsoft][ODBC SQL Server Driver][TCP/IP Sockets]SQL-сервер не существует, или отсутствует доступ.'
@@ -847,6 +878,7 @@ begin
           // '08001:-100:[Sybase][ODBC Driver][SQL Anywhere]Database server not found'
           // 'HY000:2003:[MySQL][ODBC 5.2(w) Driver]Can't connect to MySQL server on '127.0.0.1' (10061)'
           // '08001:-21054:[MIMER][ODBC Mimer Driver]Database server for database sasgis_yandex not started'
+          // '08004:[MIMER][ODBC Mimer Driver][Mimer SQL]MIMER logins are currently disabled, try again later'#$D#$A
           // '08004:-904:[ODBC Firebird Driver]unavailable database'
           // 'HY000:12541:[Oracle][ODBC][Ora]ORA-12541: TNS:no listener'#$A
           // 'HY000:12514:[Oracle][ODBC][Ora]ORA-12514: TNS:listener does not currently know of service requested in connect descriptor'#$A
@@ -858,6 +890,14 @@ begin
           FConnectionErrorMessage := E.Message;
           FConnectionErrorCode := ETS_RESULT_NOT_CONNECTED;
           Result := ETS_RESULT_NOT_CONNECTED;
+
+          // failed - пропихнём признак в хост
+          if (AStatusBuffer<>nil) then
+          with (AStatusBuffer^) do begin
+            if wSize>=SizeOf(AStatusBuffer^) then
+              malfunction_mode := ETS_PMM_FAILED_CONNECT;
+          end;
+
           Exit;
         end;
 
@@ -1033,9 +1073,12 @@ begin
 end;
 
 procedure TDBMS_Connection.KeepAuthenticationInfo;
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 var
   VServer: TDBMS_Server;
+{$ifend}
 begin
+{$if defined(DBMS_REUSE_CONNECTIONS)}
   // get info from G_ConnectionList
   G_ConnectionList.FSyncList.BeginWrite;
   try
@@ -1059,6 +1102,7 @@ begin
   finally
     G_ConnectionList.FSyncList.EndWrite;
   end;
+{$ifend}
 end;
 
 procedure TDBMS_Connection.KillPoolDataset(var ADataset: TDBMS_Dataset);
@@ -1133,13 +1177,16 @@ end;
 
 { TDBMS_ConnectionList }
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 constructor TDBMS_ConnectionList.Create;
 begin
   inherited Create;
   FSyncList := MakeSync_Tiny(Self);
   //Self.OwnsObjects := TRUE; // TRUE is by default
 end;
+{$ifend}
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 destructor TDBMS_ConnectionList.Destroy;
 begin
   FSyncList.BeginWrite;
@@ -1151,7 +1198,9 @@ begin
   FSyncList := nil;
   inherited Destroy;
 end;
+{$ifend}
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 function TDBMS_ConnectionList.InternalGetServerObject(const AServerName: WideString): TDBMS_Server;
 var
   i: Integer;
@@ -1167,7 +1216,9 @@ begin
   end;
   Result := nil;
 end;
+{$ifend}
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 procedure TDBMS_ConnectionList.InternalRemoveConnection(const AConnection: TDBMS_Connection);
 var
   k: Integer;
@@ -1183,7 +1234,9 @@ begin
     end;
   end;
 end;
+{$ifend}
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 function TDBMS_ConnectionList.SafeMakeConnection(const APath: PETS_Path_Divided_W): IDBMS_Connection;
 var
   i: Integer;
@@ -1228,6 +1281,7 @@ begin
   p.Add(t);
   Result := t;
 end;
+{$ifend}
 
 { TDBMS_Dataset }
 
@@ -1562,8 +1616,10 @@ begin
   inherited Destroy;
 end;
 
+{$if defined(DBMS_REUSE_CONNECTIONS)}
 initialization
   G_ConnectionList := TDBMS_ConnectionList.Create;
 finalization
   FreeAndNil(G_ConnectionList);
+{$ifend}
 end.
