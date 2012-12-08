@@ -46,7 +46,7 @@ create table [%Z%%HX%%DIV%%HY%_%SVC%] (
    tile_body            image                          null,
    constraint PK_%Z%%HX%%DIV%%HY%_%SVC% primary key (x, y, id_ver)
 )
-lock datarows
+lock datapages
 go
 
 create index ZZ_%Z%%HX%%DIV%%HY%_%SVC% on [%Z%%HX%%DIV%%HY%_%SVC%] (
