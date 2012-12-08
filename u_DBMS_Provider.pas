@@ -161,6 +161,8 @@ type
 
     function GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
 
+    procedure DoOnDeadConnection;
+
     function UpdateServiceVerComp(
       const ANewVerCompMode: AnsiChar;
       out AErrorText: String
@@ -477,6 +479,7 @@ end;
 function TDBMS_Provider.AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
 var
   VSQLText: TDBMS_String;
+  VStatementExceptionType: TStatementExceptionType;
 begin
   // регистрация картосервиса в БД выполняется только в эксклюзивном режиме
   if (not AExclusively) then begin
@@ -490,15 +493,15 @@ begin
     Exit;
 
   // исполняем INSERT (вставляем запись о сервисе)
+  VStatementExceptionType := set_Success;
   try
-    if FConnection.ExecuteDirectSQL(VSQLText) then
-      Result := ETS_RESULT_OK
-    else
-      Result := ETS_RESULT_INVALID_STRUCTURE;
-  except
-    // обломались
-    Result := ETS_RESULT_INVALID_STRUCTURE;
+    FConnection.ExecuteDirectSQL(VSQLText);
+    Result := ETS_RESULT_OK;
+  except on E: Exception do
+    VStatementExceptionType := GetStatementExceptionType(E);
   end;
+
+  StandardExceptionType(VStatementExceptionType, FALSE, Result);
 end;
 
 function TDBMS_Provider.AutoCreateServiceVersion(
@@ -872,7 +875,7 @@ begin
     except
       on E: Exception do begin
         // тут если стандартные критичные ошибки - надо валить и сообщать юзеру
-        if StandardExceptionType(GetStatementExceptionType(E), Result) then
+        if StandardExceptionType(GetStatementExceptionType(E), TRUE, Result) then
           Exit;
         // прочее покажем в зависимости от настройки
         if (not VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec) then
@@ -897,6 +900,13 @@ function TDBMS_Provider.DBMS_Complete(const AFlags: LongWord): Byte;
 begin
   FCompleted := TRUE;
   Result := ETS_RESULT_OK;
+
+  // пропихнём признак в хост
+  if (FStatusBuffer<>nil) then
+  with (FStatusBuffer^) do begin
+    if wSize>=SizeOf(FStatusBuffer^) then
+      malfunction_mode := ETS_PMM_HAS_COMPLETED;
+  end;
 end;
 
 function TDBMS_Provider.DBMS_DeleteTile(
@@ -938,7 +948,7 @@ begin
     end;
 
     // что случилось
-    if not StandardExceptionType(VStatementExceptionType, Result) then
+    if not StandardExceptionType(VStatementExceptionType, FALSE, Result) then
     case VStatementExceptionType of
       set_Success, set_TableNotFound: begin
         // нет таблицы - нет и тайла
@@ -1008,7 +1018,7 @@ begin
         VStatementExceptionType := GetStatementExceptionType(E);
       end;
 
-      if StandardExceptionType(VStatementExceptionType, Result) then begin
+      if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
         // предопределённые известные критичные ошибки
         Exit
       end;
@@ -1506,6 +1516,16 @@ begin
       end else begin
         // can reset
         FConnection.ResetConnectionError;
+
+        // пропихнём признак в хост
+        // НО только если настройка хранилища завершена
+        if FCompleted then
+        if (FStatusBuffer<>nil) then
+        with (FStatusBuffer^) do begin
+          if wSize>=SizeOf(FStatusBuffer^) then
+            malfunction_mode := ETS_PMM_HAS_COMPLETED;
+        end;
+
         VResponse := VResponse +
                    '<br>' +
                    'Done';
@@ -1807,7 +1827,7 @@ begin
         VStatementExceptionType := GetStatementExceptionType(E);
       end;
 
-      if StandardExceptionType(VStatementExceptionType, Result) then begin
+      if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
         // предопределённые известные критичные ошибки
         Exit;
       end;
@@ -1881,7 +1901,7 @@ begin
           VStatementExceptionType := GetStatementExceptionType(E);
         end;
 
-        if StandardExceptionType(VStatementExceptionType, Result) then begin
+        if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
           // предопределённые известные критичные ошибки
           Exit;
         end;
@@ -1958,7 +1978,7 @@ begin
         VStatementExceptionType := GetStatementExceptionType(E);
       end;
 
-      if StandardExceptionType(VStatementExceptionType, Result) then begin
+      if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
         // предопределённые известные критичные ошибки
         Exit;
       end;
@@ -2155,6 +2175,19 @@ begin
     FProvSync.EndWrite
   else
     FProvSync.EndRead;
+end;
+
+procedure TDBMS_Provider.DoOnDeadConnection;
+begin
+  // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
+  FReconnectPending := TRUE;
+
+  // пропихнём признак в хост
+  if (FStatusBuffer<>nil) then
+  with (FStatusBuffer^) do begin
+    if wSize>=SizeOf(FStatusBuffer^) then
+      malfunction_mode := ETS_PMM_CONNECT_DEAD;
+  end;
 end;
 
 function TDBMS_Provider.FillTableNamesForTiles(
@@ -3301,6 +3334,14 @@ function TDBMS_Provider.InternalProv_Connect(const AExclusively: Boolean): Byte;
 begin
   if (not FCompleted) then begin
     Result := ETS_RESULT_INCOMPLETE;
+
+    // пропихнём признак в хост
+    if (FStatusBuffer<>nil) then
+    with (FStatusBuffer^) do begin
+      if wSize>=SizeOf(FStatusBuffer^) then
+        malfunction_mode := ETS_PMM_NOT_COMPLETED;
+    end;
+    
     Exit;
   end;
 
@@ -3392,7 +3433,7 @@ begin
       VStatementExceptionType := GetStatementExceptionType(E);
     end;
 
-    if StandardExceptionType(VStatementExceptionType, Result) then begin
+    if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
       // предопределённые известные критичные ошибки
       InternalProv_ClearServiceInfo;
       Exit;
@@ -3745,14 +3786,12 @@ begin
   if (0<Length(c_ODBC_SQLSTATE_ConnectionIsDead_1[VEngineType])) then begin
     if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ConnectionIsDead_1[VEngineType]) then begin
       Result := set_ConnectionIsDead;
-      // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
-      FReconnectPending := TRUE;
+      DoOnDeadConnection;
       Exit;
     end;
     if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ConnectionIsDead_2[VEngineType]) then begin
       Result := set_ConnectionIsDead;
-      // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
-      FReconnectPending := TRUE;
+      DoOnDeadConnection;
       Exit;
     end;
   end;
@@ -3767,7 +3806,12 @@ begin
     Exit;
   end;
 
-  // '25000:3906:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0][SQL SERVER]Не удалось обновить базу данных "SAS_MS", так как она предназначена только для чтения.'
+  if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ReadOnlyConnection[VEngineType]) then begin
+    Result := set_ReadOnlyConnection;
+    Exit;
+  end;
+
+  // 'HY000:955:[ORACLE][ODBC][ORA]ORA-00955: NAME IS ALREADY USED BY AN EXISTING OBJECT'#$A
 
   // что-то иное
   Result := set_Unknown;

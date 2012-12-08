@@ -61,6 +61,7 @@ type
     set_ConnectionIsDead,
     set_DataTruncation,
     set_UnsynchronizedStatements,
+    set_ReadOnlyConnection,
     set_Unknown
   );
 
@@ -451,7 +452,7 @@ const
     TRUE,   // MSSQL
     FALSE,  // ASE // OK with FALSE
     FALSE,  // ASA
-    FALSE,  // Oracle
+    TRUE,   // Oracle
     TRUE,   // Informix
     TRUE,   // DB2
     TRUE,   // MySQL
@@ -604,21 +605,30 @@ const
   );
 
   // dead connection for PostgreSQL
+  // '08S01:26:COULD NOT SEND QUERY TO BACKEND;'#$A'COULD NOT SEND QUERY TO BACKEND'
   // '42P01:26:COULD NOT SEND QUERY(CONNECTION DEAD);'#$A'COULD NOT SEND QUERY(CONNECTION DEAD)'
   // others:
   // '08S01:10054:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0]Поставщик TCP: Удаленный хост принудительно разорвал существующее подключение.'#$D#$A
   // '08S02:-1:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0]Поставщик SMUX: Физическое подключение недоступно [XFFFFFFFF]. '
+  // 'HY000:1012:[ORACLE][ODBC][ORA]ORA-01012: NOT LOGGED ON'#$A'PROCESS ID: 3116'#$A'SESSION ID: 137 SERIAL NUMBER: 101'#$A
+  // '08S01:-11020:[INFORMIX][INFORMIX ODBC DRIVER]COMMUNICATION LINK FAILURE.'
+  // '40003:-30081:[IBM][CLI DRIVER] SQL30081N  A COMMUNICATION ERROR HAS BEEN DETECTED. COMMUNICATION PROTOCOL BEING USED: "TCP/IP".  COMMUNICATION API BEING USED: "SOCKETS".  LOCATION WHERE THE ERROR WAS DETECTED: "192.168.1.8".  COMMUNICATION FUNCTION DETECTING THE ERROR: "RECV".  PROTOCOL SPECIFIC ERROR CODE(S): "*", "*", "0".  SQLSTATE=08001'#$D#$A
+  // '08S01:30046:[SYBASE][ODBC DRIVER]CONNECTION TO SYBASE SERVER HAS BEEN LOST. CONNECTION DIED WHILE READING FROM SOCKET. SOCKET RETURNED ERROR CODE 0. ERRNO RETURNED 0. ALL ACTIVE TRANSACTIONS HAVE BEEN ROLLED BACK.'
+  // 'HY000:-308:[SYBASE][ODBC DRIVER][SQL ANYWHERE]CONNECTION WAS TERMINATED'
+  // '08S01:-21048:[MIMER][ODBC MIMER DRIVER]UNEXPECTED COMMUNICATION ERROR'
+  // 'HY000:2003:[MYSQL][ODBC 5.2(W) DRIVER][MYSQLD-5.5.28-MARIADB]CAN'T CONNECT TO MYSQL SERVER ON '127.0.0.1' (10061)'
+  // '08S01:-901:[ODBC FIREBIRD DRIVER][FIREBIRD]CONNECTION LOST TO DATABASE'
   c_ODBC_SQLSTATE_ConnectionIsDead_1 : array [TEngineType] of String = (
     '08S01:10054:',  // Microsoft SQL
-    '',              // Sybase ASE
-    '',              // Sybase ASA
-    '',              // Oracle
-    '',              // Informix
-    '',              // DB2
-    '',              // MySQL
-    '42P01:26:',     // PostgreSQL
-    '',              // Mimer
-    '',              // Firebird
+    '08S01:30046:',  // Sybase ASE
+    'HY000:-308:',   // Sybase ASA
+    'HY000:1012:',   // Oracle
+    '08S01:-11020:', // Informix
+    '40003:-30081:', // DB2
+    'HY000:2003:',   // MySQL
+    '08S01:26:',     // PostgreSQL
+    '08S01:-21048:', // Mimer
+    '08S01:-901:',   // Firebird
     ''               // Unknown or unsupported - no mask here - empty
   );
   c_ODBC_SQLSTATE_ConnectionIsDead_2 : array [TEngineType] of String = (
@@ -629,7 +639,7 @@ const
     '',              // Informix
     '',              // DB2
     '',              // MySQL
-    '',              // PostgreSQL
+    '42P01:26:',     // PostgreSQL
     '',              // Mimer
     '',              // Firebird
     ''               // Unknown or unsupported - no mask here - empty
@@ -665,6 +675,25 @@ const
     ''               // Unknown or unsupported - no mask here - empty
   );
 
+  // PostgreSQL:
+  // 'HY000:1:CONNECTION IS READONLY, ONLY SELECT STATEMENTS ARE ALLOWED.'
+  // others:
+  // '25000:3906:[MICROSOFT][SQL SERVER NATIVE CLIENT 10.0][SQL SERVER]Не удалось обновить базу данных "SAS_MS", так как она предназначена только для чтения.'
+  // 'ZZZZZ:3906:[SYBASE][ODBC DRIVER][ADAPTIVE SERVER ENTERPRISE]ATTEMPT TO BEGIN TRANSACTION IN DATABASE 'SAS_ASE' FAILED BECAUSE DATABASE IS READ ONLY.'#$A
+  // 'HY000:-817:[ODBC FIREBIRD DRIVER][FIREBIRD]ATTEMPTED UPDATE DURING READ-ONLY TRANSACTION'
+  c_ODBC_SQLSTATE_ReadOnlyConnection : array [TEngineType] of String = (
+    '25000:3906:',   // Microsoft SQL
+    'ZZZZZ:3906:',   // Sybase ASE
+    '',              // Sybase ASA
+    '',              // Oracle
+    '',              // Informix
+    '',              // DB2
+    '',              // MySQL
+    'HY000:1:',      // PostgreSQL
+    '',              // Mimer
+    'HY000:-817:',   // Firebird
+    ''               // Unknown or unsupported - no mask here - empty
+  );
   
 
   // максимальная общая длина sqlstate и nativeerror в начале текста исключения
@@ -698,6 +727,7 @@ function OdbcEceptionStartsWith(const AText, AStarter: String): Boolean;
 // если нет - AResult не трогается
 function StandardExceptionType(
   const AStatementExceptionType: TStatementExceptionType;
+  const ASkipUnknown: Boolean;
   var AResult: Byte
 ): Boolean;
 
@@ -936,6 +966,7 @@ end;
 
 function StandardExceptionType(
   const AStatementExceptionType: TStatementExceptionType;
+  const ASkipUnknown: Boolean;
   var AResult: Byte
 ): Boolean;
 begin
@@ -956,9 +987,13 @@ begin
       AResult := ETS_RESULT_NEED_EXCLUSIVE;
       Result := TRUE;
     end;
+    set_ReadOnlyConnection: begin
+      AResult := ETS_RESULT_READ_ONLY;
+      Result := TRUE;
+    end;
     set_Unknown: begin
       AResult := ETS_RESULT_UNKNOWN_EXEPTION;
-      Result := TRUE;
+      Result := (not ASkipUnknown);
     end;
     else begin
       // все остальные зависят от контекста
