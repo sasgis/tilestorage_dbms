@@ -17,8 +17,12 @@ unit mExcept;
 }
 interface
 
-uses Windows, SysUtils, Classes, Graphics, Forms, Controls, Buttons,
-  StdCtrls, ExtCtrls, Db, odbcsql;
+uses
+  Windows,
+  SysUtils,
+  Classes,
+  Db,
+  odbcsql;
 
 type
   ESQLerror = class(Exception)
@@ -28,32 +32,6 @@ type
     NativeError: SQLINTEGER;
     constructor CreateDiag(HandleType:SQLSMALLINT; Handle:SQLHANDLE; nError:SQLINTEGER);
     destructor Destroy; override;
-  end;
-
-  TmODBCErrorDlg = class(TForm)
-    Panel1: TPanel;
-    OKBtn: TButton;
-    BackBtn: TButton;
-    NextBtn: TButton;
-    Panel2: TPanel;
-    Panel3: TPanel;
-    Panel4: TPanel;
-    IconImage: TImage;
-    ScrollBox1: TScrollBox;
-    ErrorLabel: TLabel;
-    procedure FormShow(Sender: TObject);
-    procedure BackClick(Sender: TObject);
-    procedure NextClick(Sender: TObject);
-    procedure FormDestroy(Sender: TObject);
-    procedure FormCreate(Sender: TObject);
-  private
-    FPrevOnException: TExceptionEvent;
-    FExceptionAddr: ESQLError;
-    procedure HandleException(Sender: TObject; E: Exception);
-    procedure ShowError;
-  public
-    function ShowException(Error: ESQLError): TModalResult;
-    property ExceptionAddr: ESQLError read FExceptionAddr write FExceptionAddr;
   end;
 
   // ODBC environment errors
@@ -77,13 +55,9 @@ type
   EMODBCStrictDatabaseError = class(EMODBCCommonError);
   EMODBCExecStatementError  = class(EMODBCCommonError);
 
-
-var
-  mODBCErrorDlg: TmODBCErrorDlg;
-
 implementation
 
-{$R *.DFM}
+{ ESQLError }
 
 constructor ESQLError.CreateDiag(HandleType:SQLSMALLINT; Handle:SQLHANDLE; nError:SQLINTEGER);
 const
@@ -146,81 +120,6 @@ begin
     MessageList.Free;
 
   inherited destroy;
-end;
-
-procedure TmODBCErrorDlg.HandleException(Sender: TObject; E: Exception);
-begin
-  if (E is ESQLError) and (ExceptionAddr = nil) and not Application.Terminated then
-  begin
-    ShowException(ESQLError(E));
-  end else
-  begin
-    if Assigned(FPrevOnException)
-      then FPrevOnException(Sender, E)
-      else Application.ShowException(E);
-  end;
-end;
-
-procedure TmODBCErrorDlg.ShowError;
-begin
-  BackBtn.Enabled := Tag > 0;
-  if Assigned(ExceptionAddr.MessageList) and (ExceptionAddr.MessageList.Count > 0) then
-  begin
-    NextBtn.Enabled := Tag < ExceptionAddr.MessageList.Count - 1;
-    Errorlabel.Caption := ExceptionAddr.MessageList[Tag];
-  end else
-  begin
-    NextBtn.Enabled := False;
-    Errorlabel.Caption := ExceptionAddr.Message;
-   end;
-end;
-
-procedure TmODBCErrorDlg.FormDestroy(Sender: TObject);
-begin
-  mODBCErrorDlg := nil;
-  {if Assigned(FPrevOnException) then }Application.OnException := FPrevOnException;
-end;
-
-procedure TmODBCErrorDlg.FormShow(Sender: TObject);
-begin
-  Tag := 0;
-  ShowError;
-end;
-
-procedure TmODBCErrorDlg.BackClick(Sender: TObject);
-begin
-  Tag := Tag - 1;
-  ShowError;
-end;
-
-procedure TmODBCErrorDlg.NextClick(Sender: TObject);
-begin
-  Tag := Tag + 1;
-  ShowError;
-end;
-
-function TmODBCErrorDlg.ShowException(Error: ESQLError): TModalResult;
-begin
-  ExceptionAddr := Error;
-  Result := ShowModal;
-  ExceptionAddr := nil;
-end;
-
-procedure TmODBCErrorDlg.FormCreate(Sender: TObject);
-begin
-  FPrevOnException := Application.OnException;
-  Application.OnException := HandleException;
-end;
-
-initialization
-begin
-  mODBCErrorDlg:=TmODBCErrorDlg.Create(Application);
-end;
-
-finalization
-begin
-  if Assigned(mODBCErrorDlg) then
-    mODBCErrorDlg.free;
 end;
 
 end.

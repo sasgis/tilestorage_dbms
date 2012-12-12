@@ -11,9 +11,12 @@ interface
 //{$define ALLOW_MODBC_AUTOCOMMIT}
 
 uses
-  Windows, SysUtils, Classes,
-  Forms, Db,controls,
-  mSession, ODBCsql;
+  Windows,
+  SysUtils,
+  Classes,
+  Db,
+  mSession,
+  ODBCsql;
 
 type
   TmDataBase = class;
@@ -52,10 +55,12 @@ type
     FSQL_STATIC_SENSITIVITY_VALUE: SQLUINTEGER;
 {$ifndef ODBCVER3UP}
     FSQL_SCROLL_CONCURRENCY_VALUE: SQLUINTEGER; // deprecated in ODBC 3.x
-{$endif}    
+{$endif}
+{$if defined(ALLOW_MODBC_HOURGLASS)}
     FWaitCursor: TCursor;
     FOldCursor: TCursor;
     FShowWaitCursor: boolean;
+{$ifend}
     FByteaAsLoOff: Boolean;
     FConnectWithParams: Boolean;
     FConnectWithInfoMessages: String;
@@ -68,14 +73,18 @@ type
     function GetUID: String;
     function GetPWD: String;
     procedure SetDatabaseName(Name:String);
+{$if defined(ALLOW_MODBC_HOURGLASS)}
     procedure SetWaitCursor(const Value: TCursor);
     procedure SetOldCursor(const Value: TCursor);
     procedure SetShowWaitCursor(const Value: boolean);
+{$ifend}
     procedure SetConnected(const Value: Boolean);
   protected
     { Protected declarations }
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+{$if defined(ALLOW_MODBC_HOURGLASS)}
     property OldCursor:TCursor read FOldCursor write SetOldCursor;
+{$ifend}
   public
     { Public declarations }
     property Connected: Boolean read GetConnected write SetConnected;
@@ -139,8 +148,11 @@ type
     procedure Rollback;
     procedure IncludeDataSet( Adataset: TDataSet);
     procedure ExcludeDataSet( Adataset: TDataSet);
+
+{$if defined(ALLOW_MODBC_HOURGLASS)}
     procedure BusyCursor;
     procedure RestoreCursor;
+{$ifend}
 
     function ExecuteDirectSQL(
       const ASQLText: String;
@@ -204,8 +216,10 @@ type
                                                default TxnDefault;
 {$ifend}
 
+{$if defined(ALLOW_MODBC_HOURGLASS)}
     property WaitCursor:TCursor read FWaitCursor write SetWaitCursor;
     property ShowWaitCursor:boolean read FShowWaitCursor write SetShowWaitCursor;
+{$ifend}
 
   end;
 
@@ -243,7 +257,9 @@ begin
 {$ifend}
 
   fhdbc             := 0;
+{$if defined(ALLOW_MODBC_HOURGLASS)}
   FWaitCursor       :=crSQLWait;
+{$ifend}
 end;
 
 destructor TmDataBase.Destroy;
@@ -360,8 +376,11 @@ var
 begin
   if Connected then
     exit;
+    
+{$if defined(ALLOW_MODBC_HOURGLASS)}
   try
     BusyCursor;
+{$ifend}
 
     CheckSQLResult(SQLAllocHandle(SQL_HANDLE_DBC, GetHENV, fhdbc));
 
@@ -503,9 +522,13 @@ begin
       fhdbc := 0;
       raise;
     end;
+    
+{$if defined(ALLOW_MODBC_HOURGLASS)}
   finally
     restorecursor;
   end;
+{$ifend}
+
 end;
 
 procedure TmDataBase.DisConnect;
@@ -514,8 +537,12 @@ var
 begin
   if not Connected then
     exit;
+
+{$if defined(ALLOW_MODBC_HOURGLASS)}
   try
     BusyCursor;
+{$ifend}
+
     for i := 0 to FDataSetList.Count-1 do
       with TmCustomQuery(FDataSetList.Items[i]) do
          FreeStmt;
@@ -523,9 +550,13 @@ begin
     SQLDisConnect(fhdbc);
     SQLFreeHandle(SQL_HANDLE_DBC, fhdbc);
     fhdbc := 0;
+
+{$if defined(ALLOW_MODBC_HOURGLASS)}
   finally
     restorecursor;
   end;
+{$ifend}
+
 end;
 
 function TmDataBase.GetConnected:Boolean;
@@ -1031,16 +1062,21 @@ begin // datatypes depend from driver
   end;
 end;
 
+{$if defined(ALLOW_MODBC_HOURGLASS)}
 procedure TmDataBase.SetWaitCursor(const Value: TCursor);
 begin
   FWaitCursor := Value;
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_HOURGLASS)}
 procedure TmDataBase.SetOldCursor(const Value: TCursor);
 begin
   FOldCursor := Value;
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_HOURGLASS)}
 procedure TmDataBase.BusyCursor;
 begin
   if ShowWaitCursor then
@@ -1052,7 +1088,9 @@ begin
     end;
   end;
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_HOURGLASS)}
 procedure TmDataBase.RestoreCursor;
 begin
   if ShowWaitCursor then
@@ -1063,10 +1101,13 @@ begin
     end;
   end;
 end;
+{$ifend}
 
+{$if defined(ALLOW_MODBC_HOURGLASS)}
 procedure TmDataBase.SetShowWaitCursor(const Value: boolean);
 begin
   FShowWaitCursor := Value;
 end;
+{$ifend}
 
 end.

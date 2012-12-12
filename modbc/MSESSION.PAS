@@ -5,8 +5,10 @@ unit mSession;
 interface
 
 uses
-  SysUtils, Classes, Forms,
-  odbcsql, mconst;
+  SysUtils,
+  Classes,
+  odbcsql,
+  mconst;
 
 type
   TmSession = class(TComponent)

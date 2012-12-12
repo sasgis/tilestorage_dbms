@@ -17,8 +17,12 @@ uses
   Windows,
   SysUtils,
   Classes,
+{$if defined(ALLOW_USES_FORMS)}
   Forms,
+{$ifend}
+{$if defined(ALLOW_USES_DIALOGS)}
   Dialogs,
+{$ifend}
   Db,
   mDataBas,
   odbcsql,
@@ -1464,7 +1468,9 @@ end;
 
 procedure TmCustomQuery.InternalPost;
 var
+{$if defined(ALLOW_USES_DIALOGS)}
   i:     integer;
+{$ifend}
   iNull: SQLINTEGER;
   bNull: char;
 
@@ -1576,9 +1582,11 @@ begin
       begin // use insertsql statement
         SetParamsForUpdateSQL(ukInsert);
         FQueries[ukInsert].ExecSql;
+{$if defined(ALLOW_USES_DIALOGS)}
         i := FQueries[ukInsert].RowsAffected;
         if i <= 0 then ShowMessage( SmNoRowsAffected);
         if i > 1  then ShowMessage( SmMoreRowsAffected);
+{$ifend}
       end else
       begin
          BindCurRecord;
@@ -1603,9 +1611,11 @@ begin
       begin // use updatesql
          SetParamsForUpdateSQL(ukModify);
          FQueries[ukModify].ExecSql;
+{$if defined(ALLOW_USES_DIALOGS)}
          i:=FQueries[ukModify].RowsAffected;
          if i<=0 then ShowMessage( SmNoRowsAffected);
          if i>1  then ShowMessage( SmMoreRowsAffected);
+{$ifend}
       end else
       begin
          BindCurRecord;
@@ -1633,16 +1643,20 @@ begin
 end;
 
 procedure TmCustomQuery.InternalDelete;
+{$if defined(ALLOW_USES_DIALOGS)}
 var
   i:  LongInt;
+{$ifend}
 begin
   if Length(FUpdateSQL[ukDelete].Text) > 0 then
   begin // use updatesql
     SetParamsForUpdateSQL(ukDelete);
     FQueries[ukDelete].ExecSql;
+{$if defined(ALLOW_USES_DIALOGS)}
     i:=FQueries[ukDelete].RowsAffected;
     if i <= 0 then ShowMessage( SmNoRowsAffected);
     if i > 1  then ShowMessage( SmMoreRowsAffected);
+{$ifend}
     AddDeletedToList( ActiveBuffer);
   end else
   begin
@@ -2056,7 +2070,9 @@ begin
   try
     FDataSet.DataEvent(deFieldChange, Longint(FField));
   except
+{$if defined(ALLOW_USES_FORMS)}
     Application.HandleException(Self);
+{$ifend}
   end;
 end;
 

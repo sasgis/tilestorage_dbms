@@ -508,7 +508,9 @@ end;
 
 procedure TmCustomQuery.InternalHandleException;
 begin
-  Application.HandleException(Self)
+{$if defined(ALLOW_USES_FORMS)}
+  Application.HandleException(Self);
+{$ifend}
 end;
 
 // move data from record to user's buffer
