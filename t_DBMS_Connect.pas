@@ -48,6 +48,19 @@ const
   // для подключения через ODBC
   ETS_INTERNAL_ODBC_ConnectWithParams = ETS_INTERNAL_PARAMS_PREFIX + 'ODBC_ConnectWithParams';
 
+  // разрешение сохранять (и читать сохранённый) пароль, а также режим работы
+  ETS_INTERNAL_PWD_Save          = ETS_INTERNAL_PARAMS_PREFIX + 'PWD_Save';
+  // значения - либо 0 для отключки, либо 1 для включки, либо это:
+  ETS_INTERNAL_PWD_Save_Lsa      = 'Lsa';
+  
+
+const
+  // параметры для Credentials
+  c_Cred_UserName = 'username';
+  c_Cred_Password = 'password';
+  c_Cred_SaveAuth = 'saveauth';
+  c_Cred_ResetErr = 'reseterr';
+  
 implementation
 
 end.

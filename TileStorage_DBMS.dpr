@@ -20,6 +20,9 @@ uses
   t_DBMS_Connect in 't_DBMS_Connect.pas',
   t_types in 't_types.pas',
   u_exports in 'u_exports.pas',
+  u_LsaTools in 'u_LsaTools.pas',
+  u_CryptoTools in 'u_CryptoTools.pas',
+  u_PStoreTools in 'u_PStoreTools.pas',
   u_Exif_Parser in 'u_Exif_Parser.pas',
   u_Tile_Parser in 'u_Tile_Parser.pas',
   u_ExecuteSQLArray in 'u_ExecuteSQLArray.pas';

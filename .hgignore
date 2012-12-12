@@ -9,3 +9,4 @@ __history/*
 *.bak
 *.groupproj.local
 model/*.pdb
+u_PStoreConst.pas

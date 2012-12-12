@@ -161,6 +161,10 @@ type
     // текст ошибки при подключении
     function GetConnectionErrorMessage: String;
     procedure ResetConnectionError;
+
+    // применение настроек аутентификации из формы
+    procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
+    function AllowSavePassword: Boolean;
   end;
 
   TDBMS_Connection = class(TInterfacedObject, IDBMS_Connection)
@@ -180,6 +184,10 @@ type
     // кэшируем результат коннекта к серверу
     FConnectionErrorMessage: String;
     FConnectionErrorCode: Byte;
+    // если TRUE - пароль будет сохраняться как Lsa Secret
+    // если FALSE - просто в реестре (в обоих случаях он шифруется)
+    FSavePwdAsLsaSecret: Boolean;
+    FReadPrevSavedPwd: Boolean;
   protected
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     procedure KeepAuthenticationInfo;
@@ -190,6 +198,10 @@ type
     function IsTrustedConnection: Boolean;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
     function calc_exclusive_mode: AnsiChar;
+  private
+    function PasswordStorage_SaveParams(const AUserNameToSave, APasswordToSave: String): Boolean;
+    function PasswordStorage_ReadParams(var ASavedUserName, ASavedPassword: String): Boolean;
+    function PasswordStorage_ApplyStored: Boolean;
   private
     { IDBMS_Connection }
     procedure CompactPool;
@@ -223,6 +235,9 @@ type
 
     function GetConnectionErrorMessage: String;
     procedure ResetConnectionError;
+
+    procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
+    function AllowSavePassword: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -238,6 +253,7 @@ implementation
 uses
   IniFiles,
   Contnrs,
+  u_PStoreTools,
   u_ODBC_DSN,
   u_Synchronizer,
   u_DBMS_Utils;
@@ -320,6 +336,11 @@ end;
 
 { TDBMS_Connection }
 
+function TDBMS_Connection.AllowSavePassword: Boolean;
+begin
+  Result := FReadPrevSavedPwd;
+end;
+
 function TDBMS_Connection.ApplyConnectionParams: Byte;
 var
   VSectionName: String;
@@ -398,6 +419,11 @@ begin
     // для более быстрого доступа
     FSQLConnection.FETS_INTERNAL_SYNC_SQL_MODE := StrToIntDef(AParamValue, c_SYNC_SQL_MODE_None);
     Exit;
+  end else if SameText(ETS_INTERNAL_PWD_Save, AParamName) then begin
+    // разрешение читать сохранённый пароль (и оно же - разрешение сохранять пароль) + режим Lsa
+    FSavePwdAsLsaSecret := SameText(AParamValue, ETS_INTERNAL_PWD_Save_Lsa);
+    FReadPrevSavedPwd := FSavePwdAsLsaSecret or (StrToIntDef(AParamValue, 0) <> 0);
+    Exit;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(USE_DIRECT_ODBC)}
     FSQLConnection.ConnectWithParams := (StrToIntDef(AParamValue, 0) <> 0);
@@ -429,6 +455,30 @@ end;
 function TDBMS_Connection.TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
 begin
   Result := FSQLConnection.TableExistsDirect(AFullyQualifiedQuotedTableName);
+end;
+
+procedure TDBMS_Connection.ApplyCredentialsFormParams(const AFormParams: TStrings);
+begin
+  // применяем логин и пароль
+  if (FSQLConnection<>nil) then begin
+{$if defined(USE_DIRECT_ODBC)}
+    //FSQLConnection.UID := AFormParams.Values[c_Cred_UserName];
+    FSQLConnection.Params.Values['UID'] := AFormParams.Values[c_Cred_UserName];
+    //FSQLConnection.PWD := AFormParams.Values[c_Cred_Password];
+    FSQLConnection.Params.Values['PWD'] := AFormParams.Values[c_Cred_Password];
+{$elseif defined(ETS_USE_ZEOS)}
+    FSQLConnection.User := AFormParams.Values[c_Cred_UserName];
+    FSQLConnection.Password := AFormParams.Values[c_Cred_Password];
+{$else}
+    FSQLConnection.Params.Values[TDBXPropertyNames.UserName] := AFormParams.Values[c_Cred_UserName];
+    FSQLConnection.Params.Values[TDBXPropertyNames.Password] := AFormParams.Values[c_Cred_Password];
+{$ifend}
+  end;
+
+  // здесь если указано сохранять настройки подключения - сохраним их
+  if (AFormParams.Values[c_Cred_SaveAuth]='1') then begin
+    PasswordStorage_SaveParams(AFormParams.Values[c_Cred_UserName], AFormParams.Values[c_Cred_Password]);
+  end;
 end;
 
 function TDBMS_Connection.ApplyODBCParamsToConnection(const AOptionalList: TStrings): Byte;
@@ -521,6 +571,10 @@ begin
   {$if not defined(USE_MODBC)}
   FSQLConnection.LoginPrompt := FALSE;
   {$ifend}
+
+  if FReadPrevSavedPwd then begin
+    PasswordStorage_ApplyStored;
+  end;
 
   Result := ETS_RESULT_OK;
 {$elseif defined(ETS_USE_ZEOS)}
@@ -643,7 +697,8 @@ begin
 end;
 
 function TDBMS_Connection.ApplySystemDSNtoConnection: Byte;
-var VSystemDSNName: WideString;
+var
+  VSystemDSNName: WideString;
 begin
   // применение параметров подключения без ini-шки
   // доступно не для всех СУБД
@@ -652,6 +707,9 @@ begin
     // нашёлся SystemDSN
     // FSQLConnection.Params['DSN'] := VSystemDSNName;
     FSQLConnection.DataBaseName := VSystemDSNName;
+
+    PasswordStorage_ApplyStored;
+
 {$if not defined(USE_MODBC)}
     FSQLConnection.LoginPrompt := FALSE;
 {$ifend}
@@ -706,6 +764,8 @@ begin
   FEngineType := et_Unknown;
   FODBCDescription := '';
   inherited Create;
+  FSavePwdAsLsaSecret := FALSE;
+  FReadPrevSavedPwd := FALSE;
   FSyncPool := MakeSync_Tiny(Self);
   FSQLConnection := TDBMS_Custom_Connection.Create(nil);
   FInternalLoadLibraryStd := 0;
@@ -873,6 +933,7 @@ begin
         on E: Exception do begin
           // '08001:17:[Microsoft][ODBC SQL Server Driver][TCP/IP Sockets]SQL-сервер не существует, или отсутствует доступ.'
           // '28P01:210:ВАЖНО: пользователь "postgres" не прошёл проверку подлинности (по паролю)'
+          // 'HY000:A password is required for this connection.'#$D#$A
           // '08001:101:Could not connect to the server;'#$A'No connection could be made because the target machine actively refused it.'#$D#$A' [::1:5432]'
           // '08001:30012:[Sybase][ODBC Driver]Client unable to establish a connection'
           // '08001:-100:[Sybase][ODBC Driver][SQL Anywhere]Database server not found'
@@ -1167,6 +1228,88 @@ begin
   finally
     FSyncPool.EndWrite;
   end;
+end;
+
+function TDBMS_Connection.PasswordStorage_ApplyStored: Boolean;
+var
+  VSavedUserName, VSavedPassword: String;
+begin
+  Result := PasswordStorage_ReadParams(VSavedUserName, VSavedPassword);
+  if Result then begin
+    FSQLConnection.Params.Values['UID'] := VSavedUserName;
+    FSQLConnection.Params.Values['PWD'] := VSavedPassword;
+  end;
+end;
+
+function TDBMS_Connection.PasswordStorage_ReadParams(var ASavedUserName, ASavedPassword: String): Boolean;
+var
+  VPStore: IPStore;
+  VPKeyedCrypter: IPKeyedCrypter;
+  VSecretValue: WideString;
+  VList: TStringList;
+begin
+  Result := FALSE;
+
+  if (not FReadPrevSavedPwd) then
+    Exit;
+
+  VPStore := GetPStoreIface;
+
+  if (nil=VPStore) then
+    Exit;
+
+  VPKeyedCrypter := VPStore.CreateDefaultCrypter(FSavePwdAsLsaSecret);
+
+  if (nil=VPKeyedCrypter) or (not VPKeyedCrypter.KeyAvailable) then
+    Exit;
+
+  if VPKeyedCrypter.LoadSecret(FPath.AsEndpoint, VSecretValue) then begin
+    VList:=TStringList.Create;
+    try
+      VList.Text := VSecretValue;
+      Result := (VList.IndexOfName('UID')>=0) and (VList.IndexOfName('PWD')>=0);
+      if Result then begin
+        ASavedUserName := VList.Values['UID'];
+        ASavedPassword := VList.Values['PWD'];
+      end;
+    finally
+      VList.Free;
+    end;
+  end;
+end;
+
+function TDBMS_Connection.PasswordStorage_SaveParams(const AUserNameToSave, APasswordToSave: String): Boolean;
+var
+  VPStore: IPStore;
+  VPKeyedCrypter: IPKeyedCrypter;
+  VSecretValue: WideString;
+  VList: TStringList;
+begin
+  Result := FALSE;
+
+  if (not FReadPrevSavedPwd) then
+    Exit;
+
+  VPStore := GetPStoreIface;
+
+  if (nil=VPStore) then
+    Exit;
+
+  VPKeyedCrypter := VPStore.CreateDefaultCrypter(FSavePwdAsLsaSecret);
+
+  if (nil=VPKeyedCrypter) or (not VPKeyedCrypter.KeyAvailable) then
+    Exit;
+
+  VList:=TStringList.Create;
+  try
+    VList.Values['UID'] := AUserNameToSave;
+    VList.Values['PWD'] := APasswordToSave;
+    VSecretValue := VList.Text;
+  finally
+    VList.Free;
+  end;
+
+  Result := VPKeyedCrypter.SaveSecret(FPath.AsEndpoint, VSecretValue);
 end;
 
 procedure TDBMS_Connection.ResetConnectionError;
@@ -1607,6 +1750,7 @@ end;
 constructor TDBMS_Custom_Connection.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  FETS_INTERNAL_SYNC_SQL_MODE := 0;
   InitializeCriticalSection(FSYNC_SQL_MODE_CS);
 end;
 

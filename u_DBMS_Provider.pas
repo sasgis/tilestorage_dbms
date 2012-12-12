@@ -162,6 +162,7 @@ type
     function GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
 
     procedure DoOnDeadConnection;
+    procedure DoResetConnectionError;
 
     function UpdateServiceVerComp(
       const ANewVerCompMode: AnsiChar;
@@ -1130,6 +1131,8 @@ const
   c_EO_ResetConnError = 'ResetConnError';
   c_EO_GetUnknErrors  = 'GetUnknErrors';
   c_EO_ClearErrors    = 'ClearErrors';
+  c_EO_SetAuthOpt     = 'SetAuthOpt';
+  c_EO_ApplyAuthOpt   = 'ApplyAuthOpt';
 
 var
   VFullPrefix: String;
@@ -1250,6 +1253,8 @@ var
                    FConnection.GetConnectionErrorMessage +
                    '<br>' +
                    '<br>' +
+                   'Click <a href="' + VFullPrefix + '/' + c_EO_SetAuthOpt + '">HERE</a> to set or change Authentication options' +
+                   '<br>' +
                    'Click <a href="' + VFullPrefix + '/' + c_EO_ResetConnError + '">HERE</a> to reset connection information if you want another try';
 
 
@@ -1297,6 +1302,74 @@ var
     end;
 
     AResponseText := AResponseText + '</table>';
+  end;
+
+  function _AllowSavePassword: Boolean;
+  begin
+    Result := (nil <> FConnection) and (FConnection.AllowSavePassword);
+  end;
+
+  function _AddHtmlLabelCheckbox(const ANameId, ALabelText: String; const AChecked: Boolean): String;
+  begin
+    if AChecked then
+      Result := 'checked="checked" '
+    else
+      Result := '';
+    Result := '<label><input type="checkbox" name="' + ANameId + '" id="' + ANameId + '" value="1" ' + Result + '/>' + ALabelText + '</label>';
+  end;
+
+  function _ParseFormValues(const ASourceText: String; out AResponse: String): Boolean;
+  var
+    p: Integer;
+    VFormAction: String;
+    VFormParams: TStringList;
+  begin
+    p := System.Pos('?', ASourceText);
+    Result := (p>0);
+    if not Result then
+      Exit;
+    VFormAction := System.Copy(ASourceText, 1, (p-1));
+    if SameText(c_EO_ApplyAuthOpt, VFormAction) then begin
+      // начало ответа
+      AResponse := '<h1>Apply Authentication options</h1>';
+
+      // тело ответа
+      VFormParams:=TStringList.Create;
+      try
+        VFormParams.Delimiter := '&';
+        VFormParams.DelimitedText := System.Copy(ASourceText, (p+1), Length(ASourceText));
+
+        // тут распарсились параметры - применяем их
+        if (nil<>FConnection) then begin
+          FConnection.ApplyCredentialsFormParams(VFormParams);
+
+          // сброс ошибки подключения
+          if (VFormParams.Values[c_Cred_ResetErr]='1') then begin
+            DoResetConnectionError;
+            AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE or ETS_EOO_NEED_REFRESH;
+          end;
+
+          AResponse := AResponse +
+                   '<br>' +
+                   'Done';
+        end else begin
+          // некуда их применить
+          AResponse := AResponse +
+                   '<br>' +
+                   'No connection - nothing to apply';
+        end;
+      finally
+        VFormParams.Free;
+      end;
+
+      // конец ответа
+      AResponse := AResponse +
+                   '<br>' +
+                   _AddReturnFooter;
+    end else begin
+      // фигню подсунули
+      Result := FALSE;
+    end;
   end;
 
 var
@@ -1403,6 +1476,10 @@ begin
       Exit;
     end;
 
+    // parse as form values
+    if _ParseFormValues(VRequest, VResponse) then
+      Exit;
+
     // extract first command
     VSetTLMValue := _ExtractPart(VRequest);
 
@@ -1434,7 +1511,7 @@ begin
           VResponse := 'Error(' + IntToStr(Result) + '): ' + VSetTLMValue + '<br>' + _AddReturnFooter;
         end;
 
-        AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE;
+        AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE or ETS_EOO_NEED_REFRESH;
       end;
     end else if SameText(c_EO_SetTSM, VSetTLMValue) then begin
       // SetTSM
@@ -1498,13 +1575,52 @@ begin
           if (ETS_RESULT_OK=Result) then begin
             // success
             VResponse := 'Updated successfully' + '<br>' + _AddReturnFooter;
-            AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE;
+            AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE or ETS_EOO_NEED_REFRESH;
           end else begin
             // failed
             VResponse := 'Error(' + IntToStr(Result) + '): ' + VSetTLMValue + '<br>' + _AddReturnFooter;
           end;
         end;
       end;
+    end else if SameText(c_EO_SetAuthOpt, VSetTLMValue) then begin
+      // SetAuthOpt
+      // show form to enter values
+      VResponse := '<h1>Authentication options</h1>' +
+                   '<br>' +
+                   'Credentials' +
+                   '<br>' +
+                   '<form method="GET" name="form_set_auth" action="' + VFullPrefix+'/'+c_EO_ApplyAuthOpt + '">' +
+                   '<table>' +
+                   '<tr><td>' +
+                   'UserName' +
+                   '<br>' +
+                   '<input type="text" id="' + c_Cred_UserName + '" name="' + c_Cred_UserName + '" value="" />' +
+                   '</td></tr>' +
+                   '<tr><td>' +
+                   'Authentication' +
+                   '<br>' +
+                   '<input type="password" id="' + c_Cred_Password + '" name="' + c_Cred_Password + '" />' +
+                   '</td></tr>';
+
+      if _AllowSavePassword then
+        VResponse := VResponse +
+                   '<tr><td>' +
+                   _AddHtmlLabelCheckbox(c_Cred_SaveAuth, 'Save', TRUE) +
+                   '</td></tr>';
+                   
+      VResponse := VResponse +
+                   '<tr><td>' +
+                   _AddHtmlLabelCheckbox(c_Cred_ResetErr, 'Reset connection information', TRUE) +
+                   '</td></tr>' +
+                   '<tr><td>' +
+                   '<input type="submit" class="button" value="Apply" />' +
+                   '</td></tr>' +
+                   '</table>' +
+                   '</form>';
+      // последнее
+      VResponse := VResponse +
+                   '<br>' +
+                   _AddReturnFooter;
     end else if SameText(c_EO_ResetConnError, VSetTLMValue) then begin
       // ResetConnError
       VResponse := '<h1>Reset connection information</h1>';
@@ -1515,16 +1631,8 @@ begin
                    'No connection - nothing to reset';
       end else begin
         // can reset
-        FConnection.ResetConnectionError;
-
-        // пропихнём признак в хост
-        // НО только если настройка хранилища завершена
-        if FCompleted then
-        if (FStatusBuffer<>nil) then
-        with (FStatusBuffer^) do begin
-          if wSize>=SizeOf(FStatusBuffer^) then
-            malfunction_mode := ETS_PMM_HAS_COMPLETED;
-        end;
+        DoResetConnectionError;
+        AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE or ETS_EOO_NEED_REFRESH;
 
         VResponse := VResponse +
                    '<br>' +
@@ -2187,6 +2295,22 @@ begin
   with (FStatusBuffer^) do begin
     if wSize>=SizeOf(FStatusBuffer^) then
       malfunction_mode := ETS_PMM_CONNECT_DEAD;
+  end;
+end;
+
+procedure TDBMS_Provider.DoResetConnectionError;
+begin
+  if (FConnection<>nil) then begin
+    FConnection.ResetConnectionError;
+  end;
+
+  // пропихнём признак в хост
+  // НО только если настройка хранилища завершена
+  if FCompleted then
+  if (FStatusBuffer<>nil) then
+  with (FStatusBuffer^) do begin
+    if wSize>=SizeOf(FStatusBuffer^) then
+      malfunction_mode := ETS_PMM_HAS_COMPLETED;
   end;
 end;
 
