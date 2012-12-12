@@ -712,7 +712,6 @@ begin
   if (VResult < STATUS_SUCCESS) then begin
     // no access
     Result := FALSE;
-    fnLsaOpenPolicy := nil;
     Exit;
   end;
 
@@ -769,7 +768,6 @@ begin
   if (VResult < STATUS_SUCCESS) then begin
     // no access
     Result := FALSE;
-    fnLsaOpenPolicy := nil;
     Exit;
   end;
 
