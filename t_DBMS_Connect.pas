@@ -60,7 +60,15 @@ const
   c_Cred_Password = 'password';
   c_Cred_SaveAuth = 'saveauth';
   c_Cred_ResetErr = 'reseterr';
-  
+
+  // параметры для MakeVersion
+  c_MkVer_Value        = 'ver_value';
+  c_MkVer_Date         = 'ver_date';
+  c_MkVer_Number       = 'ver_number';
+  c_MkVer_Comment      = 'ver_comment';
+  c_MkVer_UpdOld       = 'updoldver';
+  c_MkVer_SwitchToVer  = 'switchtover';
+
 implementation
 
 end.

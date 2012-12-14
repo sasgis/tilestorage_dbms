@@ -12,6 +12,9 @@ uses
   t_DBMS_version;
 
 const
+  // дата "большого взрыва" - для определения номера по дате версии и для версий без даты (кроме пустой версии!)
+  c_ZeroVersionNumber_DateTime: TDateTime = 36526; // 36526 = '2000-01-01 00:00:00.00000'
+
   c_Tile_Parser_None            = 0;
   c_Tile_Parser_Exif_NMC_Unique = 1;
   c_Tile_Parser_Exif_NMC_Latest = 2;
@@ -39,14 +42,19 @@ function ParseExifForNMC(
   AParsedVersionPtr: PVersionAA
 ): Byte;
 
+function ExtractFromTag(
+  const ASource, ATagBegin, ATagEnd: String;
+  const AStartingPos: Integer;
+  out AValue: String;
+  out AEndOfTagPos: Integer
+): Boolean;
+
 implementation
 
 uses
   StrUtils;
 
 const
-  c_ZeroVersionNumber_DateTime: TDateTime = 36526; // 36526 = '2000-01-01 00:00:00.00000'
-
   c_digitalglobe_tileIdentifier_b = '<digitalglobe:tileIdentifier>';
   c_digitalglobe_tileIdentifier_e = '</digitalglobe:tileIdentifier>';
 

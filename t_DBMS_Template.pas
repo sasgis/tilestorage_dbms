@@ -67,10 +67,11 @@ const
   c_Time_Separator = ':';
 
   // формат дл€ вставки даты-времени в Ѕƒ
-  c_DateTimeToDBFormat_Common = 'YYYY' + c_Date_Separator + 'MM' + c_Date_Separator + 'DD HH' + c_Time_Separator + 'NN' + c_Time_Separator + 'SS';
-  c_DateTimeToDBFormat_MSSQL  = 'YYYYMMDD HH:NN:SS';
+  c_DateTimeToDBFormat_Common = 'YYYY' + c_Date_Separator + 'MM' + c_Date_Separator + 'DD HH' + c_Time_Separator + 'NN' + c_Time_Separator + 'SS.ZZZ';
+  c_DateTimeToDBFormat_MSSQL  = 'YYYYMMDD HH:NN:SS.ZZZ';
 
-  // дл€ показа в списке версий
+  // формат дл€ показа в списке версий и дл€ передачи даты через http
+  // этот формат об€зан парситьс€ юнитом u_Tile_Parser
   c_DateTimeToListOfVersions = 'YYYY' + c_Date_Separator + 'MM' + c_Date_Separator + 'DD HH' + c_Time_Separator + 'NN' + c_Time_Separator + 'SS.ZZZ';
 
 type

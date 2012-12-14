@@ -77,6 +77,11 @@ type
       const AVerInfo: PVersionAA
     ): Boolean;
 
+    function FindItemByVersion(
+      const ASrcName: String;
+      const AVerInfo: PVersionAA
+    ): Boolean;
+
     function GetItemByIndex(const AIndex: SmallInt): PVersionAA;
 
     property VersionFlags: TVersionFlags read FVersionFlags;
@@ -232,6 +237,25 @@ begin
     // found
     Result := TRUE;
     AVerInfo^ := FItemsAA[i];
+    Exit;
+  end;
+
+  // not found
+  Result := FALSE;
+end;
+
+function TVersionList.FindItemByVersion(const ASrcName: String; const AVerInfo: PVersionAA): Boolean;
+var
+  i: SmallInt;
+begin
+  if (FCount>0) then
+  for i := 0 to FCount-1 do
+  if SameText(ASrcName, FItemsAA[i].ver_value) then begin
+    // found
+    Result := TRUE;
+    if (AVerInfo<>nil) then begin
+      AVerInfo^ := FItemsAA[i];
+    end;
     Exit;
   end;
 

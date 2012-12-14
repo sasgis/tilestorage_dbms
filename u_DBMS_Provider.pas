@@ -71,6 +71,9 @@ type
     // неизвестные исключения
     FUnknownExceptions: TStringList;
 
+    // для создания версии
+    FLastMakeVersionSource: String;
+
     // препарированные датасеты для вставки и обновления
     (*
     FInsertDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
@@ -156,6 +159,7 @@ type
     function GetUnknownExceptions: String;
   private
     function SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
+    function SQLDateTimeToVersionValue(const ADateTime: TDateTime): TDBMS_String;
 
     function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
 
@@ -184,6 +188,25 @@ type
     function UpdateVerByTileMode(
       const ANewVerByTileMode: SmallInt;
       out AErrorText: String
+    ): Byte;
+
+    function ParseVersionSource(
+      const AVersionSource: String;
+      const AVerParsedInfo: PVersionAA
+    ): Byte;
+
+    function ParseMakeVersionSource(
+      const AMakeVersionSource: String;
+      const AVerFoundInfo, AVerParsedInfo: PVersionAA;
+      out AVersionFound: Boolean
+    ): Byte;
+
+    function MakeVersionByFormParams(
+      const AFormParams: TStrings
+    ): Byte;
+
+    function SwitchHostToVersion(
+      const AVersionToSwitch: String
     ): Byte;
 
   private
@@ -405,6 +428,7 @@ uses
   u_Synchronizer,
   u_Exif_Parser,
   u_Tile_Parser,
+  u_Lang,
   u_DBMS_Template;
 
 { TDBMS_Provider }
@@ -736,6 +760,7 @@ begin
   FHostPointer := AHostPointer;
 
   FPrimaryContentType := '';
+  FLastMakeVersionSource := '';
 
   // sync objects
   FProvSync := MakeSyncRW_Std(Self);
@@ -1124,9 +1149,11 @@ function TDBMS_Provider.DBMS_ExecOption(
 const
   c_EO_SetTLM         = 'SetTLM';
   c_EO_SetTSM         = 'SetTSM';
-  c_EO_SetVerByTile   = 'SetVerByTile';                     
+  c_EO_SetVerByTile   = 'SetVerByTile';
   c_EO_SetVerComp     = 'SetVerComp';
   c_EO_GetVersions    = 'GetVersions';
+  c_EO_MakeVersion    = 'MakeVersion';
+  c_EO_ExecMakeVer    = 'ExecMakeVer';
   c_EO_ReloadVersions = 'ReloadVersions';
   c_EO_ResetConnError = 'ResetConnError';
   c_EO_GetUnknErrors  = 'GetUnknErrors';
@@ -1330,6 +1357,8 @@ var
       Exit;
     VFormAction := System.Copy(ASourceText, 1, (p-1));
     if SameText(c_EO_ApplyAuthOpt, VFormAction) then begin
+      // ApplyAuthOpt - сохранение и применение логина и пароля
+
       // начало ответа
       AResponse := '<h1>Apply Authentication options</h1>';
 
@@ -1366,10 +1395,141 @@ var
       AResponse := AResponse +
                    '<br>' +
                    _AddReturnFooter;
+      // конец ApplyAuthOpt
+    end else if SameText(c_EO_ExecMakeVer, VFormAction) then begin
+      // ExecMakeVer - создание версии по параметрам
+
+      // начало ответа
+      AResponse := '<h1>Make Version</h1>';
+
+      // тело ответа
+      VFormParams:=TStringList.Create;
+      try
+        VFormParams.Delimiter := '&';
+        VFormParams.DelimitedText := System.Copy(ASourceText, (p+1), Length(ASourceText));
+
+        // пример:
+        // ver_value=ae1371a7a7ae56e357643268c9d05f05
+        // &
+        // ver_date=2011-05-13+08%3A02%3A41.000
+        // &
+        // ver_number=358588961
+        // &
+        // ver_comment=Panchromatic%2C0.50%2Ccountry_coverage%2CWV01%2CDigitalGlobe
+
+        // тут распарсились параметры - применяем их
+        if (nil<>FConnection) then begin
+          p := MakeVersionByFormParams(VFormParams);
+          if (ETS_RESULT_OK = LoByte(p)) then
+            VFormAction := 'Done'
+          else if (ETS_RESULT_SKIP_EXISTING = LoByte(p)) then
+            VFormAction := 'Existing Version remains unmodified'
+          else if (ETS_RESULT_DEFAULT_UNCHANGEABLE = LoByte(p)) then
+            VFormAction := 'Failed: cannot change default Version'
+          else
+            VFormAction := 'Failed: error = ' + IntToStr(LoByte(p));
+
+          AResponse := AResponse +
+                   '<br>' +
+                   VFormAction;
+        end else begin
+          // некуда их применить
+          AResponse := AResponse +
+                   '<br>' +
+                   'No connection - nothing to make';
+        end;
+      finally
+        VFormParams.Free;
+      end;
+
+      // конец ответа
+      AResponse := AResponse +
+                   '<br>' +
+                   '<br>' +
+                   '<a href="'+VFullPrefix+'/'+c_EO_GetVersions+'">Show list of Versions</a>' +
+                   '<br>' +
+                   _AddReturnFooter;
+      // конец ExecMakeVer
     end else begin
       // фигню подсунули
       Result := FALSE;
     end;
+  end;
+
+  function _GetUrlForRequestType(const ASourceText: String; out AResponse: String): Byte;
+  var
+    VParsedVersion: TVersionAA;
+  begin
+    case AExecOptionIn^.dwRequestType of
+      1: begin
+        // надо вернуть ПОЛНЫЙ урл для создания версии
+        FLastMakeVersionSource := ASourceText;
+        AResponse := VFullPrefix+'/'+c_EO_MakeVersion;
+        Result := ETS_RESULT_OK;
+      end;
+      2: begin
+        // парсим запрос и возвращаем версию (уникальное строковое значение)
+        Result := ParseVersionSource(ASourceText, @VParsedVersion);
+        if (ETS_RESULT_OK = Result) then begin
+          AResponse := VParsedVersion.ver_value;
+          if not FVersionList.FindItemByVersion(AResponse, nil) then
+            Result := ETS_RESULT_UNKNOWN_VERSION;
+        end;
+      end;
+      else begin
+        AResponse := '';
+        Result := ETS_RESULT_NOT_IMPLEMENTED;
+      end;
+    end;
+  end;
+
+  function _AddFormWithPreparedMakeVersion(const AMakeVersionSrc: String): String;
+  var
+    VExistingVersion, VParsedVersion: TVersionAA;
+    VVersionFound: Boolean;
+  begin
+    ParseMakeVersionSource(AMakeVersionSrc, @VExistingVersion, @VParsedVersion, VVersionFound);
+    
+    Result := '<br>' +
+              '<form method="GET" name="form_make_ver" action="' + VFullPrefix+'/'+c_EO_ExecMakeVer + '">' +
+              'Parsed parameters to Make Version (allow to change):' +
+              '<table>' +
+              '<tr><td>' +
+              c_MkVer_Value +
+              '<br>' +
+              '<input type="text" id="' + c_MkVer_Value + '" name="' + c_MkVer_Value + '" value="' + VParsedVersion.ver_value + '" size="60" />' +
+              '</td></tr>' +
+              '<tr><td>' +
+              c_MkVer_Date +
+              '<br>' +
+              '<input type="text" id="' + c_MkVer_Date + '" name="' + c_MkVer_Date + '" value="' + SQLDateTimeToVersionValue(VParsedVersion.ver_date) + '"  size="30" />' +
+              '</td></tr>' +
+              '<tr><td>' +
+              c_MkVer_Number +
+              '<br>' +
+              '<input type="text" id="' + c_MkVer_Number + '" name="' + c_MkVer_Number + '" value="' + IntToStr(VParsedVersion.ver_number) + '" />' +
+              '</td></tr>' +
+              '<tr><td>' +
+              c_MkVer_Comment +
+              '<br>' +
+              '<input type="text" id="' + c_MkVer_Comment + '" name="' + c_MkVer_Comment + '" value="' + VParsedVersion.ver_comment + '" size="160" />' +
+              '</td></tr>' +
+              '<tr><td>' +
+              _AddHtmlLabelCheckbox(c_MkVer_SwitchToVer, 'Switch to this Version (note that downloads switch to this version too!)', VVersionFound) +
+              '</td></tr>';
+
+    if VVersionFound then
+      Result := Result +
+              '<tr><td>' +
+              _AddHtmlLabelCheckbox(c_MkVer_UpdOld, 'Update existing version', FALSE) +
+              '</td></tr>';
+              
+    Result := Result +
+              '<tr><td>' +
+              '<input type="submit" class="button" value="Make" />' +
+              '</td></tr>' +
+              '</table>' +
+              '</form>';
   end;
 
 var
@@ -1397,9 +1557,15 @@ begin
     end;
   end;
 
-  _TrimLeftDelims(VRequest);
-
   try
+    if ((AExecOptionIn^.dwOptionsIn and ETS_EOI_REQUEST_TYPE) <> 0) then begin
+      // special mode to get URLs
+      Result := _GetUrlForRequestType(VRequest, VResponse);
+      Exit;
+    end;
+
+    _TrimLeftDelims(VRequest);
+    
     if (0=Length(VRequest)) then begin
       // get information for empty request
 
@@ -1676,6 +1842,42 @@ begin
 
       VResponse := VResponse + '<br>' + _AddReturnFooter;
 
+    end else if SameText(c_EO_MakeVersion, VSetTLMValue) then begin
+      // MakeVersion
+      if (0=Length(VRequest)) then begin
+        // get stored version
+        VRequest := FLastMakeVersionSource;
+      end;
+
+      VResponse := '<h1>Make Version</h1>';
+
+      if not _AddPreamble(VResponse) then
+        Exit;
+
+      if (0<Length(VRequest)) then begin
+        // можно пытаться создавать версию
+        VResponse := VResponse +
+                   '<br>' +
+                   'Original source to Make Version:' +
+                   '<br>' +
+                   VRequest +
+                   '<br>' +
+                   _AddFormWithPreparedMakeVersion(VRequest);
+      end else begin
+        // нечего создавать - нет данных
+        VResponse := VResponse +
+                   '<br>' +
+                   'No Data';
+      end;
+
+      // show list of versions and back to options
+      VResponse := VResponse +
+                   '<br>' +
+                   '<a href="'+VFullPrefix+'/'+c_EO_GetVersions+'">Show list of Versions</a>' +
+                   '<br>' +
+                    _AddReturnFooter;
+
+      // end of MakeVersion
     end else if SameText(c_EO_GetVersions, VSetTLMValue) then begin
       // GetVersions
       // enumerate all versions and show
@@ -1716,7 +1918,6 @@ begin
       VSetTLMIndex := (Length(VResponse)+1)*SizeOf(Char);
       AExecOptionIn.szResponse := GetMemory(VSetTLMIndex);
       CopyMemory(AExecOptionIn.szResponse, PChar(VResponse), VSetTLMIndex);
-      AExecOptionIn.dwLength := Length(VResponse);
       if SizeOf(Char)=SizeOf(AnsiChar) then begin
         AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_ANSI_VALUES;
       end;
@@ -3724,8 +3925,8 @@ function TDBMS_Provider.MakePtrVersionInDB(
   const AExclusively: Boolean
 ): Boolean;
 var
-  VVersionsTableName_UnquotedWithoutPrefix: String;
-  VVersionsTableName_QuotedWithPrefix: String;
+  VVersionsTableName_UnquotedWithoutPrefix: TDBMS_String;
+  VVersionsTableName_QuotedWithPrefix: TDBMS_String;
 begin
   Assert(AExclusively);
 
@@ -3763,6 +3964,255 @@ begin
   except
     Result := FALSE;
   end;
+end;
+
+function TDBMS_Provider.MakeVersionByFormParams(
+  const AFormParams: TStrings
+): Byte;
+
+  function _DecodedValue(const AValueName: String): String;
+  begin
+    Result := AFormParams.Values[AValueName];
+    if System.Pos('%', Result) > 0 then begin
+      // декодируем
+      Result := HTTPDecode(Result);
+    end;
+  end;
+
+var
+  VFormVersion, VFoundVersion: TVersionAA;
+  VExclusivelyLocked: Boolean;
+  VUpdateExisting, VSwitchToMaked: Boolean;
+  VSQLText: TDBMS_String;
+  VVersionsTableName_UnquotedWithoutPrefix: TDBMS_String;
+  VVersionsTableName_QuotedWithPrefix: TDBMS_String;
+  VStatementExceptionType: TStatementExceptionType;
+begin
+  VFormVersion.ver_value := _DecodedValue(c_MkVer_Value);
+
+  if (0=Length(VFormVersion.ver_value)) then begin
+    Result := ETS_RESULT_UNKNOWN_VERSION;
+    Exit;
+  end;
+
+  if not ParseFullyQualifiedDateTime(_DecodedValue(c_MkVer_Date), VFormVersion.ver_date) then
+    VFormVersion.ver_date  := c_ZeroVersionNumber_DateTime;
+
+  VFormVersion.ver_number := StrToIntDef(_DecodedValue(c_MkVer_Number), 0);
+
+  VFormVersion.ver_comment := _DecodedValue(c_MkVer_Comment);
+
+  VUpdateExisting := (AFormParams.Values[c_MkVer_UpdOld] = '1');
+  VSwitchToMaked := (AFormParams.Values[c_MkVer_SwitchToVer] = '1');
+
+
+  DoBeginWork(TRUE, so_ReloadVersions, VExclusivelyLocked);
+  try
+    ReadVersionsFromDB(VExclusivelyLocked);
+
+    if FVersionList.FindItemByAnsiValue(PAnsiChar(VFormVersion.ver_value), @VFoundVersion) then begin
+      // надо обновляться
+      if (not VUpdateExisting) then begin
+        // нельзя обновлять существующую версию
+        Result := ETS_RESULT_SKIP_EXISTING;
+        Exit;
+      end;
+
+      // обновляемся - это проще
+      VVersionsTableName_UnquotedWithoutPrefix := c_Prefix_Versions + InternalGetServiceNameByDB;
+      VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
+
+      VSQLText := 'UPDATE ' + VVersionsTableName_QuotedWithPrefix +
+                    ' SET ' + 'ver_date=' + SQLDateTimeToDBValue(VFormVersion.ver_date) +
+                             ',ver_number=' + IntToStr(VFormVersion.ver_number) +
+                             ',ver_comment=' + DBMSStrToDB(VFormVersion.ver_comment) +
+                  ' WHERE ver_value=' + DBMSStrToDB(VFormVersion.ver_value);
+
+      VStatementExceptionType := set_Success;
+      try
+        FConnection.ExecuteDirectSQL(VSQLText);
+      except on E: Exception do
+        VStatementExceptionType := GetStatementExceptionType(E);
+      end;
+
+      // хоть успешно обновили, хоть с ошибкой - надо обновить список версий
+      ReadVersionsFromDB(VExclusivelyLocked);
+
+      if StandardExceptionType(VStatementExceptionType, FALSE, Result) then
+        Exit;
+
+      // тут при наличии версии таблица уже точно есть
+      // так что тут по идее только успех
+      Result := ETS_RESULT_OK;
+      Exit;
+    end;
+
+    // создаём версию
+    Result := AutoCreateServiceVersion(
+      VExclusivelyLocked,
+      TRUE, // чтобы только определилось значение id_ver
+      nil,  // нет необходимости
+      @VFormVersion,
+      VUpdateExisting // признак существования версии - неактуален
+    );
+
+    // обновление списка версий из БД есть внутри
+  finally
+    DoEndWork(VExclusivelyLocked);
+
+    // если запрошено переключение и есть версия - переключаемся даже при наличии ошибки
+    if VSwitchToMaked then
+    if FVersionList.FindItemByAnsiValue(PAnsiChar(VFormVersion.ver_value), @VFoundVersion) then begin
+      SwitchHostToVersion(VFormVersion.ver_value);
+    end;
+  end;
+end;
+
+function TDBMS_Provider.ParseMakeVersionSource(
+  const AMakeVersionSource: String;
+  const AVerFoundInfo, AVerParsedInfo: PVersionAA;
+  out AVersionFound: Boolean
+): Byte;
+var
+  VExclusivelyLocked: Boolean;
+begin
+  Result := ParseVersionSource(AMakeVersionSource, AVerParsedInfo);
+  if (Result <> ETS_RESULT_OK) then
+    Exit;
+
+  // ищем распарсенное
+  AVerFoundInfo^.Clear;
+  DoBeginWork(TRUE, so_ReloadVersions, VExclusivelyLocked);
+  try
+    ReadVersionsFromDB(TRUE);
+    AVersionFound := FVersionList.FindItemByAnsiValue(PAnsiChar(AVerParsedInfo^.ver_value), AVerFoundInfo);
+  finally
+    DoEndWork(VExclusivelyLocked);
+  end;
+end;
+
+function TDBMS_Provider.ParseVersionSource(const AVersionSource: String; const AVerParsedInfo: PVersionAA): Byte;
+const
+  c_BR = '<br>';
+
+  function _AllowSaveQualifierValue(const AQualifier, ATextValue: String): Boolean;
+  var VLWC: String;
+  begin
+    // не сохраняем пустоту
+    if (0 = Length(ATextValue)) then begin
+      Result := FALSE;
+      Exit;
+    end;
+    // не сохраняем тэги и ссылки
+    if (System.Pos('<', ATextValue) > 0) then begin
+      Result := FALSE;
+      Exit;
+    end;
+    if (System.Pos('://', ATextValue) > 0) then begin
+      Result := FALSE;
+      Exit;
+    end;
+
+    // не сохраняем устаревшие и линки
+    VLWC := LowerCase(AQualifier);
+    if (System.Pos('link', VLWC) > 0) then begin
+      Result := FALSE;
+      Exit;
+    end;
+    if (System.Pos('legacy', VLWC) > 0) then begin
+      Result := FALSE;
+      Exit;
+    end;
+    
+    Result := TRUE;
+  end;
+
+  procedure _ParseExtractedValue(const AParsedLine: String);
+  var
+    VPos: Integer;
+    VQualifier, VTextValue: String;
+  begin
+    VPos := System.Pos(':', AParsedLine);
+    if (VPos>0) then begin
+      // вариант 1
+      VQualifier := Trim(System.Copy(AParsedLine, 1, (VPos-1)));
+      VTextValue := Trim(System.Copy(AParsedLine, (VPos+1), Length(AParsedLine)));
+      if _AllowSaveQualifierValue(VQualifier, VTextValue) then begin
+        // URL-ы и прочие тэги пропускаем
+        if SameText(VQualifier, 'FeatureId') then begin
+          // в ver_value
+          AVerParsedInfo^.ver_value := VTextValue;
+        end else if SameText(VQualifier, 'Date') then begin
+          // в ver_date
+          if not ParseFullyQualifiedDateTime(VTextValue, AVerParsedInfo^.ver_date) then begin
+            AVerParsedInfo^.ver_date := c_ZeroVersionNumber_DateTime;
+          end;
+          // в ver_number
+          AVerParsedInfo^.ver_number := GetVersionNumberForDateTimeAsZeroDifference(AVerParsedInfo^.ver_date);
+        end else begin
+          // всё прочее в ver_comment через запятую
+          if (0<Length(AVerParsedInfo^.ver_comment)) then
+            AVerParsedInfo^.ver_comment := AVerParsedInfo^.ver_comment + ',';
+          AVerParsedInfo^.ver_comment := AVerParsedInfo^.ver_comment + VTextValue;
+        end;
+      end;
+    end;
+  end;
+
+var
+  VStartingPos, VEndOfTagPos: Integer;
+  VExtractValue: String;
+begin
+  Result := ETS_RESULT_OK;
+
+(*
+вариант 1:
+
+FeatureId:ae1371a7a7ae56e357643268c9d05f05
+<br>
+Date:2011-05-13 08:02:41.889
+<br>
+Color:Panchromatic
+<br>
+Resolution:0.50
+<br>
+DataLayer:country_coverage
+<br>
+Source:WV01
+<br>
+LegacyId:1020010013D9CA00
+<br>
+Provider:DigitalGlobe
+<br>
+PreviewLink:<a href=https://browse.digitalglobe.com/imagefinder/showBrowseImage?catalogId=1020010013D9CA00&imageHeight=1024&imageWidth=1024>https://browse.digitalglobe.com/imagefinder/showBrowseImage?catalogId=1020010013D9CA00&imageHeight=1024&imageWidth=1024</a>
+<br>
+MetadataLink:<a href=https://browse.digitalglobe.com/imagefinder/showBrowseMetadata?buffer=1.0&catalogId=1020010013D9CA00&imageHeight=natres&imageWidth=natres>https://browse.digitalglobe.com/imagefinder/showBrowseMetadata?buffer=1.0&catalogId=1020010013D9CA00&imageHeight=natres&imageWidth=natres</a>
+
+обработка:
+FeatureId в ver_value
+Date в ver_date
+ver_number считаем как разницу между ver_date и "началом отсчёта"
+ver_comment заполняем остальными значениями через запятую (кроме тэгов и УРЛов)
+*)
+
+  // парсим
+  AVerParsedInfo^.Clear;
+
+  VStartingPos := System.Pos(c_BR, AVersionSource);
+  if (VStartingPos>0) then begin
+    // определили как HTML
+    // парсим первый кусок до переноса строки
+    _ParseExtractedValue(System.Copy(AVersionSource, 1, (VStartingPos-1)));
+    //  парсим остальное
+    while ExtractFromTag(AVersionSource, c_BR, c_BR, VStartingPos, VExtractValue, VEndOfTagPos) do begin
+      _ParseExtractedValue(VExtractValue);
+      // next
+      VStartingPos := VEndOfTagPos - Length(c_BR);
+    end;
+  end;
+
+  if (0=Length(AVerParsedInfo^.ver_value)) then
+    Result := ETS_RESULT_UNKNOWN_VERSION;
 end;
 
 function TDBMS_Provider.ParseVerValueToVerNumber(
@@ -4070,6 +4520,33 @@ begin
   else
     Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
               DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat_Common, ADateTime, FFormatSettings));
+end;
+
+function TDBMS_Provider.SQLDateTimeToVersionValue(const ADateTime: TDateTime): TDBMS_String;
+begin
+  Result := FormatDateTime(c_DateTimeToListOfVersions, ADateTime, FFormatSettings);
+end;
+
+function TDBMS_Provider.SwitchHostToVersion(const AVersionToSwitch: String): Byte;
+var
+  VCallback: Pointer;
+  VOptions: TETS_SET_VERSION_OPTION;
+begin
+  VCallback := FHostCallbacks[ETS_INFOCLASS_SetVersion_Notifier];
+  if (VCallback<>nil) then begin
+    FillChar(VOptions, SizeOf(VOptions), 0);
+    VOptions.szVersion := PChar(AVersionToSwitch);
+    if (SizeOf(Char)=SizeOf(AnsiChar)) then
+      VOptions.dwOptions := VOptions.dwOptions or ETS_SVO_ANSI_VALUES;
+    
+    Result := TETS_SetVersion_Notifier(VCallback)(
+      FHostPointer,
+      FHostPointer,
+      @VOptions
+    );
+  end else begin
+    Result := ETS_RESULT_NOT_IMPLEMENTED;
+  end;
 end;
 
 function TDBMS_Provider.TryToObtainVerByTile(
