@@ -143,7 +143,7 @@ type
     FState:        TmQueryState;
     FUniDirect:    boolean;
     FupdateSQL:    array[TUpdateKind] of TStrings;
-    FText:         String;
+    FText:         AnsiString;
     FDataLink:     TDataLink;
     FQueries:      array[TUpdateKind] of TmCustomQuery;
     FoldBuffer:    PChar; // buffer for old values of edited record
@@ -161,7 +161,7 @@ type
     procedure FreeModifiedList;
     function  GetActiveRecBuf(var RecBuf: PChar): Boolean;
     function  GetBlobData(Field: TField; Buffer: PChar): TmBlobData;
-    function  GetCursorName:String;
+    function  GetCursorName: AnsiString;
 //    function  GetRowsAffected: LongInt;
     function  LocateRecord( const KeyFields: string; const KeyValues: Variant;
                       Options: TLocateOptions): Boolean;
@@ -266,7 +266,7 @@ type
     function  ParamByName(const Value: string): TmParam;
     procedure SetParamsForUpdateSql(UpdateKind: TUpdateKind);
     property  RowsAffected: longint read FRowsAffected;
-    property  Text: string read FText;
+    property  Text: AnsiString read FText;
     property  SQL: TStrings read FSQL write SetQuery;
     property  ModifySQL: TStrings index 0 read GetUpdateSQL write SetUpdateSQL;
     property  InsertSQL: TStrings index 1 read GetUpdateSQL write SetUpdateSQL;
@@ -344,7 +344,7 @@ begin
   FOdbcBlobStream := nil;
   
   FSQL           := TStringList.Create;
-  hstmt          := 0;
+  hstmt          := SQL_NULL_HANDLE;
   FRecBufSize    := 0;
   FDeletedCount  := 0;
   FCanModify     := False;
@@ -635,13 +635,13 @@ procedure TmCustomQuery.InitStmt;
 var
   sqlres: SQLRETURN;
 begin
-  if (mqInitialized in FState) and (hstmt <> 0) then
+  if (mqInitialized in FState) and (hstmt <> SQL_NULL_HANDLE) then
     Exit;
 
   if DataBase=nil then
     raise EMODBCNoDataSource.Create( SmNoDataSource);
 
-  if DataBase.hdbc=0 then
+  if DataBase.hdbc=SQL_NULL_HANDLE then
     DataBase.Connect;
 
   sqlres := SQLAllocHandle(SQL_HANDLE_STMT, DataBase.hdbc, hstmt);
@@ -655,12 +655,12 @@ end;
 
 procedure TmCustomQuery.FreeStmt;
 begin
-  if hstmt = 0 then
+  if hstmt = SQL_NULL_HANDLE then
     exit;
 
   Close;
   SQLFreeHandle(SQL_HANDLE_STMT,hstmt);
-  hstmt := 0;
+  hstmt := SQL_NULL_HANDLE;
   FState := []; //Exclude(FState, mqInitialized); Exclude(FState, mqPrepared); Exclude(FState, mqOpened);
 end;
 
@@ -768,7 +768,7 @@ var
 begin
   if not IsCursorOpen then InternalOpenCursor;
   FieldDefs.Clear;
-  CheckSQLResult( SQLNumResultCols(hstmt, Colmns){,'InternalInitFieldDefs'});
+  CheckSQLResult( SQLNumResultCols(hstmt, @Colmns){,'InternalInitFieldDefs'});
   BookmarkSize := sizeof(SQLUINTEGER);
   FRecordSize  := 0;
   FBlobCount   := 0;
@@ -788,7 +788,7 @@ procedure TmCustomQuery.PrepareCursor;
 begin
   if mqPrepared in FState then
     Exit;
-  CheckSQLResult( SQLPrepare( hstmt, PCHAR(Text), SQL_NTS));
+  CheckSQLResult( SQLPrepare( hstmt, PANSICHAR(Text), SQL_NTS));
   Include( FState, mqPrepared);
 end;
 
@@ -976,7 +976,7 @@ end;
 
 function TmCustomQuery.IsCursorOpen: Boolean;
 begin
-  Result:= (hstmt <> 0) and (mqOpened in FState);
+  Result:= (hstmt <> SQL_NULL_HANDLE) and (mqOpened in FState);
 end;
 
 function TmCustomQuery.AllocRecordBuffer: PChar;
@@ -1003,7 +1003,7 @@ begin
   if CursorAttr.UseDriverBookMark then
         CheckSQLResult( SQLBindCol( hstmt, 0, SQL_C_BOOKMARK{SQL_BINARY},
                                     SQLPOINTER(FBindBuffer), BookMarkSize,
-                                    PSQLINTEGER(FBindBuffer+BookMarkSize) ));
+                                    PSQLLEN(FBindBuffer+BookMarkSize) ));
 
   for i := 0 to FieldDefs.Count - 1 do
   begin
@@ -1013,7 +1013,7 @@ begin
       begin
         CheckSQLResult( SQLBindCol( hstmt, FieldNo, SQLDataType,
                                     SQLPOINTER(FBindBuffer+OffsetInBuf),SqlSize,
-                                    PSQLINTEGER(FBindBuffer+OffsetInBuf+SqlSize)));
+                                    PSQLLEN(FBindBuffer+OffsetInBuf+SqlSize)));
       end;
     end;
   end;
@@ -1310,7 +1310,7 @@ again:
             if (nil=FOdbcBlobStream) then begin
               FOdbcBlobStream := TOdbcBlobStream.Create;
             end;
-            VBlobAccum := FOdbcBlobStream.ReadOdbcFieldAsString(hstmt, FieldNo, SQLDataType, Database.CheckStatementResult);
+            VBlobAccum := FOdbcBlobStream.ReadOdbcFieldAsString(hstmt, FieldNo, SQLDataType, @CheckStatementResult);
 
             {$RANGECHECKS OFF}
             PmBlobDataArray(Buffer + FBlobCacheOfs)[OffsetInBuf] := VBlobAccum;
@@ -1504,7 +1504,7 @@ var
         begin
           CheckSQLResult( SQLBindCol( hstmt, FieldNo, SQLDataType,
                           SQLPOINTER(b+OffsetInBuf),SqlSize,
-                          PSQLINTEGER(b+OffsetInBuf+SqlSize)))
+                          PSQLLEN(b+OffsetInBuf+SqlSize)))
         end else
         begin
           if Length(PmBlobDataArray(b + FBlobCacheOfs)[OffsetInBuf]) > 0 then
@@ -1549,7 +1549,7 @@ var
    sqlres: SQLRETURN;
   begin
     if CursorAttr.UseDriverBookMark then
-      SQLBindCol( hstmt, 0, SQL_BINARY, nil, 0, PSQLINTEGER(0));
+      SQLBindCol( hstmt, 0, SQL_BINARY, nil, 0, nil);
 
     sqlres := SQLFreeStmt( hstmt, SQL_UNBIND);
 
@@ -1783,12 +1783,14 @@ begin
     FUpdateObject := nil; }
 end;
 
-function TmCustomQuery.GetCursorName:String;
+function TmCustomQuery.GetCursorName: AnsiString;
+const
+  c_cur_name_len = 128;
 var
-  curName: array [0..30] of Char;
+  curName: array [0..c_cur_name_len] of AnsiChar;
   nl:      SQLSMALLINT;
 begin
-  CheckSQLResult( SQLGetCursorName( hstmt, curName, 30, @nl));
+  CheckSQLResult( SQLGetCursorName( hstmt, @curName, c_cur_name_len, @nl));
   Result:=StrPas( curNAme);
 end;
 {

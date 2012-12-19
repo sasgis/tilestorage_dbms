@@ -15,7 +15,7 @@ uses
   Classes;
 
 type
-  TCheckStatementResultProc = procedure(stmthandle: SQLHANDLE; sqlres: SQLRETURN) of object;
+  TCheckStatementResultProc = procedure(stmthandle: SQLHANDLE; sqlres: SQLRETURN);// of object;
 
   TOdbcBlobStream = class(TMemoryStream)
   private

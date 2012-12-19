@@ -1,4 +1,4 @@
-unit u_ODBC_UTILS;
+unit t_ODBC_Exception;
 
 {$include i_DBMS.inc}
 
@@ -8,25 +8,9 @@ uses
   SysUtils,
   Windows,
   Classes,
-  OdbcApi;
+  odbcsql;
 
 type
-  IODBCBasic = interface
-    ['{7EEE1FA1-B87C-40F2-8B0C-2DD1871FDCF3}']
-    // check errors
-    function IsAllocated: Boolean;
-    function GetLastResult: SQLRETURN;
-    function GetODBCType: SQLSMALLINT;
-    function GetODBCHandle: SQLHANDLE;
-    procedure CheckErrors;
-  end;
-
-  TODBCConnectionParams = packed record
-    // По умолчанию SQL_LONGVARBINARY
-    // НО для PostgreSQL при выключенной опции 'bytea as LO' надо использовать SQL_VARBINARY
-    BlobParamType: SQLSMALLINT;
-  end;
-
   EODBCException = class(Exception)
   public
     constructor CreateWithDiag(
@@ -36,13 +20,53 @@ type
     );
   end;
 
-  TODBCExceptionClass  = class of EODBCException;
+  TODBCExceptionClass       = class of EODBCException;
 
+  // исключения для подключения
+  EODBCConnectionError           = class(EODBCException);
+  EODBCDriverInfoErrorWithInfo   = EODBCConnectionError;
+  EODBCDriverInfoNeedDataError   = EODBCConnectionError;
+  EODBCDriverInfoStillExecuting  = EODBCConnectionError;
+  EODBCDriverInfoError           = EODBCConnectionError;
+  EODBCDriverInfoNoData          = EODBCConnectionError;
+  EODBCDriverInfoInvalidHandle   = EODBCConnectionError;
+  EODBCDriverInfoUnknown         = EODBCConnectionError;
+
+  EODBCEnvironmentError          = class(EODBCException);
+
+  // исключения всяких разных запросов
+  EODBCStatementError       = class(EODBCException);
+  EODBCOpenFetchError       = class(EODBCStatementError);
+  EODBCFetchStmtError       = class(EODBCStatementError);
+  EODBCDirectExecError      = class(EODBCStatementError);
+  EODBCDirectExecBlobError  = class(EODBCStatementError);
+  EODBCNumResultColsError   = class(EODBCStatementError);
+  EODBCDescribeColError     = class(EODBCStatementError);
+  EODBCBindColError         = class(EODBCStatementError);
+  EODBCGetDataLOBError      = class(EODBCStatementError);
+
+  // простые обычные исключения
+  EODBCSimpleError               = class(Exception);
+
+  // обычные исключения конвертации
+  EODBCConvertError              = class(EODBCSimpleError);
+  EODBCConvertFromDateError      = class(EODBCConvertError);
+  EODBCConvertFromTimeError      = class(EODBCConvertError);
+  EODBCConvertFromTimeStampError = class(EODBCConvertError);
+  EODBCConvertDateTimeError      = class(EODBCConvertError);
+  EODBCConvertLongintError       = class(EODBCConvertError);
+  EODBCConvertSmallintError      = class(EODBCConvertError);
+  EODBCConvertLOBError           = class(EODBCConvertError);
+  
+  // прочие обычные исключения
+  EODBCUnknownDataTypeError      = class(EODBCSimpleError);
+  EODBCAllocateEnvironment       = class(EODBCSimpleError);
+
+(*
   EODBCNoEnvironment      = class(EODBCException);
   EODBCEnvironmentError   = class(EODBCException);
 
   EODBCNoConnection      = class(EODBCException);
-  EODBCConnectionError   = class(EODBCException);
 
   EODBCNoStatement               = class(EODBCException);
   EODBCStatementError            = class(EODBCException);
@@ -59,41 +83,33 @@ type
   EODBCNoStatementException = class(EODBCException);
   EODBCStatementNotPreparedException = class(EODBCException);
   EODBCStatementDirectExecException = class(EODBCException);
+*)
 
-
-
-procedure InternalRaiseODBC(
-  const AODBCBasic: IODBCBasic;
-  const AODBCExceptionClass: TODBCExceptionClass
-);
-
-function InternalMakeODBCMessage(
+function MakeODBCInfoMessage(
   const AErrorCode: SQLRETURN;
   const AHandleType: SQLSMALLINT;
   const AHandleValue: SQLHANDLE
 ): String;
+
+procedure CheckStatementResult(
+  const AStmtHandle: SqlHStmt;
+  const ASqlRes: SQLRETURN;
+  const AODBCExceptionClass: TODBCExceptionClass
+); //inline;
   
 implementation
 
-procedure InternalRaiseODBC(
-  const AODBCBasic: IODBCBasic;
+procedure CheckStatementResult(
+  const AStmtHandle: SqlHStmt;
+  const ASqlRes: SQLRETURN;
   const AODBCExceptionClass: TODBCExceptionClass
 );
-var
-  VErrorCode: SQLRETURN;
-  VHandleType: SQLSMALLINT;
-  VHandleValue: SQLHANDLE;
 begin
-  // если сюда попали - ошибка точно есть
-  
-  VErrorCode   := AODBCBasic.GetLastResult;
-  VHandleType  := AODBCBasic.GetODBCType;
-  VHandleValue := AODBCBasic.GetODBCHandle;
-
-  raise AODBCExceptionClass.CreateWithDiag(VErrorCode, VHandleType, VHandleValue);
+  if not SQL_SUCCEEDED(ASqlRes) then
+    raise AODBCExceptionClass.CreateWithDiag(ASqlRes, SQL_HANDLE_STMT, AStmtHandle);
 end;
 
-function InternalMakeODBCMessage(
+function MakeODBCInfoMessage(
   const AErrorCode: SQLRETURN;
   const AHandleType: SQLSMALLINT;
   const AHandleValue: SQLHANDLE
@@ -101,8 +117,8 @@ function InternalMakeODBCMessage(
 const
   c_message_buffer_len = 512;
 var
-  psqlstate: array [0..6] of Char;
-  pmessage: array [0..c_message_buffer_len-1] of Char;
+  psqlstate: array [0..6] of AnsiChar;
+  pmessage: array [0..c_message_buffer_len-1] of AnsiChar;
   textLength: SQLSMALLINT;
   sqlres:     SQLRETURN;
   i:          SmallInt;
@@ -122,7 +138,7 @@ var
 
 var
   VList: TStringList;
-  VSqlState:    String;
+  VSqlState: AnsiString;
   VNativeError: SQLINTEGER;
 begin
   if (AErrorCode <> SQL_SUCCESS_WITH_INFO) and (AErrorCode <> SQL_ERROR) then begin
@@ -140,12 +156,12 @@ begin
     Result := '';
 
     repeat
-      sqlres := SQLGetDiagRec( AHandleType, AHandleValue, i, psqlstate,
+      sqlres := SQLGetDiagRecA(AHandleType, AHandleValue, i, psqlstate,
                                VNativeError, pmessage, c_message_buffer_len-1, textlength);
 
       if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then begin
         VSqlState := StrPas(pSqlState);
-        Result := Result + VSqlState + ':' + StrPas(pmessage);
+        Result := Result + VSqlState + ':' + IntToStr(VNativeError) + ':' + StrPas(pmessage);
       end else begin
         Result := Result + tError(AErrorCode);
         //Message :='SQL ERROR '+IntToStr(AErrorCode);
@@ -166,7 +182,7 @@ constructor EODBCException.CreateWithDiag(
   const AHandleValue: SQLHANDLE
 );
 begin
-  inherited Create(InternalMakeODBCMessage(AErrorCode, AHandleType, AHandleValue));
+  inherited Create(MakeODBCInfoMessage(AErrorCode, AHandleType, AHandleValue));
 end;
 
 end.

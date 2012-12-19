@@ -2,6 +2,8 @@ unit u_DBMS_Provider;
 
 {$include i_DBMS.inc}
 
+{$R-}
+
 interface
 
 uses
@@ -20,6 +22,7 @@ uses
   i_DBMS_Provider,
   t_DBMS_Connect,
   u_DBMS_Connect,
+  t_ODBC_Buffer,
   u_ExecuteSQLArray,
   u_DBMS_Utils;
 
@@ -109,9 +112,9 @@ type
     procedure InternalProv_ClearGuides;
 
     // возвращает имя сервиса, используемое в БД (внутреннее)
-    function InternalGetServiceNameByDB: TDBMS_String;
+    function InternalGetServiceNameByDB: TDBMS_String; inline;
     // возвращает имя сервиса, используемое в хосте (внешнее)
-    function InternalGetServiceNameByHost: TDBMS_String;
+    function InternalGetServiceNameByHost: TDBMS_String; inline;
 
     // get version from cache (if not found - read from server)
     function InternalGetVersionAnsiValues(
@@ -255,6 +258,8 @@ type
     
     function VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;
 
+    function GetNewIdService: SmallInt;
+
     // check if tile is in common tiles
     function CheckTileInCommonTiles(
       const ATileBuffer: Pointer;
@@ -352,19 +357,6 @@ type
       const AExclusively: Boolean;
       ASelectInRectList: TSelectInRectList
     ): Byte;
-
-    // формирует SQL для получения списка версий для текущего сервиса
-    function GetSQL_SelectVersions: TDBMS_String;
-
-    // формирует SQL для получения списка типов тайлов
-    function GetSQL_SelectContentTypes: TDBMS_String;
-
-    // формирует SQL для чтения параметров сервиса по его внешнему коду
-    // этот уникальный внешний код передаётся при инициализации с хоста
-    function GetSQL_SelectService_ByHost: TDBMS_String;
-
-    // формирует SQL для чтения параметров сервиса по его внутреннему коду (код в БД)
-    function GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): TDBMS_String;
 
     function GetSQL_InsertIntoService(
       const AExclusively: Boolean;
@@ -813,7 +805,11 @@ function TDBMS_Provider.CreateTableByTemplate(
   const ASubstSQLTypes: Boolean
 ): Byte;
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols3;
+{$ifend}
   VExecuteSQLArray: TExecuteSQLArray;
   VSQLText: TDBMS_String;
   //VSQLAnsi: AnsiString;
@@ -841,17 +837,32 @@ begin
     Exit;
   end;
 
+  VSQLText := 'SELECT index_sql,ignore_errors,object_sql' +
+               ' FROM ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
+              ' WHERE object_name=' + DBMSStrToDB(ATemplateName) +
+                ' AND object_oper=''C'' AND skip_sql=''0''' +
+              ' ORDER BY index_sql';
+
   // вытащим все запросы SQL для CREATE (операция "C") для запрошенного шаблона
   VExecuteSQLArray := nil;
   try
+{$if defined(USE_ODBC_DATASET)}
     VDataset := FConnection.MakePoolDataset;
+{$else}
+    VOdbcFetchColsEx.Init;
+{$ifend}
     try
-      VSQLText := 'select index_sql,ignore_errors,object_sql from ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
-                  ' where object_name=' + DBMSStrToDB(ATemplateName) +
-                    ' and object_oper=''C'' and skip_sql=''0'' order by index_sql';
+{$if defined(USE_ODBC_DATASET)}
       VDataset.OpenSQL(VSQLText);
+{$else}
+      FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
       if VDataset.IsEmpty then begin
+{$else}
+      if (not VOdbcFetchColsEx.Base.IsActive) then begin
+{$ifend}
         // ничего не прочиталось - значит нет шаблона
         Result := ETS_RESULT_NO_TEMPLATE_RECORDS;
         Exit;
@@ -860,13 +871,26 @@ begin
       // что-то в датасете есть
       VExecuteSQLArray := TExecuteSQLArray.Create;
 
+{$if defined(USE_ODBC_DATASET)}
       VDataset.First;
       while (not VDataset.Eof) do begin
+{$else}
+      while VOdbcFetchColsEx.Base.FetchRecord do begin
+{$ifend}
         // тащим текст SQL для исполнения в порядке очерёдности
+{$if defined(USE_ODBC_DATASET)}
         Vignore_errors := VDataset.GetAnsiCharFlag('ignore_errors', ETS_UCT_YES);
+{$else}
+        VOdbcFetchColsEx.Base.ColToAnsiCharDef(2, Vignore_errors, ETS_UCT_YES);
+{$ifend}
 
         // если есть текст - добавляем его в список
+{$if defined(USE_ODBC_DATASET)}
         if VDataset.ClobAsWideString('object_sql', VSQLText) then begin
+{$else}
+        VOdbcFetchColsEx.Base.ColToAnsiString(3, VSQLText);
+        if (0<Length(VSQLText)) then begin
+{$ifend}
           // а тут надо подменить имя таблицы
           VSQLText := StringReplace(VSQLText, ATemplateName, AUnquotedTableNameWithoutPrefix, [rfReplaceAll,rfIgnoreCase]);
 
@@ -883,12 +907,18 @@ begin
           );
         end;
 
+{$if defined(USE_ODBC_DATASET)}
         // - Следующий!
         VDataset.Next;
+{$ifend}
       end;
 
     finally
+{$if defined(USE_ODBC_DATASET)}
       FConnection.KillPoolDataset(VDataset);
+{$else}
+      VOdbcFetchColsEx.Base.Close;
+{$ifend}
     end;
 
     // а теперь если чего залетело в список - выполним
@@ -996,7 +1026,11 @@ function TDBMS_Provider.DBMS_EnumTileVersions(
 ): Byte;
 var
   VExclusive, VVersionFound: Boolean;
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchCols: TOdbcFetchCols;
+{$ifend}
   VEnumOut: TETS_ENUM_TILE_VERSION_OUT;
   VETS_VERSION_W: TETS_VERSION_W;
   VETS_VERSION_A: TETS_VERSION_A;
@@ -1005,6 +1039,7 @@ var
   VVersionValueW, VVersionCommentW: WideString; // keep wide
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
+  VFetchedIdVer: SmallInt;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -1016,30 +1051,38 @@ begin
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
+    // fill full sql text and open
+    Result := GetSQL_EnumTileVersions(ASelectBufferIn, VExclusive, VSQLText);
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    FillChar(VEnumOut, SizeOf(VEnumOut), 0);
+
+    if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
+      // Ansi record
+      FillChar(VETS_VERSION_A, SizeOf(VETS_VERSION_A), 0);
+      VEnumOut.ResponseValue := @VETS_VERSION_A;
+    end else begin
+      // Wide record
+      FillChar(VETS_VERSION_W, SizeOf(VETS_VERSION_W), 0);
+      VEnumOut.ResponseValue := @VETS_VERSION_W;
+    end;
+
     // if connected - SELECT id_ver from DB
+{$if defined(USE_ODBC_DATASET)}
     VDataset := FConnection.MakePoolDataset;
+{$else}
+    VOdbcFetchCols.Init;
+{$ifend}
     try
-      // fill full sql text and open
-      Result := GetSQL_EnumTileVersions(ASelectBufferIn, VExclusive, VSQLText);
-      if (ETS_RESULT_OK<>Result) then
-        Exit;
-
-      FillChar(VEnumOut, SizeOf(VEnumOut), 0);
-      
-      if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
-        // Ansi record
-        FillChar(VETS_VERSION_A, SizeOf(VETS_VERSION_A), 0);
-        VEnumOut.ResponseValue := @VETS_VERSION_A;
-      end else begin
-        // Wide record
-        FillChar(VETS_VERSION_W, SizeOf(VETS_VERSION_W), 0);
-        VEnumOut.ResponseValue := @VETS_VERSION_W;
-      end;
-
       // open sql
       VStatementExceptionType := set_Success;
       try
+{$if defined(USE_ODBC_DATASET)}
         VDataset.OpenSQL(VSQLText);
+{$else}
+        FConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchCols);
+{$ifend}
       except on E: Exception do
         VStatementExceptionType := GetStatementExceptionType(E);
       end;
@@ -1064,6 +1107,7 @@ begin
         end;
       end;
 
+{$if defined(USE_ODBC_DATASET)}
       // тут только если нет критической ошибки
       if (not VDataset.Active) then begin
         // table not found
@@ -1071,17 +1115,39 @@ begin
       end else if VDataset.IsEmpty then begin
         // nothing
         Result := ETS_RESULT_OK;
+{$else}
+      if not VOdbcFetchCols.IsActive then begin
+        Result := ETS_RESULT_INVALID_STRUCTURE;
+{$ifend}
       end else begin
         // enum all items
+{$if defined(USE_ODBC_DATASET)}
         if (not VDataset.IsUniDirectional) then begin
           VEnumOut.ResponseCount := VDataset.RecordCount;
         end else begin
           VEnumOut.ResponseCount := -1; // unknown count
         end;
         VDataset.First;
+{$else}
+        // для работы без датасетов число записей заранее неизвестно
+        VEnumOut.ResponseCount := -1; // unknown count
+{$ifend}
+
+{$if defined(USE_ODBC_DATASET)}
         while (not VDataset.Eof) do begin
+{$else}
+        while (VOdbcFetchCols.FetchRecord) do begin
+{$ifend}
+          // возьмём суррогатный идентификатор версии
+          // значения NULL тут быть не может
+{$if defined(USE_ODBC_DATASET)}
+          VFetchedIdVer := VDataset.FieldByName('id_ver').AsInteger;
+{$else}
+          VOdbcFetchCols.ColToSmallInt(1, VFetchedIdVer);
+{$ifend}
+
           // find selected version
-          VVersionFound := FVersionList.FindItemByIdVerInternal(VDataset.FieldByName('id_ver').AsInteger, @VVersionAA);
+          VVersionFound := FVersionList.FindItemByIdVerInternal(VFetchedIdVer, @VVersionAA);
 
           if (not VVersionFound) then begin
             // необходимо обновление версии, так как вытащили из БД неизвестную ранее версию
@@ -1091,12 +1157,12 @@ begin
               Exit;
             end;
             ReadVersionsFromDB(VExclusive);
-            VVersionFound := FVersionList.FindItemByIdVerInternal(VDataset.FieldByName('id_ver').AsInteger, @VVersionAA);
+            VVersionFound := FVersionList.FindItemByIdVerInternal(VFetchedIdVer, @VVersionAA);
           end;
 
           if (not VVersionFound) then begin
             // OMG WTF
-            VVersionAA.id_ver := VDataset.FieldByName('id_ver').AsInteger;
+            VVersionAA.id_ver := VFetchedIdVer;
             VVersionAA.ver_value := '';
             VVersionAA.ver_comment := '';
           end;
@@ -1129,13 +1195,20 @@ begin
 
           // next record
           Inc(VEnumOut.ResponseIndex);
+
+{$if defined(USE_ODBC_DATASET)}
           VDataset.Next;
+{$ifend}
         end;
 
       end;
       
     finally
+{$if defined(USE_ODBC_DATASET)}
       FConnection.KillPoolDataset(VDataset);
+{$else}
+      VOdbcFetchCols.Close;
+{$ifend}
     end;
   finally
     DoEndWork(VExclusivelyLocked);
@@ -1931,7 +2004,12 @@ function TDBMS_Provider.DBMS_GetTileRectInfo(
 ): Byte;
 var
   VExclusive: Boolean;
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols12;
+  VColIndex: SmallInt;
+{$ifend}
   VEnumOut: TETS_GET_TILE_RECT_OUT;
   VExclusivelyLocked: Boolean;
   VSelectInRectList: TSelectInRectList;
@@ -1972,7 +2050,11 @@ begin
 
       // по очереди на выход
       if VSelectInRectList.Count>0 then begin
+{$if defined(USE_ODBC_DATASET)}
         VDataset := FConnection.MakePoolDataset;
+{$else}
+        VOdbcFetchColsEx.Init;
+{$ifend}
         try
           // для каждой интересующей нас таблички
           for i := 0 to VSelectInRectList.Count-1 do begin
@@ -1984,29 +2066,56 @@ begin
 
             // открываемся
             try
+{$if defined(USE_ODBC_DATASET)}
               VDataset.OpenSQL(VSelectInRectItem^.FullSqlText);
+{$else}
+              VOdbcFetchColsEx.Base.Close;
+              FConnection.OpenDirectSQLFetchCols(VSelectInRectItem^.FullSqlText, @(VOdbcFetchColsEx.Base));
+{$ifend}
             except
               // нет таблицы - нет данных - молча пропускаем
             end;
 
+{$if defined(USE_ODBC_DATASET)}
             if (VDataset.Active) and (not VDataset.IsEmpty) then begin
-              // что-то открылось - перечислим это в хост
               VDataset.First;
+{$else}
+            if VOdbcFetchColsEx.Base.IsActive then begin
+{$ifend}
+              // что-то открылось - перечислим это в хост
+{$if defined(USE_ODBC_DATASET)}
               while (not VDataset.Eof) do begin
+{$else}
+              while (VOdbcFetchColsEx.Base.FetchRecord) do begin
+{$ifend}
                 // заполняем параметры
                 VEnumOut.TileInfo.dwOptionsOut := ETS_ROO_SAME_VERSION;
 
                 // заполняем TilePos тайловыми координатами тайла
                 CalcBackToTilePos(
+{$if defined(USE_ODBC_DATASET)}
                   VDataset.FieldByName('x').AsInteger,
                   VDataset.FieldByName('y').AsInteger,
+{$else}
+                  VOdbcFetchColsEx.Base.GetOptionalLongInt('x'),
+                  VOdbcFetchColsEx.Base.GetOptionalLongInt('y'),
+{$ifend}
                   VSelectInRectItem.TabSQLTile.XYUpperToTable,
                   @(VEnumOut.TilePos)
                 );
 
                 // заполняем данные о тайле
+{$if defined(USE_ODBC_DATASET)}
                 VEnumOut.TileInfo.dtLoadedUTC := VDataset.FieldByName('load_date').AsDateTime;
                 VEnumOut.TileInfo.dwTileSize := VDataset.FieldByName('tile_size').AsInteger;
+{$else}
+                VColIndex := VOdbcFetchColsEx.Base.ColIndex('load_date');
+                VOdbcFetchColsEx.Base.ColToDateTime(VColIndex, VEnumOut.TileInfo.dtLoadedUTC);
+                VColIndex := VOdbcFetchColsEx.Base.ColIndex('tile_size');
+                VOdbcFetchColsEx.Base.ColToLongInt(VColIndex, VEnumOut.TileInfo.dwTileSize);
+{$ifend}
+
+
                 // check if tile of tne
                 if (VEnumOut.TileInfo.dwTileSize<=0) then begin
                   // tne
@@ -2028,8 +2137,10 @@ begin
                 if (Result<>ETS_RESULT_OK) then
                   break;
 
+{$if defined(USE_ODBC_DATASET)}
                 // - Следующий!
                 VDataset.Next;
+{$ifend}
               end;
 
             end;
@@ -2040,7 +2151,11 @@ begin
           end; // for
 
         finally
+{$if defined(USE_ODBC_DATASET)}
           FConnection.KillPoolDataset(VDataset);
+{$else}
+          VOdbcFetchColsEx.Base.Close;
+{$ifend}
         end;
       end;
 
@@ -2099,11 +2214,17 @@ begin
 
       if (iust_TILE=VInsertUpdateSubType) then begin
         // тело тайла есть в запросе
+{$if defined(ETS_USE_DBX)}
+        // только для DBX
         VCastBodyAsHexLiteral := c_DBX_CastBlobToHexLiteral[FConnection.GetCheckedEngineType];
         if VCastBodyAsHexLiteral then
           VBodyAsLiteralValue := ConvertTileToHexLiteralValue(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize)
         else
           VBodyAsLiteralValue := '';
+{$else}
+        VCastBodyAsHexLiteral := FALSE;
+        VBodyAsLiteralValue := '';
+{$ifend}
       end else begin
         // тело тайла вообще отсутствует в запросе
         VCastBodyAsHexLiteral := FALSE;
@@ -2249,9 +2370,14 @@ function TDBMS_Provider.DBMS_SelectTile(
 ): Byte;
 var
   VExclusive: Boolean;
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
-  VOut: TETS_SELECT_TILE_OUT;
   VStream: TStream;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols10;
+  VColIndex: SmallInt;
+{$ifend}
+  VOut: TETS_SELECT_TILE_OUT;
   Vid_ver, Vid_contenttype: SmallInt;
   VSQLText: TDBMS_String;
   VVersionW, VContentTypeW: WideString; // keep wide
@@ -2268,21 +2394,28 @@ begin
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
-    // if connected - SELECT tile from DB
+    // забацаем полный текст SELECT
+    Result := GetSQL_SelectTile(ASelectBufferIn, VExclusive, VSQLText);
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    FillChar(VOut, SizeOf(VOut), 0);
+
+{$if defined(USE_ODBC_DATASET)}
     VStream := nil;
     VDataset := FConnection.MakePoolDataset;
+{$else}
+    VOdbcFetchColsEx.Init;
+{$ifend}
     try
-      // fill full sql text and open
-      Result := GetSQL_SelectTile(ASelectBufferIn, VExclusive, VSQLText);
-      if (ETS_RESULT_OK<>Result) then
-        Exit;
-
-      FillChar(VOut, SizeOf(VOut), 0);
-
       // open sql
       VStatementExceptionType := set_Success;
       try
+{$if defined(USE_ODBC_DATASET)}
         VDataset.OpenSQL(VSQLText);
+{$else}
+        FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+{$ifend}
       except on E: Exception do
         VStatementExceptionType := GetStatementExceptionType(E);
       end;
@@ -2307,65 +2440,113 @@ begin
         end;
       end;
 
-      // get values
+      // тащим значения
+      
+{$if defined(USE_ODBC_DATASET)}
       if (not VDataset.Active) then begin
         // если таблицы с тайлами нет - значит тайлов этого зума нет - обычная ситуация
         Result := ETS_RESULT_OK;
-      end else if VDataset.IsEmpty then begin
+        Exit;
+      end;
+      if VDataset.IsEmpty then begin
         // таблица есть, но тайлов нет
         Result := ETS_RESULT_OK;
+        Exit;
+      end;
+{$else}
+      if (not VOdbcFetchColsEx.Base.IsActive) then begin
+        Result := ETS_RESULT_OK;
+        Exit;
+      end;
+      if (not VOdbcFetchColsEx.Base.FetchRecord) then begin
+        // не смогли фетчнуться - тайла нет
+        Result := ETS_RESULT_OK;
+        Exit;
+      end;
+{$ifend}
+
+      // берём только одну запись (из-за 'order by' другие не нужны)
+      // TODO: пропихнуть признак в запрос и подставлять TOP 1 или аналог
+{$if defined(USE_ODBC_DATASET)}
+      VOut.dtLoadedUTC := VDataset.FieldByName('load_date').AsDateTime;
+      VOut.dwTileSize := VDataset.FieldByName('tile_size').AsInteger;
+{$else}
+      VColIndex := VOdbcFetchColsEx.Base.ColIndex('load_date');
+      VOdbcFetchColsEx.Base.ColToDateTime(VColIndex, VOut.dtLoadedUTC);
+      VColIndex := VOdbcFetchColsEx.Base.ColIndex('tile_size');
+      VOdbcFetchColsEx.Base.ColToLongInt(VColIndex, VOut.dwTileSize);
+{$ifend}
+
+      // определяем тайл это или TNE
+      if (VOut.dwTileSize<=0) then begin
+        // обнаружили маркер TNE
+        VOut.dwOptionsOut := VOut.dwOptionsOut or ETS_ROO_TNE_EXISTS;
       end else begin
-        // get first item (because of 'order by' clause)
-        VOut.dtLoadedUTC := VDataset.FieldByName('load_date').AsDateTime;
-        VOut.dwTileSize := VDataset.FieldByName('tile_size').AsInteger;
-        // check if tile of tne
-        if (VOut.dwTileSize<=0) then begin
-          // tne
-          VOut.dwOptionsOut := VOut.dwOptionsOut or ETS_ROO_TNE_EXISTS;
-        end else begin
-          // tile
-          VOut.dwOptionsOut := VOut.dwOptionsOut or ETS_ROO_TILE_EXISTS;
-          // get body
-          VStream := VDataset.CreateFieldBlobReadStream('tile_body');
-          if (nil=VStream) then
-            VOut.ptTileBuffer := nil
-          else
-            VOut.ptTileBuffer := (VStream as TCustomMemoryStream).Memory;
-        end;
+        // это тайл
+        VOut.dwOptionsOut := VOut.dwOptionsOut or ETS_ROO_TILE_EXISTS;
+        // вытащим тело
+{$if defined(USE_ODBC_DATASET)}
+        // если работаем через датасеты - грузим через MemoryStream
+        VStream := VDataset.CreateFieldBlobReadStream('tile_body');
+        if (nil=VStream) then
+          VOut.ptTileBuffer := nil
+        else
+          VOut.ptTileBuffer := (VStream as TCustomMemoryStream).Memory;
+{$else}
+        // если работаем руками - сразу берём буфер
+        VColIndex := VOdbcFetchColsEx.Base.ColIndex('tile_body');
+        VOut.ptTileBuffer := VOdbcFetchColsEx.Base.GetLOBBuffer(VColIndex);
+{$ifend}
+      end;
 
-        // version
-        Vid_ver := VDataset.FieldByName('id_ver').AsInteger;
-        if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
-          // as AnsiString
-          VOut.szVersionOut := GetVersionAnsiPointer(Vid_ver, VExclusive);
-        end else begin
-          // as WideString
-          VVersionW := GetVersionWideString(Vid_ver, VExclusive);
-          VOut.szVersionOut := PWideChar(VVersionW);
-        end;
+      // версия
+{$if defined(USE_ODBC_DATASET)}
+      Vid_ver := VDataset.FieldByName('id_ver').AsInteger;
+{$else}
+      VColIndex := VOdbcFetchColsEx.Base.ColIndex('id_ver');
+      VOdbcFetchColsEx.Base.ColToSmallInt(VColIndex, Vid_ver);
+{$ifend}
 
-        // contenttype
-        Vid_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
-        if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_CONTENTTYPE_OUT) <> 0) then begin
+      if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
+        // as AnsiString
+        VOut.szVersionOut := GetVersionAnsiPointer(Vid_ver, VExclusive);
+      end else begin
+        // as WideString
+        VVersionW := GetVersionWideString(Vid_ver, VExclusive);
+        VOut.szVersionOut := PWideChar(VVersionW);
+      end;
+
+      // contenttype
+{$if defined(USE_ODBC_DATASET)}
+      Vid_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
+{$else}
+      VColIndex := VOdbcFetchColsEx.Base.ColIndex('id_contenttype');
+      VOdbcFetchColsEx.Base.ColToSmallInt(VColIndex, Vid_contenttype);
+{$ifend}
+
+      if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_CONTENTTYPE_OUT) <> 0) then begin
           // as AnsiString
           VOut.szContentTypeOut := GetContentTypeAnsiPointer(Vid_contenttype, VExclusive);
-        end else begin
+      end else begin
           // as WideString
           VContentTypeW := GetContentTypeWideString(Vid_contenttype, VExclusive);
           VOut.szContentTypeOut := PWideChar(VContentTypeW);
-        end;
+      end;
 
-        // call host
-        Result := TETS_SelectTile_Callback(FHostCallbacks[ETS_INFOCLASS_SelectTile_Callback])(
+      // отдаёмся хосту
+      Result := TETS_SelectTile_Callback(FHostCallbacks[ETS_INFOCLASS_SelectTile_Callback])(
           FHostPointer,
           ACallbackPointer,
           ASelectBufferIn,
           @VOut
-        );
-      end;
+      );
     finally
+{$if defined(USE_ODBC_DATASET)}
       FreeAndNil(VStream);
       FConnection.KillPoolDataset(VDataset);
+{$else}
+      VOdbcFetchColsEx.Base.Close;
+{$ifend}
     end;
   finally
     DoEndWork(VExclusivelyLocked);
@@ -2414,10 +2595,13 @@ begin
 end;
 
 function TDBMS_Provider.DBMS_Sync(const AFlags: LongWord): Byte;
+{$if defined(USE_ODBC_DATASET)}
 var
   VExclusively: Boolean;
   VExclusivelyLocked: Boolean;
+{$ifend}
 begin
+{$if defined(USE_ODBC_DATASET)}
   VExclusively := ((AFlags and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusively, so_Sync, VExclusivelyLocked);
@@ -2428,7 +2612,7 @@ begin
   finally
     DoEndWork(VExclusivelyLocked);
   end;
-
+{$ifend}
   Result := ETS_RESULT_OK;
 end;
 
@@ -2600,9 +2784,14 @@ function TDBMS_Provider.GetMaxNextVersionInts(
   const AKeepVerNumber: Boolean
 ): Boolean;
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols2;
+{$ifend}
   VSQLText: TDBMS_String;
 begin
+{$if defined(USE_ODBC_DATASET)}
   VDataset := FConnection.MakePoolDataset;
   try
     try
@@ -2635,6 +2824,83 @@ begin
   finally
     FConnection.KillPoolDataset(VDataset);
   end;
+{$else}
+  VOdbcFetchColsEx.Init;
+  try
+    // соберём запрос
+    VSQLText := 'select max(id_ver) as id_ver';
+    if (not AKeepVerNumber) then begin
+      // для ver_number тоже потащим максимум
+      VSQLText := VSQLText + ', max(ver_number) as ver_number';
+    end;
+    VSQLText := VSQLText + ' FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
+
+    // выполняем
+    try
+      Result := FConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchColsEx);
+      if Result then
+        Result := VOdbcFetchColsEx.Base.FetchRecord;
+    except
+      Result := FALSE;
+    end;
+
+    // смотрим чего наделали
+    if Result and (not VOdbcFetchColsEx.Base.IsNull(1)) then begin
+      VOdbcFetchColsEx.Base.ColToSmallInt(1, ANewVersionPtr^.id_ver);
+    end else begin
+      ANewVersionPtr^.id_ver := 0;
+    end;
+
+    Inc(ANewVersionPtr^.id_ver);
+
+    // может быть номер версии тоже надо обновить
+    if (not AKeepVerNumber) then begin
+      if Result and (not VOdbcFetchColsEx.Base.IsNull(2)) then begin
+        VOdbcFetchColsEx.Base.ColToLongInt(2, ANewVersionPtr^.ver_number);
+      end else begin
+        ANewVersionPtr^.ver_number := 0;
+      end;
+      Inc(ANewVersionPtr^.ver_number);
+    end;
+  finally
+    VOdbcFetchColsEx.Base.Close;
+  end;
+{$ifend}
+end;
+
+function TDBMS_Provider.GetNewIdService: SmallInt;
+var
+{$if defined(USE_ODBC_DATASET)}
+  VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchCols: TOdbcFetchCols;
+{$ifend}
+  VSQLText: TDBMS_String;
+begin
+  // здесь если обломались - надо кидать исключение
+  VSQLText := 'SELECT max(id_service) as id_service FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE;
+
+{$if defined(USE_ODBC_DATASET)}
+  VDataset := FConnection.MakePoolDataset;
+  try
+    VDataset.OpenSQL(VSQLText);
+    Result := VDataset.FieldByName('id_service').AsInteger + 1;
+  finally
+    FConnection.KillPoolDataset(VDataset);
+  end;
+{$else}
+  VOdbcFetchCols.Init;
+  try
+    Result := 0;
+    if FConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchCols) then
+      if VOdbcFetchCols.FetchRecord then
+        VOdbcFetchCols.ColToSmallInt(1, Result);
+    // инкремент
+    Inc(Result);
+  finally
+    VOdbcFetchCols.Close;
+  end;
+{$ifend}
 end;
 
 function TDBMS_Provider.GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
@@ -2888,18 +3154,6 @@ begin
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
-  (*
-  // check if table exists
-  if AExclusively then begin
-    if not TableExists(VSQLTile.TileTableName) then begin
-      Result := CreateTableByTemplate(c_Templated_RealTiles, VSQLTile.TileTableName);
-      // check if failed
-      if (Result<>ETS_RESULT_OK) then
-        Exit;
-    end;
-  end;
-  *)
-
   // забацаем SELECT
   VSQLParts.SelectSQL := 'select v.id_ver';
   VSQLParts.FromSQL := FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName + ' v';
@@ -3033,7 +3287,10 @@ function TDBMS_Provider.GetSQL_InsertIntoService(
   out ASQLTextResult: TDBMS_String
 ): Byte;
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+{$ifend}
   VNewIdService: SmallInt;
   VNewIdContentType: SmallInt;
   VNewServiceCode: AnsiString;
@@ -3053,10 +3310,13 @@ begin
   if Length(VNewServiceCode)>20 then
     SetLength(VNewServiceCode, 20);
 
+  // а может такой внутренний код сервиса уже есть
+  VSQLText := 'SELECT id_service FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+              ' WHERE service_code='+DBMSStrToDB(VNewServiceCode);
+
+{$if defined(USE_ODBC_DATASET)}
   VDataset := FConnection.MakePoolDataset;
   try
-    // а может такой внутренний код сервиса уже есть
-    VSQLText := GetSQL_SelectService_ByCode(VNewServiceCode);
     try
       VDataset.OpenSQL(VSQLText);
     except
@@ -3070,42 +3330,39 @@ begin
       Result := ETS_RESULT_INVALID_SERVICE_CODE;
       Exit;
     end;
-
-    // здесь всегда обновляем список типов тайлов
-    ReadContentTypesFromDB(AExclusively);
-
-    // получим первичный тип тайла
-    if not FContentTypeList.FindItemByAnsiValueInternal(FPrimaryContentType, VNewIdContentType) then begin
-      // обломались
-      Result := ETS_RESULT_UNKNOWN_CONTENTTYPE;
-      Exit;
-    end;
-
-    // получим новый номер идентификатора
-    // TODO: сделать в цикле и обработать облом
-    try
-      VDataset.OpenSQL('SELECT max(id_service) as id_service FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE);
-    except
-      // опять обломались на простом запросе
-      Result := ETS_RESULT_INVALID_STRUCTURE;
-      Exit;
-    end;
-
-    // следующий идентификатор
-    VNewIdService := VDataset.FieldByName('id_service').AsInteger + 1;
-
-    // выполняем команду INSERT
-    // прочие поля (id_ver_comp, id_div_mode, work_mode, use_common_tiles) залетают из DEFAULT-ных значений
-    // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
-    ASQLTextResult := 'INSERT INTO ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
-                            IntToStr(VNewIdService) + ',' +
-                            DBMSStrToDB(VNewServiceCode) + ',' +
-                            DBMSStrToDB(InternalGetServiceNameByHost) + ',' +
-                            IntToStr(VNewIdContentType) + ')';
-    Result := ETS_RESULT_OK;
   finally
     FConnection.KillPoolDataset(VDataset);
   end;
+{$else}
+  if FConnection.CheckDirectSQLSingleNotNull(VSQLText) then begin
+    // такой сервис уже зарегистрирован в БД (очевидно, с другим внешним уникальным кодом)
+    Result := ETS_RESULT_INVALID_SERVICE_CODE;
+    Exit;
+  end;
+{$ifend}
+
+  // здесь всегда обновляем список типов тайлов
+  ReadContentTypesFromDB(AExclusively);
+
+  // получим первичный тип тайла
+  if not FContentTypeList.FindItemByAnsiValueInternal(FPrimaryContentType, VNewIdContentType) then begin
+    // обломались
+    Result := ETS_RESULT_UNKNOWN_CONTENTTYPE;
+    Exit;
+  end;
+
+  // следующий идентификатор
+  VNewIdService := GetNewIdService;
+
+  // генерим текст команды INSERT
+  // прочие поля (id_ver_comp, id_div_mode,...) залетают из DEFAULT-ных значений
+  // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
+  ASQLTextResult := 'INSERT INTO ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
+                          IntToStr(VNewIdService) + ',' +
+                          DBMSStrToDB(VNewServiceCode) + ',' +
+                          DBMSStrToDB(InternalGetServiceNameByHost) + ',' +
+                          IntToStr(VNewIdContentType) + ')';
+  Result := ETS_RESULT_OK;
 end;
 
 function TDBMS_Provider.GetSQL_InsertUpdateTile(
@@ -3276,21 +3533,6 @@ begin
                         ' and id_ver=' + IntToStr(VReqVersion.id_ver);
 end;
 
-function TDBMS_Provider.GetSQL_SelectContentTypes: TDBMS_String;
-begin
-  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_CONTENTTYPE;
-end;
-
-function TDBMS_Provider.GetSQL_SelectService_ByCode(const AServiceCode: AnsiString): TDBMS_String;
-begin
-  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_code='+DBMSStrToDB(AServiceCode);
-end;
-
-function TDBMS_Provider.GetSQL_SelectService_ByHost: TDBMS_String;
-begin
-  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' WHERE service_name='+DBMSStrToDB(InternalGetServiceNameByHost);
-end;
-
 function TDBMS_Provider.GetSQL_SelectTile(
   const ASelectBufferIn: PETS_SELECT_TILE_IN;
   const AExclusively: Boolean;
@@ -3432,12 +3674,6 @@ begin
   ASQLTextResult := VSQLParts.SelectSQL + ' FROM ' + VSQLParts.FromSQL +
                     VSQLParts.WhereSQL +
                     VSQLParts.OrderBySQL;
-end;
-
-function TDBMS_Provider.GetSQL_SelectVersions: TDBMS_String;
-begin
-  // тащим всё из таблицы версий для текущего сервиса
-  Result := 'SELECT * FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
 end;
 
 function TDBMS_Provider.GetVersionAnsiPointer(
@@ -3739,21 +3975,35 @@ end;
 
 function TDBMS_Provider.InternalProv_ReadServiceInfo(const AExclusively: Boolean): Byte;
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols12;
+{$ifend}
   VSelectCurrentServiceSQL: TDBMS_String;
   VStatementExceptionType: TStatementExceptionType;
 begin
   FillChar(FDBMS_Service_Info, SizeOf(FDBMS_Service_Info), 0);
-  VDataset := FConnection.MakePoolDataset;
-  try
-    // запрос текущего сервиса
-    VSelectCurrentServiceSQL := GetSQL_SelectService_ByHost;
 
-    // тащим инфу о текущем сервисе
-    // исходя из указанного при инициализации внешнего уникального кода сервиса
+  // тащим инфу о текущем сервисе
+  // исходя из указанного при инициализации внешнего уникального кода сервиса
+  VSelectCurrentServiceSQL := 'SELECT *' +
+                               ' FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+                              ' WHERE service_name='+DBMSStrToDB(InternalGetServiceNameByHost);
+
+{$if defined(USE_ODBC_DATASET)}
+  VDataset := FConnection.MakePoolDataset;
+{$else}
+  VOdbcFetchColsEx.Init;
+{$ifend}
+  try
     VStatementExceptionType := set_Success;
     try
+{$if defined(USE_ODBC_DATASET)}
       VDataset.OpenSQL(VSelectCurrentServiceSQL);
+{$else}
+      FConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
+{$ifend}
     except on E: Exception do
       VStatementExceptionType := GetStatementExceptionType(E);
     end;
@@ -3763,18 +4013,27 @@ begin
       InternalProv_ClearServiceInfo;
       Exit;
     end;
-    
+
     case VStatementExceptionType of
       set_Success: begin
         // ok
       end;
       set_TableNotFound: begin
         // нет таблицы с сервисами
+{$if defined(USE_ODBC_DATASET)}
+        VDataset.Close;
+{$else}
+        VOdbcFetchColsEx.Base.Close;
+{$ifend}
         // создаём базовые таблицы из скрипта
         CreateAllBaseTablesFromScript;
         // переоткрываемся
         try
+{$if defined(USE_ODBC_DATASET)}
           VDataset.OpenSQL(VSelectCurrentServiceSQL);
+{$else}
+          FConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
+{$ifend}
         except
         end;
       end;
@@ -3784,7 +4043,11 @@ begin
     end;
 
     // а вдруг полный отстой, и нам так и не удалось открыться
+{$if defined(USE_ODBC_DATASET)}
     if (not VDataset.Active) then begin
+{$else}
+    if (not VOdbcFetchColsEx.Base.IsActive) then begin
+{$ifend}
       // с прискорбием валим
       InternalProv_ClearServiceInfo;
       Result := ETS_RESULT_INVALID_STRUCTURE;
@@ -3792,8 +4055,18 @@ begin
     end;
 
     // проверка, а есть ли сервис
+{$if defined(USE_ODBC_DATASET)}
     if VDataset.IsEmpty then begin
+{$else}
+    if (not VOdbcFetchColsEx.Base.FetchRecord) then begin
+{$ifend}
       // а сервиса-то такого нет
+{$if defined(USE_ODBC_DATASET)}
+      VDataset.Close;
+{$else}
+      VOdbcFetchColsEx.Base.Close;
+{$ifend}
+
       // однако попробуем создать его
       Result := AutoCreateServiceRecord(AExclusively);
 
@@ -3805,20 +4078,29 @@ begin
 
       // и снова пробуем переоткрыться
       try
+{$if defined(USE_ODBC_DATASET)}
         VDataset.OpenSQL(VSelectCurrentServiceSQL);
+{$else}
+        FConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
+{$ifend}
       except
       end;
-    end;
 
-    // последняя проверка
-    if (not VDataset.Active) or VDataset.IsEmpty then begin
-      // так и нет сервиса
-      InternalProv_ClearServiceInfo;
-      Result := ETS_RESULT_UNKNOWN_SERVICE;
-      Exit;
+      // последняя проверка - может так ничего и не забацали
+{$if defined(USE_ODBC_DATASET)}
+      if VDataset.IsEmpty then begin
+{$else}
+      if (not VOdbcFetchColsEx.Base.FetchRecord) then begin
+{$ifend}
+        // так и нет сервиса
+        InternalProv_ClearServiceInfo;
+        Result := ETS_RESULT_UNKNOWN_SERVICE;
+        Exit;
+      end;
     end;
-
+    
     // запрошенный сервис нашёлся
+{$if defined(USE_ODBC_DATASET)}
     FDBMS_Service_Code := VDataset.FieldByName('service_code').AsString;
     FDBMS_Service_Info.id_service := VDataset.FieldByName('id_service').AsInteger;
     FDBMS_Service_Info.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
@@ -3826,13 +4108,34 @@ begin
     FDBMS_Service_Info.id_div_mode := VDataset.GetAnsiCharFlag('id_div_mode', TILE_DIV_ERROR);
     FDBMS_Service_Info.work_mode := VDataset.GetAnsiCharFlag('work_mode', ETS_SWM_DEFAULT);
     FDBMS_Service_Info.use_common_tiles := VDataset.GetAnsiCharFlag('use_common_tiles', ETS_UCT_NO);
+{$else}
+    with VOdbcFetchColsEx.Base do begin
+      ColToSmallInt   (ColIndex('id_service'),       FDBMS_Service_Info.id_service);
+      ColToAnsiString (ColIndex('service_code'),     FDBMS_Service_Code);
+      ColToSmallInt   (ColIndex('id_contenttype'),   FDBMS_Service_Info.id_contenttype);
+      ColToAnsiCharDef(ColIndex('id_ver_comp'),      FDBMS_Service_Info.id_ver_comp, TILE_VERSION_COMPARE_NONE);
+      ColToAnsiCharDef(ColIndex('id_div_mode'),      FDBMS_Service_Info.id_div_mode, TILE_DIV_ERROR);
+      ColToAnsiCharDef(ColIndex('work_mode'),        FDBMS_Service_Info.work_mode, ETS_SWM_DEFAULT);
+      ColToAnsiCharDef(ColIndex('use_common_tiles'), FDBMS_Service_Info.use_common_tiles, ETS_UCT_NO);
+    end;
+{$ifend}
+
     FDBMS_Service_OK := TRUE;
 
     // следующие поля появились только во второй версии Z_SERVICE, так что их может не быть
+{$if defined(USE_ODBC_DATASET)}
     FDBMS_Service_Info.tile_load_mode   := VDataset.GetOptionalSmallInt('tile_load_mode');
     FDBMS_Service_Info.tile_save_mode   := VDataset.GetOptionalSmallInt('tile_save_mode');
     FDBMS_Service_Info.tile_hash_mode   := VDataset.GetOptionalSmallInt('tile_hash_mode');
     FDBMS_Service_Info.new_ver_by_tile  := VDataset.GetOptionalSmallInt('new_ver_by_tile');
+{$else}
+    with VOdbcFetchColsEx.Base do begin
+      FDBMS_Service_Info.tile_load_mode  := GetOptionalSmallInt('tile_load_mode');
+      FDBMS_Service_Info.tile_save_mode  := GetOptionalSmallInt('tile_save_mode');
+      FDBMS_Service_Info.tile_hash_mode  := GetOptionalSmallInt('tile_hash_mode');
+      FDBMS_Service_Info.new_ver_by_tile := GetOptionalSmallInt('new_ver_by_tile');
+    end;
+{$ifend}
 
     // копируем параметры в опции хранилища
     if (FStatusBuffer<>nil) then
@@ -3844,11 +4147,16 @@ begin
       // вторая версия полей
       tile_load_mode   := LoByte(FDBMS_Service_Info.tile_load_mode);
       tile_save_mode   := LoByte(FDBMS_Service_Info.tile_save_mode);
+      new_ver_by_tile  := FDBMS_Service_Info.new_ver_by_tile;
     end;
 
     Result := ETS_RESULT_OK;
   finally
+{$if defined(USE_ODBC_DATASET)}
     FConnection.KillPoolDataset(VDataset);
+{$else}
+    VOdbcFetchColsEx.Base.Close;
+{$ifend}
   end;
 end;
 
@@ -4424,33 +4732,83 @@ end;
 
 procedure TDBMS_Provider.ReadContentTypesFromDB(const AExclusively: Boolean);
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols2;
+{$ifend}
+  VSQLText: TDBMS_String;
   VNewItem: TContentTypeA;
 begin
   Assert(AExclusively);
   try
     FContentTypeList.SetCapacity(0);
+
+    VSQLText := 'SELECT id_contenttype,contenttype_text' +
+                 ' FROM ' + FConnection.ForcedSchemaPrefix + Z_CONTENTTYPE;
+
+{$if defined(USE_ODBC_DATASET)}
     VDataset := FConnection.MakePoolDataset;
+{$else}
+    VOdbcFetchColsEx.Init;
+{$ifend}
     try
-      VDataset.OpenSQL(GetSQL_SelectContentTypes);
-      if (not VDataset.IsEmpty) then begin
-        // set capacity
-        if (not VDataset.IsUniDirectional) then begin
-          FContentTypeList.SetCapacity(VDataset.RecordCount);
+{$if defined(USE_ODBC_DATASET)}
+      VDataset.OpenSQL(VSQLText);
+{$else}
+      FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+{$ifend}
+
+{$if defined(USE_ODBC_DATASET)}
+      if (VDataset.IsEmpty) then
+        Exit;
+{$else}
+      if not VOdbcFetchColsEx.Base.IsActive then
+        Exit;
+{$ifend}
+
+{$if defined(USE_ODBC_DATASET)}
+      // set capacity
+      if (not VDataset.IsUniDirectional) then begin
+        FContentTypeList.SetCapacity(VDataset.RecordCount);
+      end;
+{$else}
+      // если без датасетов - число записей неизвестно - забацаем 16
+      FContentTypeList.SetCapacity(16);
+{$ifend}
+
+      // перечисляем
+{$if defined(USE_ODBC_DATASET)}
+      VDataset.First;
+      while (not VDataset.Eof) do begin
+{$else}
+      while VOdbcFetchColsEx.Base.FetchRecord do begin
+{$ifend}
+        // добавляем запись в список
+{$if defined(USE_ODBC_DATASET)}
+        VNewItem.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
+        VNewItem.contenttype_text := Trim(VDataset.FieldByName('contenttype_text').AsString);
+{$else}
+        with VOdbcFetchColsEx.Base do begin
+          ColToSmallInt(1, VNewItem.id_contenttype);
+          ColToAnsiString(2, VNewItem.contenttype_text);
         end;
-        // enum
-        VDataset.First;
-        while (not VDataset.Eof) do begin
-          // add record to array
-          VNewItem.id_contenttype := VDataset.FieldByName('id_contenttype').AsInteger;
-          VNewItem.contenttype_text := Trim(VDataset.FieldByName('contenttype_text').AsString);
-          FContentTypeList.AddItem(@VNewItem);
-          // next
-          VDataset.Next;
-        end;
+{$ifend}
+
+        FContentTypeList.AddItem(@VNewItem);
+
+        // next
+{$if defined(USE_ODBC_DATASET)}
+        VDataset.Next;
+{$else}
+{$ifend}
       end;
     finally
+{$if defined(USE_ODBC_DATASET)}
       FConnection.KillPoolDataset(VDataset);
+{$else}
+      VOdbcFetchColsEx.Base.Close;
+{$ifend}
     end;
   except
   end;
@@ -4458,37 +4816,89 @@ end;
 
 procedure TDBMS_Provider.ReadVersionsFromDB(const AExclusively: Boolean);
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols5;
+{$ifend}
+  VSQLText: TDBMS_String;
   VNewItem: TVersionAA;
 begin
   Assert(AExclusively);
   try
     // читаем все версии в почищенный список
     FVersionList.Clear;
+
+    VSQLText := 'SELECT id_ver,ver_value,ver_date,ver_number,ver_comment' +
+                 ' FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
+
+
+{$if defined(USE_ODBC_DATASET)}
     VDataset := FConnection.MakePoolDataset;
+{$else}
+    VOdbcFetchColsEx.Init;
+{$ifend}
     try
-      VDataset.OpenSQL(GetSQL_SelectVersions);
-      if (not VDataset.IsEmpty) then begin
-        // сразу установим размер по числу записей в датасете
-        if (not VDataset.IsUniDirectional) then begin
-          FVersionList.SetCapacity(VDataset.RecordCount);
+{$if defined(USE_ODBC_DATASET)}
+      VDataset.OpenSQL(VSQLText);
+{$else}
+      FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+{$ifend}
+
+{$if defined(USE_ODBC_DATASET)}
+      if VDataset.IsEmpty then
+        Exit;
+{$else}
+      if not VOdbcFetchColsEx.Base.IsActive then
+        Exit;
+{$ifend}
+
+{$if defined(USE_ODBC_DATASET)}
+      // сразу установим размер по числу записей в датасете
+      if (not VDataset.IsUniDirectional) then begin
+        FVersionList.SetCapacity(VDataset.RecordCount);
+      end;
+{$else}
+      // если без датасетов - число записей неизвестно
+{$ifend}
+
+      // перечисляем
+{$if defined(USE_ODBC_DATASET)}
+      VDataset.First;
+      while (not VDataset.Eof) do begin
+{$else}
+      while VOdbcFetchColsEx.Base.FetchRecord do begin
+{$ifend}
+        // добавляем поштучно
+{$if defined(USE_ODBC_DATASET)}
+        VNewItem.id_ver := VDataset.FieldByName('id_ver').AsInteger;
+        VNewItem.ver_value := Trim(VDataset.FieldByName('ver_value').AsString);
+        VNewItem.ver_date := VDataset.FieldByName('ver_date').AsDateTime;
+        VNewItem.ver_number := VDataset.FieldByName('ver_number').AsInteger;
+        VNewItem.ver_comment := Trim(VDataset.FieldByName('ver_comment').AsString);
+{$else}
+        with VOdbcFetchColsEx.Base do begin
+          ColToSmallInt(1, VNewItem.id_ver);
+          ColToAnsiString(2, VNewItem.ver_value);
+          ColToDateTime(3, VNewItem.ver_date);
+          ColToLongInt(4, VNewItem.ver_number);
+          ColToAnsiString(5, VNewItem.ver_comment);
         end;
-        // перечисляем
-        VDataset.First;
-        while (not VDataset.Eof) do begin
-          // добавляем поштучно
-          VNewItem.id_ver := VDataset.FieldByName('id_ver').AsInteger;
-          VNewItem.ver_value := Trim(VDataset.FieldByName('ver_value').AsString);
-          VNewItem.ver_date := VDataset.FieldByName('ver_date').AsDateTime;
-          VNewItem.ver_number := VDataset.FieldByName('ver_number').AsInteger;
-          VNewItem.ver_comment := Trim(VDataset.FieldByName('ver_comment').AsString);
-          FVersionList.AddItem(@VNewItem);
-          // - Следующий!
-          VDataset.Next;
-        end;
+{$ifend}
+
+        FVersionList.AddItem(@VNewItem);
+
+{$if defined(USE_ODBC_DATASET)}
+        // - Следующий!
+        VDataset.Next;
+{$ifend}
       end;
     finally
+{$if defined(USE_ODBC_DATASET)}
       FConnection.KillPoolDataset(VDataset);
+{$else}
+      VOdbcFetchColsEx.Base.Close;
+{$ifend}
     end;
   except
   end;
@@ -4815,14 +5225,20 @@ end;
 
 function TDBMS_Provider.VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
+{$ifend}
+  VSqlText: TDBMS_String;
 begin
+{$if defined(USE_ODBC_DATASET)}
+  VSqlText := 'SELECT id_ver FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB +
+              ' WHERE id_ver=' + IntToStr(AIdVersion);
+
   VDataset := FConnection.MakePoolDataset;
   try
     try
       // проверка существования указанной версии (по идентификатору) для текущего сервиса
-      VDataset.OpenSQL('SELECT id_ver FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB +
-                       ' WHERE id_ver=' + IntToStr(AIdVersion));
+      VDataset.OpenSQL(VSqlText);
       Result := (not VDataset.IsEmpty) and (not VDataset.FieldByName('id_ver').IsNull);
     except
       Result := FALSE;
@@ -4830,6 +5246,16 @@ begin
   finally
     FConnection.KillPoolDataset(VDataset);
   end;
+{$else}
+  VSqlText := 'SELECT id_ver' +
+               ' FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB +
+              ' WHERE id_ver=' + IntToStr(AIdVersion);
+  try
+    Result := FConnection.CheckDirectSQLSingleNotNull(VSqlText);
+  except
+    Result := FALSE;
+  end;
+{$ifend}
 end;
 
 end.

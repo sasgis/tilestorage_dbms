@@ -54,6 +54,22 @@ type
   EMODBCCommonDatabaseError = class(EMODBCCommonError);
   EMODBCStrictDatabaseError = class(EMODBCCommonError);
   EMODBCExecStatementError  = class(EMODBCCommonError);
+  EMODBCFetchStatementError = class(EMODBCCommonError);
+
+  // common errors
+  EODBCRoutineError         = class(Exception);
+  EODBCSmallintRoutineError = class(EODBCRoutineError);
+  EODBCUnknownDataTypeError = class(EODBCRoutineError);
+
+  // convert value errors
+  EODBCConvertError              = class(Exception);
+  EODBCConvertSmallintError      = class(EODBCConvertError);
+  EODBCConvertLongintError       = class(EODBCConvertError);
+  EODBCConvertDateTimeError      = class(EODBCConvertError);
+  EODBCConvertFromDateError      = class(EODBCConvertError);
+  EODBCConvertFromTimeError      = class(EODBCConvertError);
+  EODBCConvertFromTimeStampError = class(EODBCConvertError);
+  EODBCConvertLOBError           = class(EODBCConvertError);
 
 implementation
 
@@ -63,8 +79,8 @@ constructor ESQLError.CreateDiag(HandleType:SQLSMALLINT; Handle:SQLHANDLE; nErro
 const
   c_message_buffer_len = 512;
 var
-  psqlstate: array [0..6] of Char;
-  pmessage: array [0..c_message_buffer_len-1] of Char;
+  psqlstate: array [0..6] of SQLCHAR;
+  pmessage: array [0..c_message_buffer_len-1] of SQLCHAR;
   textLength: SQLSMALLINT;
   sqlres:     SQLRETURN;
   i:          integer;
@@ -92,13 +108,13 @@ begin
     Message := tError(nError);
   end else
   repeat
-    sqlres := SQLGetDiagRec( HandleType, Handle, i, psqlstate,
-                             NativeError, pmessage, c_message_buffer_len-1, textlength);
+    sqlres := SQLGetDiagRec( HandleType, Handle, i, @psqlstate,
+                             NativeError, @pmessage, c_message_buffer_len-1, textlength);
     if i = 1 then
       if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
       begin
-        SqlState := StrPas(pSqlState);
-        Message := StrPas(psqlstate) + ':' + IntToStr(NativeError) + ':' + StrPas(pmessage);
+        SqlState := StrPas(@pSqlState);
+        Message := StrPas(@psqlstate) + ':' + IntToStr(NativeError) + ':' + StrPas(@pmessage);
       end else
       begin
          Message := tError(nError);
@@ -107,7 +123,7 @@ begin
 
     if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then
     begin
-      MessageList.add( StrPas(psqlstate)+':'+StrPas(pmessage));
+      MessageList.add( StrPas(@psqlstate)+':'+StrPas(@pmessage));
     end;
 
     inc( i);

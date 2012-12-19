@@ -100,8 +100,8 @@ procedure TmCustomQuery.AddODBCFieldDesc(FFieldNo:Word);
 var
   FDataType:   TFieldType;
   FSize:       SQLUINTEGER;
-  FName:       string;
-  pname:       array [0..255] of char;
+  FName:       AnsiString;
+  pname:       array [0..255] of AnsiChar;
   nlength:     SQLSMALLINT;
   dtype:       SQLSMALLINT;
   BufDataType: SQLSMALLINT;
@@ -116,7 +116,7 @@ var
     end;
 {$ENDIF}
 begin
-  CheckSQLResult( SQLDescribeCol( hstmt,
+  CheckSQLResult( SQLDescribeColA(hstmt,
                                   FFieldNo,
                                   pname,
                                   254,
@@ -242,14 +242,14 @@ begin
         cSize := 0;
         FSize := 0;
       end;
-    SQL_BLOB: begin
+    SQL_DB2_BLOB: begin
       // DB2 BLOB
       FDataType := ftBlob;
       BufDataType := SQL_BINARY;
       cSize := 0;
       FSize := 0;
     end;
-    SQL_CLOB: begin
+    SQL_DB2_CLOB: begin
       // DB2 CLOB
       FDataType := ftMemo;
       BufDataType := SQL_CHAR;

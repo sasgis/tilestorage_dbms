@@ -14,12 +14,24 @@ uses
   u_ODBC_UTILS;
 
 type
+  TDescribeColData = record
+    NameLen: SQLSMALLINT;
+    DataType: SQLSMALLINT;
+    ColumnSize: SQLUINTEGER;
+    DecimalDigits: SQLSMALLINT;
+    Nullable: SQLSMALLINT;
+  end;
+
+
+
   IODBCStatement = interface(IODBCBasic)
     ['{A7C71A3F-EC6B-41A2-948A-7EDAAF94E0C2}']
     // check specified result on statement handle
     procedure CheckError(const AResult: SQLRETURN);
     // bind params
     procedure BindParams(const AParams: TParams);
+    // describe columns
+    function DescribeCol(const AColumnNumber: SqlUSmallint; out ADescribeColData: TDescribeColData): SQLRETURN;
     // execute statement
     function Execute(const ARowsAffected: PLongInt = nil): SQLRETURN;
     // get rows affected
@@ -99,6 +111,8 @@ type
     FPrepared: Boolean;
     // for params binding
     FParamBuffers: array of TParamBufferItem;
+    // connection params
+    FODBCConnectionParams: TODBCConnectionParams;
   private
     procedure FreeParamBuffers;
   private
@@ -111,6 +125,7 @@ type
     { IODBCStatement }
     procedure CheckError(const AResult: SQLRETURN);
     procedure BindParams(const AParams: TParams);
+    function DescribeCol(const AColumnNumber: SqlUSmallint; out ADescribeColData: TDescribeColData): SQLRETURN;
     function Execute(const ARowsAffected: PLongInt = nil): SQLRETURN;
     function GetAffectedRows: Longint;
   public
@@ -159,7 +174,7 @@ begin
 
   for i:=0 to AParams.Count-1 do begin
     // TODO: because we have single blob only - we don't need to check params order
-    // check actually prepared fields to implement full functionality
+    // TODO: check actually prepared fields to implement full functionality
     // see SQLNumParams
     VBufferLength := 0;
     VColumnSize := 0;
@@ -172,7 +187,8 @@ begin
       ftBlob: begin
         // the only required for us
         VValueType:=SQL_C_BINARY;
-        VParameterType:=SQL_LONGVARBINARY;
+        VParameterType := FODBCConnectionParams.BlobParamType;
+
         if IsNull then begin
           // no data
           FParamBuffers[i].ParameterValuePtr := nil;
@@ -285,6 +301,21 @@ begin
     // fail
     FSTMTHandle := nil;
   end;
+end;
+
+function TODBCStatement.DescribeCol(const AColumnNumber: SqlUSmallint; out ADescribeColData: TDescribeColData): SQLRETURN;
+begin
+  Result := SQLDescribeColA(
+    FSTMTHandle,
+    AColumnNumber,
+    nil,
+    0,
+    ADescribeColData.NameLen,
+    ADescribeColData.DataType,
+    ADescribeColData.ColumnSize,
+    ADescribeColData.DecimalDigits,
+    ADescribeColData.Nullable
+  );
 end;
 
 destructor TODBCStatement.Destroy;

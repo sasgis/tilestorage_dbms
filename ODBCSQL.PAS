@@ -1,6 +1,17 @@
 unit odbcsql;
 
-{$I mODBC.INC}
+{$DEFINE KNOWNCOMPILER}
+{$DEFINE DELPHI5}
+{$DEFINE QUERYEDITOR}
+{$DEFINE D4UP}
+
+{$DEFINE ODBCVER3}
+{$DEFINE ODBCVER3UP}
+//{$DEFINE ODBCVER350}
+//{$DEFINE ODBCVER351}
+//{$DEFINE ODBCVER380}
+
+//{$DEFINE DYNLOADINGODBC}
 
 interface
 (* DATA TYPES CORRESPONDENCE
@@ -683,6 +694,10 @@ SQL_ODBC_VER reports the version as 03.80 in both Windows 7 and Windows 8.
   SQL_FETCH_NEXT     = 1;
   SQL_FETCH_FIRST    = 2;
 
+  // additional SQLDataSources fetch directions
+  SQL_FETCH_FIRST_USER = 31;
+  SQL_FETCH_FIRST_SYSTEM = 32;
+  
   { Other codes used for FetchOrientation in SQLFetchScroll() }
   SQL_FETCH_LAST     = 3;
   SQL_FETCH_PRIOR    = 4;
@@ -985,218 +1000,6 @@ type
   end;
   PSQL_NUMERIC_STRUCT = ^SQL_NUMERIC_STRUCT;
 
-{$ifdef DYNLOADINGODBC}
-
-type   tSQLAllocHandle =function(HandleType: SQLSMALLINT;
-           InputHandle:SQLHANDLE;Var OutputHandlePtr: SQLHANDLE):SQLRETURN;stdcall;
-
-type   tSQLSetEnvAttr=function (EnvironmentHandle:SQLHENV;
-           Attribute:SQLINTEGER;Value:SQLPOINTER;
-           StringLength:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLFreeHandle=function (HandleType:SQLSMALLINT;
-           Handle:SQLHANDLE):SQLRETURN;stdcall;
-
-type   TSQLGetDiagRec=function (HandleType:SQLSMALLINT;
-           Handle:SQLHANDLE;RecNumber:SQLSMALLINT;
-           Sqlstate:PSQLCHAR;var NativeError:SQLINTEGER;
-           MessageText:PSQLCHAR;BufferLength:SQLSMALLINT;
-           var TextLength:SQLSMALLINT ):SQLRETURN;stdcall;
-
-type   TSQLConnect=function (ConnectionHandle:SQLHDBC;
-           ServerName:PSQLCHAR;NameLength1:SQLSMALLINT;
-           UserName:PSQLCHAR;NameLength2:SQLSMALLINT;
-           Authentication:PSQLCHAR;NameLength3:SQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLDisconnect=function(ConnectionHandle:SQLHDBC):SQLRETURN;stdcall;
-
-type   TSQLDriverConnect=function (hdbc: SQLHDBC;
-           hwnd: Integer;szCsin: PChar;
-           szCLen: SQLSMALLINT;szCsout: PChar;
-           cbCSMax: SQLSMALLINT;Var cbCsOut: SQLSMALLINT;
-           f: Integer):SQLRETURN;stdcall;
-
-type   TSQLExecDirect=function (StatementHandle:SQLHSTMT;
-           StatementText:PSQLCHAR;TextLength:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLPrepare=function (StatementHandle:SQLHSTMT;
-           StatementText:PSQLCHAR;TextLength:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLCloseCursor=function (StatementHandle:SQLHSTMT):SQLRETURN;stdcall;
-
-type   TSQLExecute=function (StatementHandle:SQLHSTMT):SQLRETURN;stdcall;
-
-type   TSQLFetch=function (StatementHandle:SQLHSTMT):SQLRETURN;stdcall;
-
-type   TSQLNumResultCols=function (StatementHandle:SQLHSTMT;
-           var ColumnCount:SQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLDescribeCol=function (StatementHandle:SQLHSTMT;
-           ColumnNumber:SQLUSMALLINT;ColumnName:PSQLCHAR;
-           BufferLength:SQLSMALLINT;var NameLength:SQLSMALLINT;
-           var DataType:SQLSMALLINT;var ColumnSize:SQLUINTEGER;
-           var DecimalDigits:SQLSMALLINT;var Nullable:SQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLFetchScroll=function (StatementHandle:SQLHSTMT;
-           FetchOrientation:SQLSMALLINT;FetchOffset:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLExtendedFetch=function (hstmt:SQLHSTMT;
-           fFetchType:SQLUSMALLINT;irow:SQLINTEGER;
-           pcrow:PSQLUINTEGER;rgfRowStatus:PSQLUSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLGetData=function (StatementHandle:SQLHSTMT;
-           ColumnNumber:SQLUSMALLINT;TargetType:SQLSMALLINT;
-           TargetValue:SQLPOINTER;BufferLength:SQLINTEGER;
-           StrLen_or_Ind:PSQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLSetStmtAttr=function (StatementHandle:SQLHSTMT;
-           Attribute:SQLINTEGER;Value:SQLPOINTER;
-           StringLength:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLGetStmtAttr=function (StatementHandle:SQLHSTMT;
-           Attribute:SQLINTEGER;Value:SQLPOINTER;
-           BufferLength:SQLINTEGER;StringLength:PSQLINTEGER):SQLRETURN;stdcall;
-
-type   tSQLGetInfo=function (ConnectionHandle:SQLHDBC;
-           InfoType:SQLUSMALLINT;InfoValue:SQLPOINTER;
-           BufferLength:SQLSMALLINT;StringLength:PSQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLBulkOperations=function (StatementHandle: SQLHSTMT;
-           Operation:SQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLPutData=function (StatementHandle:SQLHSTMT;
-           Data:SQLPOINTER;StrLen_or_Ind:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLBindCol=function (StatementHandle:SQLHSTMT;
-           ColumnNumber:SQLUSMALLINT;TargetType:SQLSMALLINT;
-           TargetValue:SQLPOINTER;BufferLength:SQLINTEGER;
-           StrLen_or_Ind:PSQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLSetPos=function (hstmt:SQLHSTMT;
-           irow:SQLUSMALLINT;fOption:SQLUSMALLINT;
-           fLock:SQLUSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLDataSources=function (EnvironmentHandle:SQLHENV;
-           Direction:SQLUSMALLINT;ServerName:PSQLCHAR;
-           BufferLength1:SQLSMALLINT;NameLength1:PSQLSMALLINT;
-           Description:PSQLCHAR;BufferLength2:SQLSMALLINT;
-           NameLength2:PSQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLDrivers=function (EnvironmentHandle:SQLHENV;
-           Direction:SQLUSMALLINT;DriverDescription:PSQLCHAR;
-           BufferLength1:SQLSMALLINT;DescriptionLength1:PSQLSMALLINT;
-           DriverAttributes:PSQLCHAR;BufferLength2:SQLSMALLINT;
-           AttributesLength2:PSQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLSetConnectAttr=function (ConnectionHandle:SQLHDBC;
-           Attribute:SQLINTEGER; Value:SQLPOINTER;
-           StringLength:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLGetCursorName=function (StatementHandle:SQLHSTMT;
-           CursorName:PSQLCHAR; BufferLength:SQLSMALLINT;
-           NameLength:PSQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLSetCursorName=function (StatementHandle:SQLHSTMT;
-           CursorName:PSQLCHAR; NameLength:SQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLRowCount=function (StatementHandle:SQLHSTMT;
-           Var RowCount:SQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLBindParameter=function (hstmt:SQLHSTMT;
-           ipar:SQLUSMALLINT;fParamType:SQLSMALLINT;
-           fCType:SQLSMALLINT;fSqlType:SQLSMALLINT;
-           cbColDef:SQLUINTEGER;ibScale:SQLSMALLINT;
-           rgbValue:SQLPOINTER;cbValueMax:SQLINTEGER;
-           pcbValue:PSQLINTEGER):SQLRETURN;stdcall;
-
-type   TSQLFreeStmt=function (StatementHandle:SQLHSTMT;
-           Option:SQLUSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLColAttribute=function (StatementHandle:SQLHSTMT;
-           ColumnNumber:SQLUSMALLINT;FieldIdentifier:SQLUSMALLINT;
-           CharacterAttribute:PSQLCHAR;BufferLength:SQLSMALLINT;
-           StringLength:PSQLSMALLINT;NumericAttribute:SQLPOINTER):SQLRETURN;stdcall;
-
-type   TSQLEndTran=function (HandleType:SQLSMALLINT;
-           Handle:SQLHANDLE;CompletionType:SQLSMALLINT):SQLRETURN;stdcall;
-
-type   TSQLTables=function ( hstmt : SQLHSTMT;
-           szTableQualifier : PSQLCHAR;cbTableQualifier : SQLSMALLINT;
-           szTableOwner : PSQLCHAR;cbTableOwner : SQLSMALLINT;
-           szTableName : PSQLCHAR;cbTableName : SQLSMALLINT;
-           szTableType : PSQLCHAR;cbTableType : SQLSMALLINT ) : SQLRETURN; stdcall;
-
-type   TSQLColumns=function ( hstmt : SQLHSTMT;
-           szTableQualifier : PSQLCHAR;cbTableQualifier : SQLSMALLINT;
-           szTableOwner : PSQLCHAR;cbTableOwner : SQLSMALLINT;
-           szTableName : PSQLCHAR;cbTableName : SQLSMALLINT;
-           szColumnName : PSQLCHAR;cbColumnName : SQLSMALLINT ) : SQLRETURN; stdcall;
-
-type   TSQLSpecialColumns=function (StatementHandle:SQLHSTMT;
-           IdentifierType:SQLUSMALLINT;CatalogName:PSQLCHAR;
-           NameLength1:SQLSMALLINT;SchemaName:PSQLCHAR;
-           NameLength2:SQLSMALLINT;TableName:PSQLCHAR;
-           NameLength3:SQLSMALLINT;Scope:SQLUSMALLINT;
-           Nullable:SQLUSMALLINT) : SQLRETURN; stdcall;
-
-type   TSQLProcedures=function ( hstmt : SQLHSTMT;
-           szTableQualifier : PSQLCHAR;cbTableQualifier : SQLSMALLINT;
-           szTableOwner : PSQLCHAR;cbTableOwner : SQLSMALLINT;
-           szTableName : PSQLCHAR;cbTableName : SQLSMALLINT ) : SQLRETURN; stdcall;
-
-type   TSQLPrimaryKeys=function (hstmt : SQLHSTMT;
-           CatalogName:PSQLCHAR;NameLength1:SQLSMALLINT;
-           SchemaName:PSQLCHAR;NameLength2:SQLSMALLINT;
-           TableName:PSQLCHAR;NameLength3:SQLSMALLINT ):SQLRETURN;stdcall;
-type   TSQLProcedureColumns = function(hstmt: SQLHSTMT;
-           CatalogName: PSQLCHAR; NameLength1: SQLSMALLINT;
-           SchemaName: PSQLCHAR; NameLength2: SQLSMALLINT;
-           ProcName: PSQLCHAR; NameLength3: SQLSMALLINT;
-           ColumnName: PSQLCHAR; NameLength4: SQLSMALLINT): SQLRETURN; stdcall;
-
-var    SQLAllocHandle:tSQLAllocHandle;
-var    SQLSetEnvAttr:tSQLSetEnvAttr;
-var    SQLFreeHandle:tSQLFreeHandle;
-var    SQLGetInfo:tSQLGetInfo;
-var    SQLProcedures:TSQLProcedures;
-var    SQLColumns:TSQLColumns;
-var    SQLSpecialColumns:TSQLSpecialColumns;
-var    SQLGetDiagRec:TSQLGetDiagRec;
-var    SQLConnect:TSQLConnect;
-var    SQLDisconnect:TSQLDisconnect;
-var    SQLDriverConnect:TSQLDriverConnect;
-var    SQLExecDirect:TSQLExecDirect;
-var    SQLPrepare:TSQLPrepare;
-var    SQLCloseCursor:TSQLCloseCursor;
-var    SQLExecute:TSQLExecute;
-var    SQLFetch:TSQLFetch;
-var    SQLNumResultCols:TSQLNumResultCols;
-var    SQLDescribeCol:TSQLDescribeCol;
-var    SQLFetchScroll:TSQLFetchScroll;
-var    SQLExtendedFetch:TSQLExtendedFetch;
-var    SQLGetData:TSQLGetData;
-var    SQLSetStmtAttr:TSQLSetStmtAttr;
-var    SQLGetStmtAttr:TSQLGetStmtAttr;
-var    SQLBulkOperations:TSQLBulkOperations;
-var    SQLPutData:TSQLPutData;
-var    SQLBindCol:TSQLBindCol;
-var    SQLSetPos:TSQLSetPos;
-var    SQLDataSources:TSQLDataSources;
-var    SQLDrivers:TSQLDrivers;
-var    SQLSetConnectAttr:TSQLSetConnectAttr;
-var    SQLGetCursorName:TSQLGetCursorName;
-var    SQLSetCursorName:TSQLSetCursorName;
-var    SQLRowCount:TSQLRowCount;
-var    SQLBindParameter:TSQLBindParameter;
-var    SQLFreeStmt:TSQLFreeStmt;
-var    SQLColAttribute:TSQLColAttribute;
-var    SQLEndTran:TSQLEndTran;
-var    SQLTables:TSQLTables;
-var    SQLPrimaryKeys:TSQLPrimaryKeys;
-var    SQLProcedureColumns : TSQLProcedureColumns;
-var    odbcversion:word;
-
-{$else}
 
   function SQLAllocHandle(
                HandleType: SQLSMALLINT;
@@ -1367,15 +1170,26 @@ var    odbcversion:word;
                irow:SQLUSMALLINT;
                fOption:SQLUSMALLINT;
                fLock:SQLUSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
-   function SQLDataSources(
+
+   function SQLDataSourcesA(
                EnvironmentHandle:SQLHENV;
                Direction:SQLUSMALLINT;
-               ServerName:PSQLCHAR;
+               ServerName:PANSICHAR;
                BufferLength1:SQLSMALLINT;
                NameLength1:PSQLSMALLINT;
-               Description:PSQLCHAR;
+               Description:PANSICHAR;
                BufferLength2:SQLSMALLINT;
                NameLength2:PSQLSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
+   function SQLDataSourcesW(
+               EnvironmentHandle:SQLHENV;
+               Direction:SQLUSMALLINT;
+               ServerName:PWIDECHAR;
+               BufferLength1:SQLSMALLINT;
+               NameLength1:PSQLSMALLINT;
+               Description:PWIDECHAR;
+               BufferLength2:SQLSMALLINT;
+               NameLength2:PSQLSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
+
    function SQLDrivers(
                EnvironmentHandle:SQLHENV;
                Direction:SQLUSMALLINT;
@@ -1476,7 +1290,8 @@ var    odbcversion:word;
                 ProcName: PSQLCHAR; NameLength3: SQLSMALLINT;
                 ColumnName: PSQLCHAR; NameLength4: SQLSMALLINT): SQLRETURN; stdcall;
                 external 'ODBC32.DLL';
-{$endif}
+
+(*                
 // This function always load dynamic
 type   TSQLConfigDataSource=function (
            hwndParent:       Integer;
@@ -1500,13 +1315,16 @@ function SQLInstallerError(
                lpszErrorMsg:    PCHAR;
                cbErrorMsgMax:   SQLUSMALLINT;
                pcbErrorMsg:     PSQLUSMALLINT): SQLRETURN;
+*)
 
+(*
 function DateStructToDateTime( b:PSQL_DATE_STRUCT):TDateTime;
 function DateTimeToDateStruct( b:TDateTime):SQL_DATE_STRUCT;
 procedure DateTime2TimeStampStruct( var Value:SQL_TIMESTAMP_STRUCT; b:TDateTime);
 
 procedure LoadOdbc;
 procedure UnLoadOdbc;
+*)
 
   // MACRO
   // test for SQL_SUCCESS or SQL_SUCCESS_WITH_INFO
@@ -1520,11 +1338,10 @@ uses Windows,SysUtils;
 {$HPPEMIT '#pragma comment(lib,"odbc32.lib")'}
 {$ENDIF}
 
+(*
 Var
-{$IFDEF DYNLOADINGODBC}
-   OdbcHMODULE:  HMODULE;
-{$ENDIF}
-   OdbccpHMODULE:HMODULE;
+  OdbccpHMODULE:HMODULE;
+*)
 
 // Macro: test for SQL_SUCCESS or SQL_SUCCESS_WITH_INFO
 function SQL_SUCCEEDED(const rc: SqlReturn): Boolean;
@@ -1532,6 +1349,7 @@ begin
   Result := (rc and (not 1)) = 0;
 end;
 
+(*
 function DateStructToDateTime( b:PSQL_DATE_STRUCT):TDateTime;
 begin
   Result:=EncodeDate( b^.Year, b^.Month, b^.Day);
@@ -1565,122 +1383,11 @@ begin
       fraction := Integer(w4)*1000000;
    end;
 end;
+*)
 
-{$ifdef DYNLOADINGODBC}
-
-Function GetODBCVersion(Odbc:HMODULE):word;
-var
-  lpFilename:pchar;
-{$IFDEF D4UP}
-  tmp,lpdwHandle:cardinal;
-{$ELSE}
-  tmp,lpdwHandle:integer;
-{$ENDIF}
-  F,lpData:pointer;
-begin
-  getmem(lpFilename,255);
-  if GetModuleFileName(Odbc,lpFilename,254) = 0 then
-    raise Exception.Create('Error while get module file name');
-
-  lpdwHandle:=GetFileVersionInfoSize(lpFilename,tmp);
-  getmem( lpdata, lpdwHandle);
-  result := 0;
-  if GetFileVersionInfo(lpFilename,0,lpdwHandle,lpData) then
-  begin
-{$IFDEF D4UP}
-     tmp := sizeof(tagVS_FIXEDFILEINFO);
-{$ELSE}
-     tmp := sizeof(TVSFixedFileInfo);
-{$ENDIF}
-    VerQueryValue( lpData, '\', f, tmp);
-    result := hiword(PVSFixedFileInfo(f).dwProductVersionMS) * 256 + Loword(PVSFixedFileInfo(f).dwProductVersionMS);
-  end;
-  Freemem(lpdata,lpdwHandle);
-  Freemem(lpFilename,255);
-end;
-
-Function GetAdresstoFunction(funcname:string):FARPROC;
-begin
-  result:=GetProcAddress(OdbcHMODULE,pchar(funcname));
-  if result = nil then
-  begin
-    //result:=@ThisFunctionisnotavailable;
-    raise Exception.create('Error Getting adress for '+Funcname+#13+syserrormessage(GetLastError));
-  end;
-end;
-{$endif}
-
-procedure LoadOdbc;
-begin
-{$ifdef DYNLOADINGODBC}
-  if OdbcHMODULE <> 0 then
-    exit;
-
-  OdbcHMODULE := LoadLibrary('ODBC32.DLL');
-
-  if OdbcHMODULE = 0 then
-    raise Exception.create(syserrormessage(GetLastError));
-
-  odbcversion:=GetODBCVersion(OdbcHMODULE);
-//Here we know the version of the odbc driver. eg '3.5'
-
-  SQLAllocHandle:=GetAdresstoFunction('SQLAllocHandle');
-  SQLSetEnvAttr:=GetAdresstoFunction('SQLSetEnvAttr');
-  SQLFreeHandle:=GetAdresstoFunction('SQLFreeHandle');
-  SQLGetInfo:=GetAdresstoFunction('SQLGetInfo');
-  SQLProcedures:=GetAdresstoFunction('SQLProcedures');
-  SQLColumns:=GetAdresstoFunction('SQLColumns');
-  SQLSpecialColumns:=GetAdresstoFunction('SQLSpecialColumns');
-  SQLGetDiagRec:=GetAdresstoFunction('SQLGetDiagRec');
-  SQLConnect:=GetAdresstoFunction('SQLConnect');
-  SQLDisconnect:=GetAdresstoFunction('SQLDisconnect');
-  SQLDriverConnect:=GetAdresstoFunction('SQLDriverConnect');
-  SQLExecDirect:=GetAdresstoFunction('SQLExecDirect');
-  SQLPrepare:=GetAdresstoFunction('SQLPrepare');
-  SQLCloseCursor:=GetAdresstoFunction('SQLCloseCursor');
-  SQLExecute:=GetAdresstoFunction('SQLExecute');
-  SQLFetch:=GetAdresstoFunction('SQLFetch');
-  SQLNumResultCols:=GetAdresstoFunction('SQLNumResultCols');
-  SQLDescribeCol:=GetAdresstoFunction('SQLDescribeCol');
-  SQLFetchScroll:=GetAdresstoFunction('SQLFetchScroll');
-  SQLExtendedFetch:=GetAdresstoFunction('SQLExtendedFetch');
-  SQLGetData:=GetAdresstoFunction('SQLGetData');
-  SQLSetStmtAttr:=GetAdresstoFunction('SQLSetStmtAttr');
-  SQLGetStmtAttr:=GetAdresstoFunction('SQLGetStmtAttr');
-  SQLBulkOperations:=GetAdresstoFunction('SQLBulkOperations');
-  SQLPutData:=GetAdresstoFunction('SQLPutData');
-  SQLBindCol:=GetAdresstoFunction('SQLBindCol');
-  SQLSetPos:=GetAdresstoFunction('SQLSetPos');
-  SQLDataSources:=GetAdresstoFunction('SQLDataSources');
-  SQLDrivers:=GetAdresstoFunction('SQLDrivers');
-  SQLSetConnectAttr:=GetAdresstoFunction('SQLSetConnectAttr');
-  SQLGetCursorName:=GetAdresstoFunction('SQLGetCursorName');
-  SQLSetCursorName:=GetAdresstoFunction('SQLSetCursorName');
-  SQLRowCount:=GetAdresstoFunction('SQLRowCount');
-  SQLBindParameter:=GetAdresstoFunction('SQLBindParameter');
-  SQLFreeStmt:=GetAdresstoFunction('SQLFreeStmt');
-  SQLColAttribute:=GetAdresstoFunction('SQLColAttribute');
-  SQLEndTran:=GetAdresstoFunction('SQLEndTran');
-  SQLTables:=GetAdresstoFunction('SQLTables');
-  SQLPrimaryKeys:=GetAdresstoFunction('SQLPrimaryKeys');
-  SQLProcedureColumns:=GetAdresstoFunction('SQLProcedureColumns');
-{$endif}
-end;
-
+(*
 procedure UnLoadOdbc;
 begin
-{$ifdef DYNLOADINGODBC}
-  if  OdbcHMODULE<>0 then
-  begin
-    if not FreeLibrary(OdbcHMODULE) then
-    begin
-      raise Exception.create(syserrormessage(GetLastError));
-    end;
-  end;
-
-  OdbcHMODULE := 0;
-{$endif}
-
   if  OdbccpHMODULE <> 0 then
   begin
     if not FreeLibrary(OdbccpHMODULE) then
@@ -1691,6 +1398,7 @@ begin
 
   OdbccpHMODULE:=0;
 end;
+*)
 
 //  function SQLConfigDataSource(
 //               hwndParent:       Integer;
@@ -1698,6 +1406,7 @@ end;
 //               lpszDriverString: String;
 //               lpszAttributes:   String): Integer;stdcall;external 'ODBCCP32.DLL';
 
+(*
 function SQLConfigDataSource(
                              hwndParent:       Integer;
                              fRequest:         Integer;
@@ -1719,12 +1428,15 @@ begin
 
   Result := func(hwndParent,fRequest,lpszDriverString,lpszAttributes);
 end;
+*)
 
 //SQLRETURN INSTAPI SQLInstallerError(WORD iError,
 //					DWORD *pfErrorCode,
 //					LPSTR	lpszErrorMsg,
 //					WORD	cbErrorMsgMax,
 //					WORD	*pcbErrorMsg);
+
+(*
 function SQLInstallerError(
                            iError:          SQLUSMALLINT;
                            pfErrorCode:     PSQLINTEGER;
@@ -1748,12 +1460,12 @@ begin
 
   Result := func( iError, pfErrorCode, lpszErrorMsg, cbErrorMsgMax, pcbErrorMsg);
 end;
+*)
 
+(*
 initialization
 
 finalization
-begin
   UnloadODBC;
-end;
-
+*)
 end.

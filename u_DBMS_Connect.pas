@@ -12,18 +12,17 @@ uses
   t_SQL_types,
   t_DBMS_Template,
   t_DBMS_Connect,
-  DB, // common unit
-{$if defined(USE_MODBC)}
-  MQUERY,
-  mDataBas,
-  mExcept,
-{$elseif defined(USE_DIRECT_ODBC)}
-  // напрямую ODBC
-  u_ODBC,
+
+{$if defined(USE_DIRECT_ODBC)}
+  odbcsql,
+  t_ODBC_Connection,
+  t_ODBC_Buffer,
 {$elseif defined(ETS_USE_ZEOS)}
   // ZEOS
   u_DBMS_Zeos,
+  {$if defined(USE_ODBC_DATASET)}
   ZDataset,
+  {$ifend}
 {$else}
   // DBX
   u_DBMS_DBX,
@@ -34,10 +33,13 @@ uses
   t_ETS_Tiles;
 
 type
-
   TDBMS_Custom_Connection = class(
 {$if defined(USE_MODBC)}
+    {$if defined(USE_ODBC_DATASET)}
     TmDataBase
+    {$else}
+    TODBCConnection
+    {$ifend}
 {$elseif defined(USE_DIRECT_ODBC)}
     TODBCConnection
 {$elseif defined(ETS_USE_ZEOS)}
@@ -48,18 +50,27 @@ type
   )
   protected
     FETS_INTERNAL_SYNC_SQL_MODE: Integer;
+{$if defined(USE_ODBC_DATASET)}
+  protected
     FSYNC_SQL_MODE_CS: TRTLCriticalSection;
   protected
     procedure BeforeSQL(out ALocked: Boolean);
     procedure AfterSQL(const ALocked: Boolean);
+{$ifend}
   public
+{$if defined(USE_ODBC_DATASET)}
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
+{$else}
+    constructor Create;
+{$ifend}
   end;
 
   // base dataset
 
   { TDBMS_Dataset }
+
+{$if defined(USE_ODBC_DATASET)}
 
   TDBMS_Dataset = class(
 {$if defined (USE_MODBC)}
@@ -118,13 +129,16 @@ type
     procedure ExecSQLParsed; deprecated;
     procedure ExecSQLSpecified(const ADirectExec: Boolean); deprecated;
   end;
+{$ifend}
 
   IDBMS_Connection = interface
   ['{D5809427-36C7-49D7-83ED-72C567BD6E08}']
+{$if defined(USE_ODBC_DATASET)}
     // пул датасетов
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
+{$ifend}
 
     // подключение, если ещё не подключено
     function EnsureConnected(
@@ -165,15 +179,28 @@ type
     // применение настроек аутентификации из формы
     procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
     function AllowSavePassword: Boolean;
+
+    // проверка что одно поле есть и не пустое
+    function CheckDirectSQLSingleNotNull(
+      const ASQLText: String
+    ): Boolean;
+
+    // открытие запроса чтобы фетчить кучу разных полей
+    function OpenDirectSQLFetchCols(
+      const ASQLText: String;
+      const ABufPtr: POdbcFetchCols
+    ): Boolean;
   end;
 
   TDBMS_Connection = class(TInterfacedObject, IDBMS_Connection)
   private
+{$if defined(USE_ODBC_DATASET)}
     FSyncPool: IReadWriteSync;
+{$ifend}
     FPath: TETS_Path_Divided_W;
     FSQLConnection: TDBMS_Custom_Connection;
     FEngineType: TEngineType;
-    FODBCDescription: WideString;
+    FODBCDescription: AnsiString;
     // внутренние параметры из ini
     FInternalParams: TStringList;
     // формально это не схема, а префикс полностью (при необходимости - с точкой и сразу quoted)
@@ -204,9 +231,12 @@ type
     function PasswordStorage_ApplyStored: Boolean;
   private
     { IDBMS_Connection }
+    
+{$if defined(USE_ODBC_DATASET)}
     procedure CompactPool;
     procedure KillPoolDataset(var ADataset: TDBMS_Dataset);
     function MakePoolDataset: TDBMS_Dataset;
+{$ifend}
 
     function EnsureConnected(
       const AllowTryToConnect: Boolean;
@@ -238,6 +268,15 @@ type
 
     procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
     function AllowSavePassword: Boolean;
+
+    function CheckDirectSQLSingleNotNull(
+      const ASQLText: String
+    ): Boolean;
+
+    function OpenDirectSQLFetchCols(
+      const ASQLText: String;
+      const ABufPtr: POdbcFetchCols
+    ): Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -254,17 +293,19 @@ uses
   IniFiles,
   Contnrs,
   u_PStoreTools,
-  u_ODBC_DSN,
   u_Synchronizer,
   u_DBMS_Utils;
 
+{$if defined(USE_ODBC_DATASET)}
 type
   TDBMS_Pooled_Dataset = class(TDBMS_Dataset)
   private
     FUsedInPool: Boolean;
   end;
+{$ifend}
 
 {$if defined(DBMS_REUSE_CONNECTIONS)}
+type
   TDBMS_Server = class(TObjectList)
   private
     // credentials
@@ -278,6 +319,7 @@ type
 {$ifend}
 
 {$if defined(DBMS_REUSE_CONNECTIONS)}
+type
   TDBMS_ConnectionList = class(TObjectList)
   private
     // list of servers
@@ -462,10 +504,10 @@ begin
   // применяем логин и пароль
   if (FSQLConnection<>nil) then begin
 {$if defined(USE_DIRECT_ODBC)}
-    //FSQLConnection.UID := AFormParams.Values[c_Cred_UserName];
-    FSQLConnection.Params.Values['UID'] := AFormParams.Values[c_Cred_UserName];
-    //FSQLConnection.PWD := AFormParams.Values[c_Cred_Password];
-    FSQLConnection.Params.Values['PWD'] := AFormParams.Values[c_Cred_Password];
+    FSQLConnection.UID := AFormParams.Values[c_Cred_UserName];
+    //FSQLConnection.Params.Values['UID'] := AFormParams.Values[c_Cred_UserName];
+    FSQLConnection.PWD := AFormParams.Values[c_Cred_Password];
+    //FSQLConnection.Params.Values['PWD'] := AFormParams.Values[c_Cred_Password];
 {$elseif defined(ETS_USE_ZEOS)}
     FSQLConnection.User := AFormParams.Values[c_Cred_UserName];
     FSQLConnection.Password := AFormParams.Values[c_Cred_Password];
@@ -568,9 +610,6 @@ begin
   end;
 
   // done
-  {$if not defined(USE_MODBC)}
-  FSQLConnection.LoginPrompt := FALSE;
-  {$ifend}
 
   if FReadPrevSavedPwd then begin
     PasswordStorage_ApplyStored;
@@ -698,21 +737,17 @@ end;
 
 function TDBMS_Connection.ApplySystemDSNtoConnection: Byte;
 var
-  VSystemDSNName: WideString;
+  VSystemDSNName: AnsiString;
 begin
   // применение параметров подключения без ini-шки
   // доступно не для всех СУБД
   VSystemDSNName := FPath.Path_Items[0];
   if Load_DSN_Params_from_ODBC(VSystemDSNName, FODBCDescription) then begin
     // нашёлся SystemDSN
-    // FSQLConnection.Params['DSN'] := VSystemDSNName;
-    FSQLConnection.DataBaseName := VSystemDSNName;
+    FSQLConnection.DSN := VSystemDSNName;
 
     PasswordStorage_ApplyStored;
 
-{$if not defined(USE_MODBC)}
-    FSQLConnection.LoginPrompt := FALSE;
-{$ifend}
     Result := ETS_RESULT_OK;
   end else begin
     // не наш лось
@@ -735,6 +770,12 @@ begin
   end;
 end;
 
+function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: String): Boolean;
+begin
+  Result := FSQLConnection.CheckDirectSQLSingleNotNull(ASQLText);
+end;
+
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Connection.CompactPool;
 var
   i: Integer;
@@ -758,6 +799,7 @@ begin
     FSyncPool.EndWrite;
   end;
 end;
+{$ifend}
 
 constructor TDBMS_Connection.Create;
 begin
@@ -766,8 +808,12 @@ begin
   inherited Create;
   FSavePwdAsLsaSecret := FALSE;
   FReadPrevSavedPwd := FALSE;
+{$if defined(USE_ODBC_DATASET)}
   FSyncPool := MakeSync_Tiny(Self);
   FSQLConnection := TDBMS_Custom_Connection.Create(nil);
+{$else}
+  FSQLConnection := TDBMS_Custom_Connection.Create;
+{$ifend}
   FInternalLoadLibraryStd := 0;
   FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
@@ -783,12 +829,13 @@ begin
   G_ConnectionList.InternalRemoveConnection(Self);
 {$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
   CompactPool;
+{$ifend}
 
   try
-{$if defined(USE_MODBC)}
-{$elseif defined(USE_DIRECT_ODBC)}
-    FSQLConnection.CloseDataSets;
+{$if defined(USE_DIRECT_ODBC)}
+    // пусто
 {$elseif defined(ETS_USE_ZEOS)}
     FSQLConnection.CloseAllDataSets;
     //FSQLConnection.CloseAllSequences;
@@ -799,10 +846,8 @@ begin
   end;
 
   try
-{$if defined(USE_MODBC)}
+{$if defined(USE_DIRECT_ODBC)}
     FSQLConnection.Disconnect;
-{$elseif defined(USE_DIRECT_ODBC)}
-    FSQLConnection.Close;
 {$elseif defined(ETS_USE_ZEOS)}
     FSQLConnection.Disconnect;
 {$else}
@@ -830,7 +875,9 @@ begin
     FInternalLoadLibraryStd:=0;
   end;
 
+{$if defined(USE_ODBC_DATASET)}
   FSyncPool := nil;
+{$ifend}
 
   inherited;
 end;
@@ -1020,10 +1067,24 @@ begin
       if (et_Unknown=FEngineType) then begin
         VSecondarySQLCheckServerTypeMode := schstm_None;
 {$if defined(USE_DIRECT_ODBC)}
-        if Load_DSN_Params_from_ODBC(FSQLConnection.SystemDSN, FODBCDescription) then
+        if Load_DSN_Params_from_ODBC(
+{$if defined(USE_ODBC_DATASET)}
+          FSQLConnection.SystemDSN,
+{$else}
+          FSQLConnection.DSN,
+{$ifend}
+          FODBCDescription
+        ) then
           FEngineType := GetEngineTypeByODBCDescription(FODBCDescription, VSecondarySQLCheckServerTypeMode)
         else
-          FEngineType := GetEngineTypeByODBCDescription(FSQLConnection.SystemDSN, VSecondarySQLCheckServerTypeMode);
+          FEngineType := GetEngineTypeByODBCDescription(
+{$if defined(USE_ODBC_DATASET)}
+            FSQLConnection.SystemDSN,
+{$else}
+            FSQLConnection.DSN,
+{$ifend}
+            VSecondarySQLCheckServerTypeMode
+          );
 {$elseif defined(ETS_USE_ZEOS)}
         FEngineType := GetEngineTypeByZEOSLibProtocol(FSQLConnection.Protocol);
 {$else}
@@ -1046,28 +1107,50 @@ end;
 
 function TDBMS_Connection.GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
 var
+{$if defined(USE_ODBC_DATASET)}
   VDataset: TDBMS_Dataset;
-  VText: String;
+{$else}
+  VOdbcFetchColsEx: TOdbcFetchCols12;
+{$ifend}
+  VSQLText: TDBMS_String;
+  VText: AnsiString;
 begin
   if (not FSQLConnection.Connected) then begin
     // not connected
     Result := et_Unknown;
   end else begin
     // connected
+{$if defined(USE_ODBC_DATASET)}
     VDataset := MakePoolDataset;
+{$else}
+    VOdbcFetchColsEx.Init;
+{$ifend}
     try
       // определение типа сервера исходя из его реакции на шаблонные действия
 
       // сперва проверим select @@version // MSSQL+ASE+ASA
+      VSQLText := 'SELECT @@VERSION as v';
       try
-        VDataset.OpenSQL('SELECT @@VERSION as v');
-        
+{$if defined(USE_ODBC_DATASET)}
+        VDataset.OpenSQL(VSQLText);
+{$else}
+        FSQLConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+{$ifend}
+
+{$if defined(USE_ODBC_DATASET)}
         if VDataset.FieldCount>0 then
         if (VDataset.Fields[0].DataType in [ftString, ftFixedChar, ftMemo, ftWideString, ftFixedWideChar, ftWideMemo, ftFmtMemo]) then begin
           VText := UpperCase(VDataset.Fields[0].AsString);
           if GetEngineTypeUsingSQL_Version_Upper(VText, Result) then
             Exit;
         end;
+{$else}
+        // тащим первое поле
+        VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
+        if GetEngineTypeUsingSQL_Version_Upper(VText, Result) then
+          Exit;
+{$ifend}
+
         // unknown
         Result := et_Unknown;
       except on E: Exception do
@@ -1090,7 +1173,11 @@ begin
       end;
       
     finally
+{$if defined(USE_ODBC_DATASET)}
       KillPoolDataset(VDataset);
+{$else}
+      VOdbcFetchColsEx.Base.Close;
+{$ifend}
     end;
   end;
 end;
@@ -1166,6 +1253,7 @@ begin
 {$ifend}
 end;
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Connection.KillPoolDataset(var ADataset: TDBMS_Dataset);
 begin
   if (ADataset<>nil) then
@@ -1187,7 +1275,9 @@ begin
     FreeAndNil(ADataset);
   end;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 function TDBMS_Connection.MakePoolDataset: TDBMS_Dataset;
 var
   i: Integer;
@@ -1215,7 +1305,7 @@ begin
     Result := TDBMS_Pooled_Dataset.Create(FSQLConnection);
     TDBMS_Pooled_Dataset(Result).FUsedInPool := TRUE;
 {$if defined(USE_MODBC)}
-  Result.DataBase := FSQLConnection;
+    Result.DataBase := FSQLConnection;
 {$elseif defined(USE_DIRECT_ODBC)}
     Result.SQLConnection := FSQLConnection;
 {$elseif defined(ETS_USE_ZEOS)}
@@ -1228,6 +1318,12 @@ begin
   finally
     FSyncPool.EndWrite;
   end;
+end;
+{$ifend}
+
+function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: String; const ABufPtr: POdbcFetchCols): Boolean;
+begin
+  Result := FSQLConnection.OpenDirectSQLFetchCols(ASQLText, ABufPtr);
 end;
 
 function TDBMS_Connection.PasswordStorage_ApplyStored: Boolean;
@@ -1428,6 +1524,7 @@ end;
 
 { TDBMS_Dataset }
 
+{$if defined(USE_ODBC_DATASET)}
 function TDBMS_Dataset.ClobAsWideString(
   const AFieldName: TDBMS_String;
   out AResult: TDBMS_String
@@ -1445,7 +1542,9 @@ begin
 {$ifend}
   end;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 function TDBMS_Dataset.CreateFieldBlobReadStream(const AFieldName: TDBMS_String): TStream;
 var
   F: TField;
@@ -1483,7 +1582,9 @@ begin
     {$ifend}
 //  end;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.ExecSQLDirect;
 var VLocked: Boolean;
 begin
@@ -1520,7 +1621,9 @@ begin
   end;
 {$ifend}
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.ExecSQLParsed;
 var VLocked: Boolean;
 begin
@@ -1557,7 +1660,9 @@ begin
   end;
 {$ifend}
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.ExecSQLSpecified(const ADirectExec: Boolean);
 var VLocked: Boolean;
 begin
@@ -1594,7 +1699,9 @@ begin
   end;
 {$ifend}
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 function TDBMS_Dataset.GetAnsiCharFlag(
   const AFieldName: TDBMS_String;
   const ADefaultValue: AnsiChar
@@ -1627,7 +1734,9 @@ begin
   // unsupported fields
   Result := ADefaultValue;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 function TDBMS_Dataset.GetOptionalSmallInt(
   const AFieldName: TDBMS_String;
   const ADefaultValue: SmallInt
@@ -1649,7 +1758,9 @@ begin
     Result := ADefaultValue;
   end;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.OpenSQL(const ASQLText: TDBMS_String);
 var VLocked: Boolean;
 begin
@@ -1699,7 +1810,9 @@ begin
   end;
 {$ifend}
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.SetParamBlobData(const AParamName: TDBMS_String;
   const ABufferAddr: Pointer; const ABufferSize: LongInt);
 begin
@@ -1710,7 +1823,9 @@ begin
       Clear;
   end;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.SetSQLTextAsString(const ASQLText: TDBMS_String);
 begin
 {$if defined(USE_VSAODBC)}
@@ -1719,7 +1834,9 @@ begin
   SQL.Text := ASQLText;
 {$ifend}
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Dataset.SetSQLTextAsStrings(const ASQLText: TStrings);
 begin
 {$if defined(USE_VSAODBC)}
@@ -1729,16 +1846,20 @@ begin
   SQL.AddStrings(ASQLText);
 {$ifend}
 end;
+{$ifend}
 
 { TDBMS_Custom_Connection }
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Custom_Connection.AfterSQL(const ALocked: Boolean);
 begin
   if ALocked then begin
     LeaveCriticalSection(FSYNC_SQL_MODE_CS);
   end;
 end;
+{$ifend}
 
+{$if defined(USE_ODBC_DATASET)}
 procedure TDBMS_Custom_Connection.BeforeSQL(out ALocked: Boolean);
 begin
   ALocked := (FETS_INTERNAL_SYNC_SQL_MODE=c_SYNC_SQL_MODE_Statements);
@@ -1746,19 +1867,32 @@ begin
     EnterCriticalSection(FSYNC_SQL_MODE_CS);
   end;
 end;
+{$ifend}
 
-constructor TDBMS_Custom_Connection.Create(AOwner: TComponent);
+constructor TDBMS_Custom_Connection.Create
+{$if defined(USE_ODBC_DATASET)}
+(AOwner: TComponent)
+{$ifend}
+;
 begin
-  inherited Create(AOwner);
+  inherited Create
+{$if defined(USE_ODBC_DATASET)}
+  (AOwner)
+{$ifend}
+  ;
   FETS_INTERNAL_SYNC_SQL_MODE := 0;
+{$if defined(USE_ODBC_DATASET)}
   InitializeCriticalSection(FSYNC_SQL_MODE_CS);
+{$ifend}
 end;
 
+{$if defined(USE_ODBC_DATASET)}
 destructor TDBMS_Custom_Connection.Destroy;
 begin
   DeleteCriticalSection(FSYNC_SQL_MODE_CS);
   inherited Destroy;
 end;
+{$ifend}
 
 {$if defined(DBMS_REUSE_CONNECTIONS)}
 initialization

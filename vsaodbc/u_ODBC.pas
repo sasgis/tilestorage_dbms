@@ -29,10 +29,14 @@ type
     FConnectWithParams: Boolean;
     FKeepConnection: Boolean;
     FParams: TStrings;
+    FODBCConnectionParams: TODBCConnectionParams;
     procedure SetParams(const Value: TStrings);
     function GetSystemDSN: String;
+    procedure SetSystemDSN(const Value: String);
     function GetPWD: String;
+    procedure SetPWD(const Value: String);
     function GetUID: String;
+    procedure SetUID(const Value: String);
   private
     function InternalConnected: Boolean; inline;
     procedure InternalDeallocateConnectionHandle;
@@ -80,13 +84,15 @@ type
     ): Boolean;
 
     function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
+
+    procedure CheckByteaAsLoOff(const ANeedCheck: Boolean);
   public
     property ConnectWithParams: Boolean read FConnectWithParams write FConnectWithParams default FALSE;
     property KeepConnection: Boolean read FKeepConnection write FKeepConnection default FALSE;
     property Params: TStrings read FParams write SetParams;
-    property SystemDSN: String read GetSystemDSN;
-    property UID: String read GetUID;
-    property PWD: String read GetPWD;
+    property SystemDSN: String read GetSystemDSN write SetSystemDSN;
+    property UID: String read GetUID write SetUID;
+    property PWD: String read GetPWD write SetPWD;
   end;
 
   // very simple dataset with params
@@ -163,6 +169,34 @@ begin
   if (not InternalConnected) then DatabaseError(SDatabaseClosed, Self);
 end;
 
+procedure TODBCConnection.CheckByteaAsLoOff(const ANeedCheck: Boolean);
+var
+  VRes: SQLRETURN;
+  VStatement: IODBCStatement;
+  VDescribeColData: TDescribeColData;
+begin
+  if ANeedCheck then begin
+    // от греха всЄ ловим и при ошибке включаем признак
+    try
+      // провер€ем как есть - пр€мым запросом
+      if OpenDirectSQL('select null::bytea', VStatement, TRUE) then begin
+        // запрос выполнилс€ - смотрим тип пол€
+        VRes := VStatement.DescribeCol(1, VDescribeColData);
+        VStatement.CheckError(VRes);
+        // забираем тип пол€
+        FODBCConnectionParams.BlobParamType := VDescribeColData.DataType;
+      end else begin
+        FODBCConnectionParams.BlobParamType := SQL_VARBINARY;
+      end;
+    except
+      FODBCConnectionParams.BlobParamType := SQL_VARBINARY;
+    end;
+  end else begin
+    // по умолчанию
+    FODBCConnectionParams.BlobParamType := SQL_LONGVARBINARY;
+  end;
+end;
+
 procedure TODBCConnection.CheckConnection(const eFlag: eConnectFlag);
 begin
   if (eFlag in [eDisconnect, eReconnect]) then
@@ -190,6 +224,7 @@ begin
   inherited Create(AOwner);
   FKeepConnection := FALSE;
   FConnectWithParams := FALSE;
+  FODBCConnectionParams.BlobParamType := SQL_LONGVARBINARY;
   FEnvironment := nil;
 end;
 
@@ -428,6 +463,21 @@ procedure TODBCConnection.SetParams(const Value: TStrings);
 begin
   CheckInactive;
   FParams.Assign(Value);
+end;
+
+procedure TODBCConnection.SetPWD(const Value: String);
+begin
+  FParams.Values['PWD'] := Value;
+end;
+
+procedure TODBCConnection.SetSystemDSN(const Value: String);
+begin
+  FParams.Values['SERVER'] := Value;
+end;
+
+procedure TODBCConnection.SetUID(const Value: String);
+begin
+  FParams.Values['UID'] := Value;
 end;
 
 function TODBCConnection.TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;

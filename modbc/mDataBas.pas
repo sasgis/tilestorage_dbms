@@ -16,6 +16,7 @@ uses
   Classes,
   Db,
   mSession,
+  t_ODBC_Buffer,
   ODBCsql;
 
 type
@@ -188,8 +189,23 @@ type
 
     function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 
+    function CheckDirectSQLSingleNotNull(
+      const ASQLText: String
+    ): Boolean;
+
+    (*
+    function OpenDirectSQLFetchSmallInt(
+      const ASQLText: String;
+      const ABufPtr: POdbcFetchSmallInt
+    ): Boolean;
+    *)
+
+    function OpenDirectSQLFetchCols(
+      const ASQLText: String;
+      const ABufPtr: POdbcFetchCols
+    ): Boolean;
+
     procedure CheckByteaAsLoOff(const ANeedCheck: Boolean);
-    procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
 
     property SystemDSN: String read GetDataBaseName;
     property UID: String read GetUID;
@@ -223,11 +239,21 @@ type
 
   end;
 
+procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
+  
 implementation
 
 uses mQuery, mconst, mExcept;
 
 const SQL_NAME_LEN = 128;
+
+procedure CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
+begin
+  if not SQL_SUCCEEDED(sqlres) then
+    raise EMODBCExecStatementError.CreateDiag( SQL_HANDLE_STMT, stmthandle, sqlres);
+end;
+
+{ TmDatabase }
 
 constructor TmDatabase.Create(AOwner: TComponent);
 begin
@@ -256,7 +282,7 @@ begin
   FTransIsolation   := TxnDefault;
 {$ifend}
 
-  fhdbc             := 0;
+  fhdbc             := SQL_NULL_HANDLE;
 {$if defined(ALLOW_MODBC_HOURGLASS)}
   FWaitCursor       :=crSQLWait;
 {$ifend}
@@ -271,21 +297,14 @@ begin
   inherited Destroy;
 end;
 
-procedure TmDataBase.CheckStatementResult(stmthandle: SQLHANDLE; sqlres:SQLRETURN);
-begin
-  if not SQL_SUCCEEDED(sqlres) then
-    raise EMODBCExecStatementError.CreateDiag( SQL_HANDLE_STMT, stmthandle, sqlres);
-end;
-
 procedure TmDataBase.CheckByteaAsLoOff(const ANeedCheck: Boolean);
-const
-  c_ColumnNameDefaultLength = 128;
+//const
+  //c_ColumnNameDefaultLength = 128;
 var
   h: SQLHANDLE;
   VRes: SQLRETURN;
   VSQLText: String;
-  VNameLen, VDataType, VDecimalDigits, VNullable: SQLSMALLINT;
-  VColumnSize: SQLUINTEGER;
+  VDescribeColData: TDescribeColData;
 begin
   if ANeedCheck then begin
     // проверяем как есть - прямым запросом
@@ -296,10 +315,24 @@ begin
       try
         VRes := SQLExecDirect(h, PChar(VSQLText), Length(VSQLText));
         CheckStatementResult(h, VRes);
-        VRes := SQLDescribeCol(h, 1, nil, 0, VNameLen, VDataType, VColumnSize, VDecimalDigits, VNullable);
+        // имя поля тут не интересует
+        VRes := SQLDescribeColA(
+          h,
+          1,
+          nil,
+          0,
+          VDescribeColData.NameLen,
+          VDescribeColData.DataType,
+          VDescribeColData.ColumnSize,
+          VDescribeColData.DecimalDigits,
+          VDescribeColData.Nullable
+        );
+        // проверяем результат
         CheckStatementResult(h, VRes);
+        // здесь уже всё что надо получено
+        SQLCloseCursor(h);
         // итоговая проверка
-        FByteaAsLoOff := (SQL_VARBINARY=VDataType);
+        FByteaAsLoOff := (SQL_VARBINARY=VDescribeColData.DataType);
       finally
         SQLFreeHandle( SQL_HANDLE_STMT, h);
       end;
@@ -309,6 +342,25 @@ begin
   end else begin
     // по умолчанию
     FByteaAsLoOff := FALSE;
+  end;
+end;
+
+function TmDataBase.CheckDirectSQLSingleNotNull(
+  const ASQLText: String
+): Boolean;
+var
+  VOdbcFetchCols: TOdbcFetchCols;
+begin
+  FillChar(VOdbcFetchCols, SizeOf(VOdbcFetchCols), 0);
+  VOdbcFetchCols.ColumnsAllocated := 1;
+  try
+    Result := OpenDirectSQLFetchCols(ASQLText, @VOdbcFetchCols)
+              AND
+              VOdbcFetchCols.FetchRecord
+              AND
+              (not VOdbcFetchCols.IsNull(1));
+  finally
+    VOdbcFetchCols.Close;
   end;
 end;
 
@@ -519,7 +571,7 @@ begin
 
     except
       SQLFreeHandle( SQL_HANDLE_DBC, fhdbc);
-      fhdbc := 0;
+      fhdbc := SQL_NULL_HANDLE;
       raise;
     end;
     
@@ -549,7 +601,7 @@ begin
 
     SQLDisConnect(fhdbc);
     SQLFreeHandle(SQL_HANDLE_DBC, fhdbc);
-    fhdbc := 0;
+    fhdbc := SQL_NULL_HANDLE;
 
 {$if defined(ALLOW_MODBC_HOURGLASS)}
   finally
@@ -561,7 +613,7 @@ end;
 
 function TmDataBase.GetConnected:Boolean;
 begin
-  Result:=(fhdbc<>0);
+  Result:=(fhdbc<>SQL_NULL_HANDLE);
 end;
 
 procedure TmDataBase.Notification(AComponent: TComponent; Operation: TOperation);
@@ -851,6 +903,68 @@ begin
     CheckStatementResult(AStatementHandle, VRes);
 end;
 
+function TmDataBase.OpenDirectSQLFetchCols(
+  const ASQLText: String;
+  const ABufPtr: POdbcFetchCols
+): Boolean;
+begin
+  Assert(ABufPtr<>nil);
+  Result := OpenDirectSQL(ASQLText, ABufPtr^.Stmt, FALSE);
+  if Result then begin
+    Result := ABufPtr^.DescribeAndBind;
+  end;
+end;
+
+(*
+function TmDataBase.OpenDirectSQLFetchSmallInt(
+  const ASQLText: String;
+  const ABufPtr: POdbcFetchSmallInt
+): Boolean;
+var
+  VRes: SQLRETURN;
+  VDescribeColData: TDescribeColData;
+begin
+  Assert(ABufPtr<>nil);
+
+  Result := OpenDirectSQL(ASQLText, ABufPtr^.Stmt, FALSE);
+  if (not Result) then
+    Exit;
+  
+  // имя поля тут не интересует
+  VRes := SQLDescribeColA(
+    ABufPtr^.Stmt,
+    1,
+    nil,
+    0,
+    VDescribeColData.NameLen,
+    VDescribeColData.DataType,
+    VDescribeColData.ColumnSize,
+    VDescribeColData.DecimalDigits,
+    VDescribeColData.Nullable
+  );
+
+  // проверяем результат
+  CheckStatementResult(ABufPtr^.Stmt, VRes);
+
+  // эта проца только для запросов, которые возврашают малые числа
+  Result := (VDescribeColData.DataType = SQL_SMALLINT); // or (VSimpleDescribeColData.DataType = SQL_INTEGER);
+  if (not Result) then
+    raise EODBCSmallintRoutineError.Create(IntToStr(VDescribeColData.DataType));
+      
+  // так что фетчимся в обычный SMALLINT
+  VRes := SQLBindCol(ABufPtr^.Stmt, 1, SQL_SMALLINT, @(ABufPtr^.Value), SizeOf(ABufPtr^.Value), @(ABufPtr^.StrLen_or_Ind));
+
+  // проверяем результат
+  CheckStatementResult(ABufPtr^.Stmt, VRes);
+
+  Result := TRUE;
+  with ABufPtr^ do begin
+    // активируемся
+    WorkFlags := (WorkFlags or WF_ACTIVE);
+  end;
+end;
+*)
+
 function TmDataBase.OpenDirectWithBlob(
   const ASQLText: String;
   const AFullParamName: String;
@@ -860,13 +974,8 @@ function TmDataBase.OpenDirectWithBlob(
   const ASilentOnError: Boolean
 ): Boolean;
 var
-  VRes: SQLRETURN;
-  VColumnSize: SQLULEN;
-  VParameterType: SQLSMALLINT;
-  VStrLen_or_IndPtr: SQLLEN;
-  VFullSQLText: String;
 begin
-  VFullSQLText := StringReplace(ASQLText, AFullParamName, '?', [rfReplaceAll,rfIgnoreCase]);
+  VFullSQLText := StringReplace(ASQLText, AFullParamName, c_RTL_ODBC_Paramname, [rfReplaceAll,rfIgnoreCase]);
 
   // allocate statement
   CheckSQLResult(SQLAllocHandle( SQL_HANDLE_STMT, hdbc, AStatementHandle));
@@ -924,7 +1033,7 @@ function TmDataBase.ExecuteDirectWithBlob(
 var
   h: SQLHANDLE;
 begin
-  h := 0;
+  h := SQL_NULL_HANDLE;
   try
     Result := OpenDirectWithBlob(ASQLText, AFullParamName, ABufferAddr, ABufferSize, h, ASilentOnError);
   finally

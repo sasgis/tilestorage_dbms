@@ -35,7 +35,7 @@ uses
 constructor TmSession.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
-  FHENV := 0;
+  FHENV := SQL_NULL_HANDLE;
 end;
 
 destructor TmSession.Destroy;
@@ -52,21 +52,21 @@ end;
 
 function TmSession.ODBCLoaded:boolean;
 begin
-  Result := (FHENV <> 0);
+  Result := (FHENV <> SQL_NULL_HANDLE);
 end;
 
 procedure TmSession.FreeHENV;
 begin
-  if FHENV = 0 then
+  if FHENV = SQL_NULL_HANDLE then
     exit;
   SQLFreeHandle(SQL_HANDLE_ENV, FHENV);
-  FHENV:=0;
+  FHENV:=SQL_NULL_HANDLE;
 end;
 
 procedure TmSession.InitHENV;
 var vRes: SQLRETURN;
 begin
-  if FHENV <> 0 then
+  if FHENV <> SQL_NULL_HANDLE then
     exit;
 
   loadODBC;

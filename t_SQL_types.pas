@@ -4,14 +4,6 @@ unit t_SQL_types;
 
 interface
 
-(*
-
-  1. dbExpress for Delphi - implemented
-  2. ZeosLib for Delphi   - implemented
-  3. mODBC for Delphi     - implemented
-
-*)
-
 uses
   SysUtils,
   t_ETS_Tiles,
@@ -27,9 +19,9 @@ type
     et_Informix,
     et_DB2,
     et_MySQL,
-    et_PostgreSQL, // via ODBC only?
-    et_Mimer,      // via ODBC only
-    et_Firebird,   // via ODBC only?
+    et_PostgreSQL,
+    et_Mimer,
+    et_Firebird,
     et_Unknown     // add new items before this line
   );
 
@@ -90,6 +82,7 @@ const
     ''       // Unknown or unsupported - use c_RTL_UNKNOWN for scripts, do not insert it here
   );
 
+  (*
   // 'Integrated Security' or 'Trusted_Connection' (if allowed)
   c_SQL_Integrated_Security: array [TEngineType] of String = (
     'IntegratedSecurity',  // Microsoft SQL  // Trusted_Connection=True // Trusted_Connection=Yes
@@ -104,7 +97,9 @@ const
     '',                    // Firebird
     ''
   );
+  *)
 
+{$if defined(ETS_USE_DBX)}
   // unique DBX drivernames (do not add item for ODBC!)
   c_SQL_DBX_Driver_Name: array [TEngineType] of String = (
     'MSSQL',
@@ -119,6 +114,7 @@ const
     '', // Firebird via ODBC only?
     ''
   );
+{$ifend}
 
   // datetime function name
   c_SQL_DateTime_FunctionName: array [TEngineType] of String = (
@@ -315,6 +311,7 @@ const
   ''
   );
 
+{$if defined(ETS_USE_ZEOS)}
   // use PingServer for ZEOSLib
   c_ZEOS_Use_PingServer: array [TEngineType] of Boolean = (
   FALSE,   // MSSQL
@@ -329,8 +326,8 @@ const
   FALSE,   // Firebird
   FALSE
   );
+{$ifend}
 
-  
 (*
 TOP:
 
@@ -410,15 +407,19 @@ Params.Strings = (
 VendorLib = 'ODBC32.DLL'
 *)
 
+{$if defined(ETS_USE_DBX)}
 const
   c_ODBC_DriverName  = 'Odbc';
   c_ODBC_LibraryName = 'dbxoodbc.dll';
   c_ODBC_GetDriverFunc = 'getSQLDriverODBCW'; // 'getSQLDriverODBC'
   c_ODBC_VendorLib = 'ODBC32.DLL';
+{$ifend}
 
 const
+{$if defined(ETS_USE_DBX)}
   c_RTL_Connection = 'Connection';
   c_RTL_Interbase = 'Interbase'; // for Firebird
+{$ifend}
   c_RTL_Trusted_Connection = 'OS Authentication';
   c_RTL_Numeric = 'numeric';
   c_RTL_UNKNOWN = 'UNKNOWN';
@@ -426,6 +427,7 @@ const
   c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL, ASE, MSSQL
   c_RTL_Tile_Body_Paramname = ':' + c_RTL_Tile_Body_Paramsrc;
 
+{$if defined(ETS_USE_ZEOS)}
   // for ZEOS
   c_ZEOS_Protocol = 'Protocol';
   c_ZEOS_HostName = 'HostName';
@@ -434,7 +436,9 @@ const
   c_ZEOS_Catalog  = 'Catalog';
   c_ZEOS_User     = 'User';
   c_ZEOS_Password = 'Password';
+{$ifend}
 
+{$if defined(ETS_USE_DBX)}
   // for SQLDB
   c_SQLDB_Password       = 'Password';
   c_SQLDB_UserName       = 'UserName';
@@ -446,6 +450,7 @@ const
   c_SQLDB_KeepConnection = 'KeepConnection';
   c_SQLDB_ConnectorType  = 'ConnectorType';
   // Port - в Params
+{$ifend}
 
   // prefix and suffix for identifiers for tiles
   c_SQL_QuotedIdentifierForcedForTiles: array [TEngineType] of Boolean = (
@@ -491,6 +496,7 @@ const
     0
   );
 
+{$if defined(ETS_USE_DBX)}
   // cast blob into hex literal and do not use :param (for dbExpress)
   c_DBX_CastBlobToHexLiteral: array [TEngineType] of Boolean = (
   FALSE,          // MSSQL
@@ -505,6 +511,7 @@ const
   TRUE,           // Firebird // DBXCommon.TDBXContext.Error(???,'Incorrect values within SQLDA structure')
   FALSE
   );
+{$ifend}
 
   // for PostgreSQL
   // '42P01:1:ОШИБКА: отношение "C1I0_NMC_RECENCY" не существует;'#$A'ERROR WHILE PREPARING PARAMETERS'
@@ -699,20 +706,24 @@ const
   // максимальная общая длина sqlstate и nativeerror в начале текста исключения
   c_ODBC_SQLSTATE_MAX_LEN = 15;
 
+{$if defined(ETS_USE_DBX)}
 function GetEngineTypeByDBXDriverName(
   const ADBXDriverName: String;
   const AODBCDescription: WideString;
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
+{$ifend}
 
+{$if defined(ETS_USE_ZEOS)}
 function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngineType;
+{$ifend}
 
 function GetEngineTypeByODBCDescription(
   const AODBCDescription: WideString;
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
 
-function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: String; var AResult: TEngineType): Boolean;
+function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: AnsiString; var AResult: TEngineType): Boolean;
 
 function GetEngineTypeUsingSelectVersionException(const AException: Exception): TEngineType;
 
@@ -780,6 +791,7 @@ begin
   end;
 end;
 
+{$if defined(ETS_USE_DBX)}
 function GetEngineTypeByDBXDriverName(
   const ADBXDriverName: String;
   const AODBCDescription: WideString;
@@ -812,7 +824,9 @@ begin
     Inc(Result);
   end;
 end;
+{$ifend}
 
+{$if defined(ETS_USE_ZEOS)}
 function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngineType;
 var V3: String;
 begin
@@ -861,8 +875,9 @@ begin
 'sybase'
 *)
 end;
+{$ifend}
 
-function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: String; var AResult: TEngineType): Boolean;
+function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: AnsiString; var AResult: TEngineType): Boolean;
 begin
   if (System.Pos('ADAPTIVE SERVER ENTERPRISE', AUppercasedText)>0) then begin
     // Sybase ASE
