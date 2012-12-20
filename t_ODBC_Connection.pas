@@ -26,10 +26,32 @@ type
     function FindDSN(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
   end;
 
+{$if defined(CONNECTION_AS_CLASS)}
   IODBCConnection = interface
     ['{6CDDBC7E-3DFF-484C-8769-38C5FB85231D}']
+
+    function ExecuteDirectSQL(
+      const ASQLText: AnsiString;
+      const ASilentOnError: Boolean
+    ): Boolean;
+
+    function ExecuteDirectWithBlob(
+      const ASQLText, AFullParamName: AnsiString;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt;
+      const ASilentOnError: Boolean
+    ): Boolean;
+
+    function OpenDirectSQLFetchCols(
+      const ASQLText: AnsiString;
+      const ABufPtr: POdbcFetchCols
+    ): Boolean;
+
+    function TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
     
+    function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
   end;
+{$ifend}
 
   TODBCConnection =
 {$if defined(CONNECTION_AS_RECORD)}
@@ -66,6 +88,7 @@ type
     ConnectWithInfoMessages: String;
     SQL_IDENTIFIER_QUOTE_CHAR_VALUE: AnsiString;
     SYNC_SQL_MODE: Integer;
+
 {$if defined(CONNECTION_AS_CLASS)}
   private
 {$ifend}
@@ -99,9 +122,9 @@ type
       const ABufPtr: POdbcFetchCols
     ): Boolean;
 
-    function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
-
     function TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
+
+    function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
 
     procedure CheckByteaAsLoOff(const ANeedCheck: Boolean);
 
@@ -491,7 +514,9 @@ function TODBCConnection.TableExistsDirect(const AFullyQualifiedQuotedTableName:
 var
   VFullSQL: AnsiString;
 begin
-  VFullSQL := 'select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1';
+  VFullSQL := 'SELECT 1 as a' +
+               ' FROM ' + AFullyQualifiedQuotedTableName +
+              ' WHERE 0=1';
   Result := ExecuteDirectSQL(VFullSQL, TRUE);
 end;
 

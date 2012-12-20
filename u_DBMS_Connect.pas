@@ -19,7 +19,7 @@ uses
   t_ETS_Tiles;
 
 type
-
+  (*
   IDBMS_Connection = interface
   ['{D5809427-36C7-49D7-83ED-72C567BD6E08}']
     // подключение, если ещё не подключено
@@ -73,11 +73,52 @@ type
       const ABufPtr: POdbcFetchCols
     ): Boolean;
   end;
+  *)
 
-  TDBMS_Connection = class(TInterfacedObject , IDBMS_Connection)
+{$if defined(CONNECTION_AS_CLASS)}
+  IDBMS_Connection = interface(IODBCConnection)
+    ['{52201DDE-CC76-4861-BAB1-1CDE050CB509}']
+
+    function EnsureConnected(
+      const AllowTryToConnect: Boolean;
+      AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
+    ): Byte;
+
+    function GetCheckedEngineType: TEngineType;
+    function GetInternalParameter(const AInternalParameterName: String): String;
+    function ForcedSchemaPrefix: String;
+    function FullSyncronizeSQL: Boolean;
+
+    function GetConnectionErrorMessage: String;
+    procedure ResetConnectionError;
+
+    procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
+    function AllowSavePassword: Boolean;
+    
+  end;
+{$ifend}
+
+
+  TDBMS_Connection =
+{$if defined(CONNECTION_AS_RECORD)}
+  record
+{$else}
+  class(TODBCConnection, IDBMS_Connection)
+{$ifend}
+
+  public
+{$if defined(CONNECTION_AS_RECORD)}
+    FODBCConnectionHolder: TODBCConnection;
+{$ifend}
+
+{$if defined(CONNECTION_AS_CLASS)}
+  private
+{$ifend}
+    procedure Init;
+    procedure Uninit;
+
   private
     FPath: TETS_Path_Divided_W;
-    FSQLConnection: TODBCConnection;
     FEngineType: TEngineType;
     FODBCDescription: AnsiString;
     // внутренние параметры из ini
@@ -94,40 +135,56 @@ type
     // если FALSE - просто в реестре (в обоих случаях он шифруется)
     FSavePwdAsLsaSecret: Boolean;
     FReadPrevSavedPwd: Boolean;
-  protected
+  private
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     procedure KeepAuthenticationInfo;
     function ApplyConnectionParams: Byte;
     function ApplySystemDSNtoConnection: Byte;
     function ApplyParamsToConnection(const AParams: TStrings): Byte;
-    function IsTrustedConnection: Boolean;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
     function calc_exclusive_mode: AnsiChar;
   private
     function PasswordStorage_SaveParams(const AUserNameToSave, APasswordToSave: String): Boolean;
     function PasswordStorage_ReadParams(var ASavedUserName, ASavedPassword: String): Boolean;
     function PasswordStorage_ApplyStored: Boolean;
-  private
-    { IDBMS_Connection }
 
+  public
+{$if defined(CONNECTION_AS_RECORD)}
+    function ExecuteDirectSQL(
+      const ASQLText: AnsiString;
+      const ASilentOnError: Boolean
+    ): Boolean; inline;
+{$ifend}
+
+{$if defined(CONNECTION_AS_RECORD)}
+    function TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean; inline;
+{$ifend}
+
+{$if defined(CONNECTION_AS_RECORD)}
+    function OpenDirectSQLFetchCols(
+      const ASQLText: AnsiString;
+      const ABufPtr: POdbcFetchCols
+    ): Boolean; inline;
+{$ifend}
+
+{$if defined(CONNECTION_AS_RECORD)}
+    function ExecuteDirectWithBlob(
+      const ASQLText, AFullParamName: AnsiString;
+      const ABufferAddr: Pointer;
+      const ABufferSize: LongInt;
+      const ASilentOnError: Boolean
+    ): Boolean; inline;
+{$ifend}
+
+{$if defined(CONNECTION_AS_RECORD)}
+    function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean; inline;
+{$ifend}
+
+  public
     function EnsureConnected(
       const AllowTryToConnect: Boolean;
       AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
     ): Byte;
-
-    function ExecuteDirectSQL(
-      const ASQLText: TDBMS_String;
-      const ASilentOnError: Boolean = FALSE // может не поддерживаться
-    ): Boolean;
-
-    function ExecuteDirectWithBlob(
-      const ASQLText: TDBMS_String;
-      const ABufferAddr: Pointer;
-      const ABufferSize: LongInt;
-      const ASilentOnError: Boolean = FALSE // может не поддерживаться
-    ): Boolean;
-
-    function TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
 
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
     function GetCheckedEngineType: TEngineType;
@@ -141,18 +198,16 @@ type
     procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
     function AllowSavePassword: Boolean;
 
-    function CheckDirectSQLSingleNotNull(
-      const ASQLText: String
-    ): Boolean;
-
-    function OpenDirectSQLFetchCols(
-      const ASQLText: String;
-      const ABufPtr: POdbcFetchCols
-    ): Boolean;
+{$if defined(CONNECTION_AS_CLASS)}
   public
     constructor Create;
     destructor Destroy; override;
+{$ifend}
   end;
+
+{$if defined(CONNECTION_AS_RECORD)}
+  IDBMS_Connection = ^TDBMS_Connection;
+{$ifend}
 
 // get connection by path (create new or use existing)
 function GetConnectionByPath(const APath: PETS_Path_Divided_W): IDBMS_Connection;
@@ -207,8 +262,10 @@ var
 function GetConnectionByPath(const APath: PETS_Path_Divided_W): IDBMS_Connection;
 {$if defined(DBMS_REUSE_CONNECTIONS)}
 {$else}
+  {$if defined(CONNECTION_AS_CLASS)}
 var
   t: TDBMS_Connection;
+  {$ifend}
 {$ifend}
 begin
 {$if defined(DBMS_REUSE_CONNECTIONS)}
@@ -219,10 +276,16 @@ begin
     G_ConnectionList.FSyncList.EndWrite;
   end;
 {$else}
+  {$if defined(CONNECTION_AS_CLASS)}
   // create new connection and add it to p
   t := TDBMS_Connection.Create;
   t.FPath.CopyFrom(APath);
   Result := t;
+  {$else}
+  New(Result);
+  Result^.Init;
+  Result^.FPath.CopyFrom(APath);
+  {$ifend}
 {$ifend}
 end;
 
@@ -231,11 +294,19 @@ begin
 {$if defined(DBMS_REUSE_CONNECTIONS)}
   G_ConnectionList.FSyncList.BeginWrite;
   try
+  {$if defined(CONNECTION_AS_RECORD)}
+    AConnection^.Uninit;
+    Dispose(AConnection);
+  {$ifend}
     AConnection := nil;
   finally
     G_ConnectionList.FSyncList.EndWrite;
   end;
 {$else}
+  {$if defined(CONNECTION_AS_RECORD)}
+  AConnection^.Uninit;
+  Dispose(AConnection);
+  {$ifend}
   AConnection := nil;
 {$ifend}
 end;
@@ -312,7 +383,10 @@ begin
     Exit;
   end else if SameText(ETS_INTERNAL_SYNC_SQL_MODE, AParamName) then begin
     // для более быстрого доступа
-    FSQLConnection.SYNC_SQL_MODE := StrToIntDef(AParamValue, c_SYNC_SQL_MODE_None);
+{$if defined(CONNECTION_AS_RECORD)}
+    FODBCConnectionHolder.
+{$ifend}
+    SYNC_SQL_MODE := StrToIntDef(AParamValue, c_SYNC_SQL_MODE_None);
     Exit;
   end else if SameText(ETS_INTERNAL_PWD_Save, AParamName) then begin
     // разрешение читать сохранённый пароль (и оно же - разрешение сохранять пароль) + режим Lsa
@@ -320,7 +394,10 @@ begin
     FReadPrevSavedPwd := FSavePwdAsLsaSecret or (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
-    FSQLConnection.ConnectWithParams := (StrToIntDef(AParamValue, 0) <> 0);
+{$if defined(CONNECTION_AS_RECORD)}
+    FODBCConnectionHolder.
+{$ifend}
+    ConnectWithParams := (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
   end;
 
@@ -330,16 +407,63 @@ begin
   FInternalParams.Values[AParamName] := AParamValue;
 end;
 
-function TDBMS_Connection.TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
+{$if defined(CONNECTION_AS_RECORD)}
+function TDBMS_Connection.TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
 begin
-  Result := FSQLConnection.TableExistsDirect(AFullyQualifiedQuotedTableName);
+  Result := FODBCConnectionHolder.TableExistsDirect(AFullyQualifiedQuotedTableName)
+end;
+{$ifend}
+
+procedure TDBMS_Connection.Uninit;
+begin
+  // called from FreeDBMSConnection - not need to sync
+{$if defined(DBMS_REUSE_CONNECTIONS)}
+  G_ConnectionList.InternalRemoveConnection(Self);
+{$ifend}
+
+  try
+{$if defined(CONNECTION_AS_RECORD)}
+    FODBCConnectionHolder.Disconnect;
+{$else}
+    Disconnect;
+{$ifend}
+  except
+  end;
+
+  try
+{$if defined(CONNECTION_AS_RECORD)}
+    FODBCConnectionHolder.Uninit;
+{$ifend}
+  except
+  end;
+
+  try
+    FreeAndNil(FInternalParams);
+  except
+  end;
+
+  if (FInternalLoadLibraryAlt<>0) then begin
+    FreeLibrary(FInternalLoadLibraryAlt);
+    FInternalLoadLibraryAlt:=0;
+  end;
+
+  if (FInternalLoadLibraryStd<>0) then begin
+    FreeLibrary(FInternalLoadLibraryStd);
+    FInternalLoadLibraryStd:=0;
+  end;
 end;
 
 procedure TDBMS_Connection.ApplyCredentialsFormParams(const AFormParams: TStrings);
 begin
   // применяем логин и пароль
-  FSQLConnection.UID := AFormParams.Values[c_Cred_UserName];
-  FSQLConnection.PWD := AFormParams.Values[c_Cred_Password];
+{$if defined(CONNECTION_AS_RECORD)}
+  with FODBCConnectionHolder do begin
+{$ifend}
+    UID := AFormParams.Values[c_Cred_UserName];
+    PWD := AFormParams.Values[c_Cred_Password];
+{$if defined(CONNECTION_AS_RECORD)}
+  end;
+{$ifend}
 
   // здесь если указано сохранять настройки подключения - сохраним их
   if (AFormParams.Values[c_Cred_SaveAuth]='1') then begin
@@ -362,7 +486,10 @@ begin
       SaveInternalParameter(VCurItem, VNewValue);
     end else begin
       // в параметры подключения
-      FSQLConnection.Params.Values[VCurItem] := VNewValue;
+{$if defined(CONNECTION_AS_RECORD)}
+      FODBCConnectionHolder.
+{$ifend}
+      Params.Values[VCurItem] := VNewValue;
     end;
   end;
 
@@ -384,7 +511,10 @@ begin
   VSystemDSNName := FPath.Path_Items[0];
   if Load_DSN_Params_from_ODBC(VSystemDSNName, FODBCDescription) then begin
     // нашёлся SystemDSN
-    FSQLConnection.DSN := VSystemDSNName;
+{$if defined(CONNECTION_AS_RECORD)}
+    FODBCConnectionHolder.
+{$ifend}
+    DSN := VSystemDSNName;
 
     PasswordStorage_ApplyStored;
 
@@ -397,7 +527,10 @@ end;
 
 function TDBMS_Connection.calc_exclusive_mode: AnsiChar;
 begin
-  case FSQLConnection.SYNC_SQL_MODE of
+{$if defined(CONNECTION_AS_RECORD)}
+  with FODBCConnectionHolder do
+{$ifend}
+  case SYNC_SQL_MODE of
     c_SYNC_SQL_MODE_All_In_EXE: begin
       Result := ETS_HEM_EXCLISUVE;
     end;
@@ -410,94 +543,42 @@ begin
   end;
 end;
 
-function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: String): Boolean;
+{$if defined(CONNECTION_AS_RECORD)}
+function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
 begin
-  Result := FSQLConnection.CheckDirectSQLSingleNotNull(ASQLText);
+  Result := FODBCConnectionHolder.CheckDirectSQLSingleNotNull(ASQLText)
 end;
+{$ifend}
 
+{$if defined(CONNECTION_AS_CLASS)}
 constructor TDBMS_Connection.Create;
 begin
-  FEngineType := et_Unknown;
-  FODBCDescription := '';
   inherited Create;
-  FSavePwdAsLsaSecret := FALSE;
-  FReadPrevSavedPwd := FALSE;
-{$if defined(CONNECTION_AS_RECORD)}
-  FSQLConnection.Init;
-{$else}
-  FSQLConnection := TODBCConnection.Create;
-{$ifend}
-  FInternalLoadLibraryStd := 0;
-  FInternalLoadLibraryAlt := 0;
-  FInternalParams := nil;
-  FETS_INTERNAL_SCHEMA_PREFIX := '';
-  FConnectionErrorMessage := '';
-  FConnectionErrorCode := ETS_RESULT_OK;
+  Init;
 end;
+{$ifend}
 
+{$if defined(CONNECTION_AS_CLASS)}
 destructor TDBMS_Connection.Destroy;
 begin
-  // called from FreeDBMSConnection - not need to sync
-{$if defined(DBMS_REUSE_CONNECTIONS)}
-  G_ConnectionList.InternalRemoveConnection(Self);
+  Uninit;
+  try
+    inherited;
+  except
+  end;
+end;
 {$ifend}
-
-  try
-    FSQLConnection.Disconnect;
-  except
-  end;
-
-  try
-{$if defined(CONNECTION_AS_RECORD)}
-    FSQLConnection.Uninit;
-{$else}
-    FreeAndNil(FSQLConnection);
-{$ifend}
-  except
-  end;
-
-  try
-    FreeAndNil(FInternalParams);
-  except
-  end;
-
-  if (FInternalLoadLibraryAlt<>0) then begin
-    FreeLibrary(FInternalLoadLibraryAlt);
-    FInternalLoadLibraryAlt:=0;
-  end;
-  if (FInternalLoadLibraryStd<>0) then begin
-    FreeLibrary(FInternalLoadLibraryStd);
-    FInternalLoadLibraryStd:=0;
-  end;
-
-  inherited;
-end;
-
-function TDBMS_Connection.ExecuteDirectSQL(
-  const ASQLText: TDBMS_String;
-  const ASilentOnError: Boolean
-): Boolean;
-begin
-  Result := FSQLConnection.ExecuteDirectSQL(ASQLText, ASilentOnError);
-end;
-
-function TDBMS_Connection.ExecuteDirectWithBlob(
-  const ASQLText: TDBMS_String;
-  const ABufferAddr: Pointer;
-  const ABufferSize: Integer;
-  const ASilentOnError: Boolean
-): Boolean;
-begin
-  // блобы у нас только для параметра ':tile_body' aka c_RTL_Tile_Body_Paramname
-  Result := FSQLConnection.ExecuteDirectWithBlob(ASQLText, c_RTL_Tile_Body_Paramname, ABufferAddr, ABufferSize, ASilentOnError);
-end;
 
 function TDBMS_Connection.EnsureConnected(
   const AllowTryToConnect: Boolean;
   AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
 ): Byte;
 begin
-  if FSQLConnection.Connected then begin
+  if
+{$if defined(CONNECTION_AS_RECORD)}
+     FODBCConnectionHolder.
+{$ifend}
+     Connected then begin
     // connected
     Result := ETS_RESULT_OK;
   end else if (FConnectionErrorCode<>ETS_RESULT_OK) then begin
@@ -520,7 +601,10 @@ begin
 
       // try to connect
       try
-        FSQLConnection.Connect;
+{$if defined(CONNECTION_AS_RECORD)}
+        FODBCConnectionHolder.
+{$ifend}
+        Connect;
         FConnectionErrorMessage := '';
         FConnectionErrorCode := ETS_RESULT_OK;
 
@@ -568,7 +652,10 @@ begin
       // установим специальный признак для PostgreSQL
       // чтобы вставка через ODBC работала независимо
       // от состояния галочки "bytea as LO"
-      FSQLConnection.CheckByteaAsLoOff(et_PostgreSQL=GetCheckedEngineType);
+{$if defined(CONNECTION_AS_RECORD)}
+      FODBCConnectionHolder.
+{$ifend}
+      CheckByteaAsLoOff(et_PostgreSQL=GetCheckedEngineType);
 
       KeepAuthenticationInfo;
       Result := ETS_RESULT_OK;
@@ -579,6 +666,27 @@ begin
   end;
 end;
 
+{$if defined(CONNECTION_AS_RECORD)}
+function TDBMS_Connection.ExecuteDirectWithBlob(const ASQLText,
+  AFullParamName: AnsiString; const ABufferAddr: Pointer;
+  const ABufferSize: Integer; const ASilentOnError: Boolean): Boolean;
+begin
+  Result := FODBCConnectionHolder.ExecuteDirectWithBlob(
+    ASQLText,AFullParamName, ABufferAddr,
+    ABufferSize, ASilentOnError);
+end;
+{$ifend}
+
+{$if defined(CONNECTION_AS_RECORD)}
+function TDBMS_Connection.ExecuteDirectSQL(
+  const ASQLText: AnsiString;
+  const ASilentOnError: Boolean
+): Boolean;
+begin
+  Result := FODBCConnectionHolder.ExecuteDirectSQL(ASQLText, ASilentOnError);
+end;
+{$ifend}
+
 function TDBMS_Connection.ForcedSchemaPrefix: String;
 begin
   Result := FETS_INTERNAL_SCHEMA_PREFIX;
@@ -587,7 +695,10 @@ end;
 function TDBMS_Connection.FullSyncronizeSQL: Boolean;
 begin
   // если c_SYNC_SQL_MODE_All_In_DLL - синхронизируются запросы полностью
-  Result := (FSQLConnection.SYNC_SQL_MODE=c_SYNC_SQL_MODE_All_In_DLL) or (not FSQLConnection.Connected);
+{$if defined(CONNECTION_AS_RECORD)}
+  with FODBCConnectionHolder do
+{$ifend}
+  Result := (SYNC_SQL_MODE=c_SYNC_SQL_MODE_All_In_DLL) or (not Connected);
 end;
 
 function TDBMS_Connection.GetInternalParameter(const AInternalParameterName: String): String;
@@ -622,13 +733,19 @@ begin
         VSecondarySQLCheckServerTypeMode := schstm_None;
 
         if Load_DSN_Params_from_ODBC(
-          FSQLConnection.DSN,
+{$if defined(CONNECTION_AS_RECORD)}
+          FODBCConnectionHolder.
+{$ifend}
+          DSN,
           FODBCDescription
         ) then
           FEngineType := GetEngineTypeByODBCDescription(FODBCDescription, VSecondarySQLCheckServerTypeMode)
         else
           FEngineType := GetEngineTypeByODBCDescription(
-            FSQLConnection.DSN,
+{$if defined(CONNECTION_AS_RECORD)}
+            FODBCConnectionHolder.
+{$ifend}
+            DSN,
             VSecondarySQLCheckServerTypeMode
           );
 
@@ -653,7 +770,11 @@ var
   VSQLText: TDBMS_String;
   VText: AnsiString;
 begin
-  if (not FSQLConnection.Connected) then begin
+  if (not
+{$if defined(CONNECTION_AS_RECORD)}
+          FODBCConnectionHolder.
+{$ifend}
+          Connected) then begin
     // not connected
     Result := et_Unknown;
   end else begin
@@ -665,7 +786,10 @@ begin
       // сперва проверим select @@version // MSSQL+ASE+ASA
       VSQLText := 'SELECT @@VERSION as v';
       try
-        FSQLConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+{$if defined(CONNECTION_AS_RECORD)}
+        FODBCConnectionHolder.
+{$ifend}
+        OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
 
         // тащим первое поле
         VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
@@ -699,9 +823,21 @@ begin
   end;
 end;
 
-function TDBMS_Connection.IsTrustedConnection: Boolean;
+procedure TDBMS_Connection.Init;
 begin
-  Result := (0=Length(FSQLConnection.UID));
+  FEngineType := et_Unknown;
+  FODBCDescription := '';
+  FSavePwdAsLsaSecret := FALSE;
+  FReadPrevSavedPwd := FALSE;
+{$if defined(CONNECTION_AS_RECORD)}
+  FODBCConnectionHolder.Init;
+{$ifend}
+  FInternalLoadLibraryStd := 0;
+  FInternalLoadLibraryAlt := 0;
+  FInternalParams := nil;
+  FETS_INTERNAL_SCHEMA_PREFIX := '';
+  FConnectionErrorMessage := '';
+  FConnectionErrorCode := ETS_RESULT_OK;
 end;
 
 procedure TDBMS_Connection.KeepAuthenticationInfo;
@@ -729,19 +865,25 @@ begin
 {$ifend}
 end;
 
-function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: String; const ABufPtr: POdbcFetchCols): Boolean;
+{$if defined(CONNECTION_AS_RECORD)}
+function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: AnsiString; const ABufPtr: POdbcFetchCols): Boolean;
 begin
-  Result := FSQLConnection.OpenDirectSQLFetchCols(ASQLText, ABufPtr);
+  Result := FODBCConnectionHolder.OpenDirectSQLFetchCols(ASQLText, ABufPtr)
 end;
+{$ifend}
 
 function TDBMS_Connection.PasswordStorage_ApplyStored: Boolean;
 var
   VSavedUserName, VSavedPassword: String;
 begin
   Result := PasswordStorage_ReadParams(VSavedUserName, VSavedPassword);
-  if Result then begin
-    FSQLConnection.Params.Values['UID'] := VSavedUserName;
-    FSQLConnection.Params.Values['PWD'] := VSavedPassword;
+  if Result then
+{$if defined(CONNECTION_AS_RECORD)}
+  with FODBCConnectionHolder do
+{$ifend}
+  begin
+    UID := VSavedUserName;
+    PWD := VSavedPassword;
   end;
 end;
 

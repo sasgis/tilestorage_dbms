@@ -8,7 +8,7 @@
 
 {$if defined(USE_DIRECT_ODBC)}
 
-  ////{$define CONNECTION_AS_RECORD}
+  {$define CONNECTION_AS_RECORD}
 
   {$if not defined(CONNECTION_AS_RECORD)}
     // для простоты поднимем флаг

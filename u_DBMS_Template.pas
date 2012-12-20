@@ -9,6 +9,7 @@ uses
   Classes,
   t_types,
   t_ETS_Tiles,
+  t_ODBC_Connection,
   t_DBMS_Template,
   u_DBMS_Connect;
 
@@ -145,12 +146,13 @@ begin
       try
         if (0=Length(AInsertIntoTableForTemplated)) then begin
           // если не в таблицу - значит просто исполняем команды SQL
-          AConnection.ExecuteDirectSQL( Trim(VLines.Text)+FAppendDivider );
+          AConnection.ExecuteDirectSQL(Trim(VLines.Text)+FAppendDivider, FALSE);
         end else begin
           // make insert SQL statement for special table
           AConnection.ExecuteDirectSQL(
             'INSERT INTO ' + FForcedSchemaPrefix + Z_ALL_SQL+ ' (object_name,object_oper,index_sql,object_sql)'+
-           ' VALUES ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+DBMSStrToDB(VLines.Text)+')'
+           ' VALUES ('+WideStrToDB(AInsertIntoTableForTemplated)+',''C'','+IntToStr(VSQLInsertIndex)+','+DBMSStrToDB(VLines.Text)+')',
+            FALSE
           );
         end;
       except

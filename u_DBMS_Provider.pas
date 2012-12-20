@@ -22,6 +22,7 @@ uses
   i_DBMS_Provider,
   t_DBMS_Connect,
   u_DBMS_Connect,
+  t_ODBC_Connection,
   t_ODBC_Buffer,
   u_ExecuteSQLArray,
   u_DBMS_Utils;
@@ -509,7 +510,7 @@ begin
   // исполняем INSERT (вставляем запись о сервисе)
   VStatementExceptionType := set_Success;
   try
-    FConnection.ExecuteDirectSQL(VSQLText);
+    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
     Result := ETS_RESULT_OK;
   except on E: Exception do
     VStatementExceptionType := GetStatementExceptionType(E);
@@ -810,11 +811,11 @@ var
   i: Integer;
 begin
   // а вдруг нет базовой таблицы с шаблонами
-  if (not FConnection.TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
+  if (not FConnection.TableExistsDirect(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
     // создадим базовые таблицы
     CreateAllBaseTablesFromScript;
     // а вдруг обломались?
-    if (not FConnection.TableExists(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
+    if (not FConnection.TableExistsDirect(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
       // полный отстой и нам тут делать нечего
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
@@ -822,7 +823,7 @@ begin
   end;
 
   // если запрошенная таблица уже есть - валим
-  if (FConnection.TableExists(AQuotedTableNameWithPrefix)) then begin
+  if (FConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
@@ -899,7 +900,7 @@ begin
   end;
 
   // проверяем что табла успешно создалась
-  if (FConnection.TableExists(AQuotedTableNameWithPrefix)) then begin
+  if (FConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
@@ -2113,10 +2114,10 @@ begin
 
         if VExecuteWithBlob then begin
           // INSERT with BLOB
-          FConnection.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
+          FConnection.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
         end else begin
           // INSERT without BLOB
-          FConnection.ExecuteDirectSQL(VInsertSQL);
+          FConnection.ExecuteDirectSQL(VInsertSQL, FALSE);
         end;
         
         // готово (вставлено!)
@@ -2153,7 +2154,7 @@ begin
           );
 
           // проверяем существование таблицы
-          if (not FConnection.TableExists(VQuotedTableNameWithPrefix)) then begin
+          if (not FConnection.TableExistsDirect(VQuotedTableNameWithPrefix)) then begin
             // не удалось даже создать - валим
             Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
             Exit;
@@ -2186,10 +2187,10 @@ begin
           // здесь в VInsertSQL может быть и текст для UPDATE
           if VExecuteWithBlob then begin
             // UPDATE with BLOB
-            FConnection.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize);
+            FConnection.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
           end else begin
             // UPDATE without BLOB
-            FConnection.ExecuteDirectSQL(VInsertSQL);
+            FConnection.ExecuteDirectSQL(VInsertSQL, FALSE);
           end;
 
           // однако повторно получилось успешно
@@ -3939,7 +3940,7 @@ begin
   VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
 
   // проверим, а есть ли табличка с версиями сервиса
-  if (not FConnection.TableExists(VVersionsTableName_QuotedWithPrefix)) then
+  if (not FConnection.TableExistsDirect(VVersionsTableName_QuotedWithPrefix)) then
   try
     // создадим
     CreateTableByTemplate(
@@ -3963,7 +3964,9 @@ begin
       DBMSStrToDB(ANewVersionPtr^.ver_value) + ',' +
       SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
       IntToStr(ANewVersionPtr^.ver_number) + ',' +
-      DBMSStrToDB(ANewVersionPtr^.ver_comment) + ')'
+      DBMSStrToDB(ANewVersionPtr^.ver_comment) + ')',
+
+      FALSE
     );
     Result := TRUE;
   except
@@ -4035,7 +4038,7 @@ begin
 
       VStatementExceptionType := set_Success;
       try
-        FConnection.ExecuteDirectSQL(VSQLText);
+        FConnection.ExecuteDirectSQL(VSQLText, FALSE);
       except on E: Exception do
         VStatementExceptionType := GetStatementExceptionType(E);
       end;
@@ -4693,7 +4696,7 @@ begin
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText);
+    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
     // success
     FStatusBuffer^.id_ver_comp := ANewVerCompMode;
     FDBMS_Service_Info.id_ver_comp := ANewVerCompMode;
@@ -4732,7 +4735,7 @@ begin
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText);
+    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
   except
     on E: Exception do begin
       AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
@@ -4768,7 +4771,7 @@ begin
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText);
+    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
   except
     on E: Exception do begin
       AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
@@ -4795,7 +4798,7 @@ begin
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText);
+    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
     // это сильно необязательная функциональность
     // для её использования будем требовать соответствия структуры БД второй версии модели
     FStatusBuffer^.new_ver_by_tile := ANewVerByTileMode;
