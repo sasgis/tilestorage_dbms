@@ -2580,47 +2580,9 @@ function TDBMS_Provider.GetMaxNextVersionInts(
   const AKeepVerNumber: Boolean
 ): Boolean;
 var
-{$if defined(USE_ODBC_DATASET)}
-  VDataset: TDBMS_Dataset;
-{$else}
   VOdbcFetchColsEx: TOdbcFetchCols2;
-{$ifend}
   VSQLText: TDBMS_String;
 begin
-{$if defined(USE_ODBC_DATASET)}
-  VDataset := FConnection.MakePoolDataset;
-  try
-    try
-      VSQLText := 'select max(id_ver) as id_ver';
-      if (not AKeepVerNumber) then begin
-        // get new value for ver_number too
-        VSQLText := VSQLText + ', max(ver_number) as ver_number';
-      end;
-      VSQLText := VSQLText + ' from ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
-      VDataset.OpenSQL(VSQLText);
-      // apply values
-      if VDataset.IsEmpty or VDataset.FieldByName('id_ver').IsNull then
-        ANewVersionPtr^.id_ver := 0
-      else
-        ANewVersionPtr^.id_ver := VDataset.FieldByName('id_ver').AsInteger;
-      Inc(ANewVersionPtr^.id_ver);
-      // may be ver_number too
-      if (not AKeepVerNumber) then begin
-        if VDataset.IsEmpty or VDataset.FieldByName('ver_number').IsNull then
-          ANewVersionPtr^.ver_number := 0
-        else
-          ANewVersionPtr^.ver_number := VDataset.FieldByName('ver_number').AsInteger;
-        Inc(ANewVersionPtr^.ver_number);
-      end;
-      // done
-      Result := TRUE;
-    except
-      Result := FALSE;
-    end;
-  finally
-    FConnection.KillPoolDataset(VDataset);
-  end;
-{$else}
   VOdbcFetchColsEx.Init;
   try
     // соберём запрос
@@ -2661,7 +2623,6 @@ begin
   finally
     VOdbcFetchColsEx.Base.Close;
   end;
-{$ifend}
 end;
 
 function TDBMS_Provider.GetNewIdService: SmallInt;

@@ -15,6 +15,7 @@ uses
   odbcsql,
   t_ODBC_Connection,
   t_ODBC_Buffer,
+  t_TSS,
   t_ETS_Path,
   t_ETS_Tiles;
 
@@ -99,6 +100,10 @@ type
 {$ifend}
 
 
+{$if defined(CONNECTION_AS_RECORD)}
+  IDBMS_Connection = ^TDBMS_Connection;
+{$ifend}
+
   TDBMS_Connection =
 {$if defined(CONNECTION_AS_RECORD)}
   record
@@ -114,11 +119,16 @@ type
 {$if defined(CONNECTION_AS_CLASS)}
   private
 {$ifend}
-    procedure Init;
+    // деление по секциям
+    FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
+    FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
+    FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
+
+    procedure Init(const APathPtr: PETS_Path_Divided_W);
     procedure Uninit;
 
   private
-    FPath: TETS_Path_Divided_W;
+    FPathPtr: PETS_Path_Divided_W;
     FEngineType: TEngineType;
     FODBCDescription: AnsiString;
     // внутренние параметры из ini
@@ -140,7 +150,7 @@ type
     procedure KeepAuthenticationInfo;
     function ApplyConnectionParams: Byte;
     function ApplySystemDSNtoConnection: Byte;
-    function ApplyParamsToConnection(const AParams: TStrings): Byte;
+    function ApplyParamsFromINI(const AParams: TStrings): Byte;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
     function calc_exclusive_mode: AnsiChar;
   private
@@ -200,17 +210,13 @@ type
 
 {$if defined(CONNECTION_AS_CLASS)}
   public
-    constructor Create;
+    constructor Create(const APathPtr: PETS_Path_Divided_W);
     destructor Destroy; override;
 {$ifend}
   end;
 
-{$if defined(CONNECTION_AS_RECORD)}
-  IDBMS_Connection = ^TDBMS_Connection;
-{$ifend}
-
 // get connection by path (create new or use existing)
-function GetConnectionByPath(const APath: PETS_Path_Divided_W): IDBMS_Connection;
+function GetConnectionByPath(const APathPtr: PETS_Path_Divided_W): IDBMS_Connection;
 // free connection
 procedure FreeDBMSConnection(var AConnection: IDBMS_Connection);
 
@@ -259,7 +265,7 @@ var
   G_ConnectionList: TDBMS_ConnectionList;
 {$ifend}
 
-function GetConnectionByPath(const APath: PETS_Path_Divided_W): IDBMS_Connection;
+function GetConnectionByPath(const APathPtr: PETS_Path_Divided_W): IDBMS_Connection;
 {$if defined(DBMS_REUSE_CONNECTIONS)}
 {$else}
   {$if defined(CONNECTION_AS_CLASS)}
@@ -278,13 +284,11 @@ begin
 {$else}
   {$if defined(CONNECTION_AS_CLASS)}
   // create new connection and add it to p
-  t := TDBMS_Connection.Create;
-  t.FPath.CopyFrom(APath);
+  t := TDBMS_Connection.Create(APathPtr);
   Result := t;
   {$else}
   New(Result);
-  Result^.Init;
-  Result^.FPath.CopyFrom(APath);
+  Result^.Init(APathPtr);
   {$ifend}
 {$ifend}
 end;
@@ -325,10 +329,10 @@ var
   VIni: TIniFile;
   VParams: TStringList;
 begin
-  VSectionName := FPath.AsEndpoint;
+  VSectionName := FPathPtr^.AsEndpoint;
 
-  // хотя возможно подключение через дрйвер ODBC вообще без настройки дополнительных параметров (например, к ASE)
-  // будем требовать наличия секции в файлике ini
+  // хотя возможно подключение через дрйвер ODBC вообще без настройки дополнительных параметров,
+  // будем требовать наличия секции в файлике ini, если файл ini есть
 
   // здесь нет добавок в имя файла, потому что настройки определяются ДО подключения к СУБД
   // для визуального отличия от остальных файлов добавляем подчёркивание в начало имени
@@ -348,7 +352,7 @@ begin
         try
           VIni.ReadSectionValues(VSectionName, VParams);
           // apply all params
-          Result := ApplyParamsToConnection(VParams);
+          Result := ApplyParamsFromINI(VParams);
         finally
           VParams.Free;
         end;
@@ -421,6 +425,16 @@ begin
   G_ConnectionList.InternalRemoveConnection(Self);
 {$ifend}
 
+  // убиваем рекурсивно по цепочке
+  if (FNextSectionConn<>nil) then begin
+{$if defined(CONNECTION_AS_RECORD)}
+    FNextSectionConn^.Uninit;
+    Dispose(FNextSectionConn);
+{$ifend}
+    // убиваем ссылку (если интерфейс - умрёт)
+    FNextSectionConn := nil;
+  end;
+
   try
 {$if defined(CONNECTION_AS_RECORD)}
     FODBCConnectionHolder.Disconnect;
@@ -451,6 +465,14 @@ begin
     FreeLibrary(FInternalLoadLibraryStd);
     FInternalLoadLibraryStd:=0;
   end;
+
+  FPrimaryConn := nil;
+
+  if (FTSS_Info_Ptr <> nil) then begin
+    FTSS_Info_Ptr^.Clear;
+    Dispose(FTSS_Info_Ptr);
+    FTSS_Info_Ptr := nil;
+  end;
 end;
 
 procedure TDBMS_Connection.ApplyCredentialsFormParams(const AFormParams: TStrings);
@@ -471,7 +493,7 @@ begin
   end;
 end;
 
-function TDBMS_Connection.ApplyParamsToConnection(const AParams: TStrings): Byte;
+function TDBMS_Connection.ApplyParamsFromINI(const AParams: TStrings): Byte;
 var
   i: Integer;
   VNewValue, VCurItem: String; // String from TStrings
@@ -508,7 +530,7 @@ var
 begin
   // применение параметров подключения без ini-шки
   // доступно не для всех СУБД
-  VSystemDSNName := FPath.Path_Items[0];
+  VSystemDSNName := FPathPtr^.Path_Items[0];
   if Load_DSN_Params_from_ODBC(VSystemDSNName, FODBCDescription) then begin
     // нашёлся SystemDSN
 {$if defined(CONNECTION_AS_RECORD)}
@@ -551,10 +573,10 @@ end;
 {$ifend}
 
 {$if defined(CONNECTION_AS_CLASS)}
-constructor TDBMS_Connection.Create;
+constructor TDBMS_Connection.Create(const APathPtr: PETS_Path_Divided_W);
 begin
   inherited Create;
-  Init;
+  Init(APathPtr);
 end;
 {$ifend}
 
@@ -823,8 +845,12 @@ begin
   end;
 end;
 
-procedure TDBMS_Connection.Init;
+procedure TDBMS_Connection.Init(const APathPtr: PETS_Path_Divided_W);
 begin
+  FPrimaryConn := nil;
+  FTSS_Info_Ptr := nil;
+  FNextSectionConn := nil;
+  FPathPtr := APathPtr;
   FEngineType := et_Unknown;
   FODBCDescription := '';
   FSavePwdAsLsaSecret := FALSE;
@@ -909,7 +935,7 @@ begin
   if (nil=VPKeyedCrypter) or (not VPKeyedCrypter.KeyAvailable) then
     Exit;
 
-  if VPKeyedCrypter.LoadSecret(FPath.AsEndpoint, VSecretValue) then begin
+  if VPKeyedCrypter.LoadSecret(FPathPtr^.AsEndpoint, VSecretValue) then begin
     VList:=TStringList.Create;
     try
       VList.Text := VSecretValue;
@@ -955,7 +981,7 @@ begin
     VList.Free;
   end;
 
-  Result := VPKeyedCrypter.SaveSecret(FPath.AsEndpoint, VSecretValue);
+  Result := VPKeyedCrypter.SaveSecret(FPathPtr^.AsEndpoint, VSecretValue);
 end;
 
 procedure TDBMS_Connection.ResetConnectionError;

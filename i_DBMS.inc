@@ -1,8 +1,5 @@
 ﻿////{$define DBMS_REUSE_CONNECTIONS}
 
-// общий признак, использовать или нет датасеты
-////{$define USE_ODBC_DATASET}
-
 // используем напрямую ODBC
 {$define USE_DIRECT_ODBC}
 
@@ -24,16 +21,16 @@
 {$else}
   // если не используется напрямую ODBC
   // то используется либо DBX либо ZEOS
-  {$define USE_ODBC_DATASET}
-
   {$define ETS_USE_ZEOS}
 
   {$if not defined(ETS_USE_ZEOS)}
     // для простоты поднимем флаг
     {$define ETS_USE_DBX}
   {$ifend}
+
+  {$if defined(ETS_USE_DBX)}
+    {$define USE_WIDESTRING_FOR_SQL}
+  {$ifend}
+
 {$ifend}
 
-{$if defined(ETS_USE_DBX)}
-  {$define USE_WIDESTRING_FOR_SQL}
-{$ifend}

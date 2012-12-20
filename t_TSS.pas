@@ -27,6 +27,7 @@ type
   TTSSMode = (tssm_Off, tssm_On, tssm_Inversion);
   TTSSSync = (tsss_Off, tsss_On);
 
+  PTSS_Info = ^TTSS_Info;
   TTSS_Info = record
     // ETS_INTERNAL_TSS_DEST
     DestPrefix: String;
