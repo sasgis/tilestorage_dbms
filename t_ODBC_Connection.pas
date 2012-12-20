@@ -51,6 +51,8 @@ type
     
     function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
   end;
+{$else}
+  IODBCConnection = ^TODBCConnection;
 {$ifend}
 
   TODBCConnection =

@@ -123,6 +123,7 @@ type
     FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
     FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
     FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
+    FRealODBCPtr: IODBCConnection; // напрямую используется в запросах (указывает на себя или на родителя)
 
     procedure Init(const APathPtr: PETS_Path_Divided_W);
     procedure Uninit;
@@ -146,9 +147,12 @@ type
     FSavePwdAsLsaSecret: Boolean;
     FReadPrevSavedPwd: Boolean;
   private
+    // читает настройки из INI и применяет их
+    // при необходимости создаёт дочерние секции
+    function ApplyConnectionParams: Byte;
+  private
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     procedure KeepAuthenticationInfo;
-    function ApplyConnectionParams: Byte;
     function ApplySystemDSNtoConnection: Byte;
     function ApplyParamsFromINI(const AParams: TStrings): Byte;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
@@ -414,7 +418,7 @@ end;
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
 begin
-  Result := FODBCConnectionHolder.TableExistsDirect(AFullyQualifiedQuotedTableName)
+  Result := FRealODBCPtr^.TableExistsDirect(AFullyQualifiedQuotedTableName)
 end;
 {$ifend}
 
@@ -437,6 +441,7 @@ begin
 
   try
 {$if defined(CONNECTION_AS_RECORD)}
+    // здесь не FRealODBCPtr^ а всегда свой коннект
     FODBCConnectionHolder.Disconnect;
 {$else}
     Disconnect;
@@ -466,6 +471,7 @@ begin
     FInternalLoadLibraryStd:=0;
   end;
 
+  FRealODBCPtr := nil;
   FPrimaryConn := nil;
 
   if (FTSS_Info_Ptr <> nil) then begin
@@ -568,7 +574,7 @@ end;
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
 begin
-  Result := FODBCConnectionHolder.CheckDirectSQLSingleNotNull(ASQLText)
+  Result := FRealODBCPtr^.CheckDirectSQLSingleNotNull(ASQLText)
 end;
 {$ifend}
 
@@ -598,7 +604,9 @@ function TDBMS_Connection.EnsureConnected(
 begin
   if
 {$if defined(CONNECTION_AS_RECORD)}
-     FODBCConnectionHolder.
+     // а вот тут как раз нужно актуальное подключение
+     // чтобы если секция настроена на родителя - сама не лазила в БД
+     FRealODBCPtr^.
 {$ifend}
      Connected then begin
     // connected
@@ -624,9 +632,11 @@ begin
       // try to connect
       try
 {$if defined(CONNECTION_AS_RECORD)}
+        // подключение секции
         FODBCConnectionHolder.
 {$ifend}
         Connect;
+        
         FConnectionErrorMessage := '';
         FConnectionErrorCode := ETS_RESULT_OK;
 
@@ -693,7 +703,7 @@ function TDBMS_Connection.ExecuteDirectWithBlob(const ASQLText,
   AFullParamName: AnsiString; const ABufferAddr: Pointer;
   const ABufferSize: Integer; const ASilentOnError: Boolean): Boolean;
 begin
-  Result := FODBCConnectionHolder.ExecuteDirectWithBlob(
+  Result := FRealODBCPtr^.ExecuteDirectWithBlob(
     ASQLText,AFullParamName, ABufferAddr,
     ABufferSize, ASilentOnError);
 end;
@@ -705,7 +715,7 @@ function TDBMS_Connection.ExecuteDirectSQL(
   const ASilentOnError: Boolean
 ): Boolean;
 begin
-  Result := FODBCConnectionHolder.ExecuteDirectSQL(ASQLText, ASilentOnError);
+  Result := FRealODBCPtr^.ExecuteDirectSQL(ASQLText, ASilentOnError);
 end;
 {$ifend}
 
@@ -718,7 +728,8 @@ function TDBMS_Connection.FullSyncronizeSQL: Boolean;
 begin
   // если c_SYNC_SQL_MODE_All_In_DLL - синхронизируются запросы полностью
 {$if defined(CONNECTION_AS_RECORD)}
-  with FODBCConnectionHolder do
+  // по актуальной секции
+  with FRealODBCPtr^ do
 {$ifend}
   Result := (SYNC_SQL_MODE=c_SYNC_SQL_MODE_All_In_DLL) or (not Connected);
 end;
@@ -756,7 +767,8 @@ begin
 
         if Load_DSN_Params_from_ODBC(
 {$if defined(CONNECTION_AS_RECORD)}
-          FODBCConnectionHolder.
+          // по актуальной секции
+          FRealODBCPtr^.
 {$ifend}
           DSN,
           FODBCDescription
@@ -765,7 +777,8 @@ begin
         else
           FEngineType := GetEngineTypeByODBCDescription(
 {$if defined(CONNECTION_AS_RECORD)}
-            FODBCConnectionHolder.
+            // по актуальной секции
+            FRealODBCPtr^.
 {$ifend}
             DSN,
             VSecondarySQLCheckServerTypeMode
@@ -794,7 +807,8 @@ var
 begin
   if (not
 {$if defined(CONNECTION_AS_RECORD)}
-          FODBCConnectionHolder.
+          // актуальная секция
+          FRealODBCPtr^.
 {$ifend}
           Connected) then begin
     // not connected
@@ -808,9 +822,6 @@ begin
       // сперва проверим select @@version // MSSQL+ASE+ASA
       VSQLText := 'SELECT @@VERSION as v';
       try
-{$if defined(CONNECTION_AS_RECORD)}
-        FODBCConnectionHolder.
-{$ifend}
         OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
 
         // тащим первое поле
@@ -847,6 +858,7 @@ end;
 
 procedure TDBMS_Connection.Init(const APathPtr: PETS_Path_Divided_W);
 begin
+  FRealODBCPtr := nil;
   FPrimaryConn := nil;
   FTSS_Info_Ptr := nil;
   FNextSectionConn := nil;
@@ -857,6 +869,9 @@ begin
   FReadPrevSavedPwd := FALSE;
 {$if defined(CONNECTION_AS_RECORD)}
   FODBCConnectionHolder.Init;
+  FRealODBCPtr := @FODBCConnectionHolder;
+{$else}
+  FRealODBCPtr := Self;
 {$ifend}
   FInternalLoadLibraryStd := 0;
   FInternalLoadLibraryAlt := 0;
@@ -894,7 +909,7 @@ end;
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: AnsiString; const ABufPtr: POdbcFetchCols): Boolean;
 begin
-  Result := FODBCConnectionHolder.OpenDirectSQLFetchCols(ASQLText, ABufPtr)
+  Result := FRealODBCPtr^.OpenDirectSQLFetchCols(ASQLText, ABufPtr)
 end;
 {$ifend}
 
@@ -905,6 +920,7 @@ begin
   Result := PasswordStorage_ReadParams(VSavedUserName, VSavedPassword);
   if Result then
 {$if defined(CONNECTION_AS_RECORD)}
+  // текушая секция, если она будет подключаться к БД
   with FODBCConnectionHolder do
 {$ifend}
   begin
