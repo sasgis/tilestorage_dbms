@@ -1145,12 +1145,20 @@ type
                Value:SQLPOINTER;
                BufferLength:SQLINTEGER;
                StringLength:PSQLINTEGER):SQLRETURN;stdcall;external 'ODBC32.DLL';
-   function SQLGetInfo(
+
+   function SQLGetInfoA(
                ConnectionHandle:SQLHDBC;
                InfoType:SQLUSMALLINT;
                InfoValue:SQLPOINTER;
                BufferLength:SQLSMALLINT;
                StringLength:PSQLSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
+   function SQLGetInfoW(
+               ConnectionHandle:SQLHDBC;
+               InfoType:SQLUSMALLINT;
+               InfoValue:SQLPOINTER;
+               BufferLength:SQLSMALLINT;
+               StringLength:PSQLSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
+
    function SQLBulkOperations(
                StatementHandle: SQLHSTMT;
                Operation:SQLSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';

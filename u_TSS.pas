@@ -12,6 +12,7 @@ uses
   t_SQL_types,
   t_TSS,
   i_TSS,
+  t_ODBC_Connection,
   u_DBMS_Connect;
 
 type
@@ -27,21 +28,25 @@ type
   // некоторые имеют своё подключение к СУБД, некоторые - нет
   TTSS_WithConnection = class(TTSS_Base)
   protected
-    FSQLConnection: TDBMS_Custom_Connection;
-    FSyncPool: IReadWriteSync;
+    FConnection: TODBCConnection;
     FPath: TETS_Path_Divided_W;
     FEngineType: TEngineType;
-    FODBCDescription: WideString;
+    FODBCDescription: AnsiString;
+
     // внутренние параметры из ini (кроме тех что хранятся отдельно и кроме параметров TSS)
     FInternalParams: TStringList;
+
     // формально это не схема, а префикс полностью (при необходимости - с точкой и сразу quoted)
     FETS_INTERNAL_SCHEMA_PREFIX: TDBMS_String;
+
     // если будет более одной DLL - переделать на TStringList
     FInternalLoadLibraryStd: THandle;
     FInternalLoadLibraryAlt: THandle;
+
     // кэшируем результат коннекта к серверу
     FConnectionErrorMessage: String;
     FConnectionErrorCode: Byte;
+
     // если TRUE - пароль будет сохраняться как Lsa Secret
     // если FALSE - просто в реестре (в обоих случаях он шифруется)
     FSavePwdAsLsaSecret: Boolean;

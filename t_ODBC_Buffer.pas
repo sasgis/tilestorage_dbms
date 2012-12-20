@@ -58,7 +58,7 @@ type
     // общий буфер для регулярных полей (у каждого large objects свой)
     ColBufLen: SQLULEN;
     ColBufPtr: TOdbcColBuffer;
-    // статический буфер для LOB-ов (всегда фиксированной длины)
+    // статический буфер для LOB-ов (всегда фиксированной длины - длину можно задать параметром)
     LOBStatic: TOdbcColBuffer;
     // поля - нумерация с 1 (как принято в ODBC)
     Cols: array [1..1] of TOdbcColItem;
@@ -130,10 +130,6 @@ const
   WF_STATIC  = $02; // Buffer is static - do not reallocate it!
   WF_COLNAME = $04; // надо тащить имена полей - будет доступ по имени
   WF_HAS_LOB = $20; // Есть хотя бы одно поле LOB (устанавливается автоматически)
-
-  // размеры буферов для LOB для выделения по умолчанию
-  c_LOB_Big_Size   = 64*1024;
-  c_LOB_Small_Size = 4*1024;
 
 function OdbcCloseStmt(var AStmt: SQLHANDLE): Boolean;
 function OdbcFetchStmt(const AStmt: SQLHANDLE; var AWorkFlags: Byte): Boolean;
@@ -602,15 +598,6 @@ begin
     if VDesc^.IsLOB then begin
       // LOB
       WorkFlags := WorkFlags or WF_HAS_LOB;
-      (*
-      // забацаем буферочки предполагаемого размера
-      if ((WorkFlags and WF_BIG_LOB) <> 0) then
-        VItem^.Bind_BufferLength := c_LOB_Big_Size
-      else
-        VItem^.Bind_BufferLength := c_LOB_Small_Size;
-      // выделяем память
-      VItem^.LOBPtr := OdbcAlloc(VItem^.Bind_BufferLength);
-      *)
       // конец для LOB
     end else begin
       // регулярное поле

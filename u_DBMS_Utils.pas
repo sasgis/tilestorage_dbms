@@ -44,10 +44,10 @@ end;
 
 function DBMSStrToDB(const S: TDBMS_String): TDBMS_String; inline;
 begin
-{$if defined(ETS_USE_ZEOS)}
-  Result := QuotedStr(S);
-{$else}
+{$if defined(USE_WIDESTRING_FOR_SQL)}
   Result := WideStrToDB(S);
+{$else}
+  Result := QuotedStr(S);
 {$ifend}
 end;
 

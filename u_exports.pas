@@ -172,7 +172,7 @@ begin
       Exit;
     end;
 
-    Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_Sync(AFlags);
+    Result := ETS_RESULT_OK;
   except
     Result := ETS_RESULT_PROVIDER_EXCEPTION;
   end;

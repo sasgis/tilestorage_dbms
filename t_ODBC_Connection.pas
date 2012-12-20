@@ -26,13 +26,21 @@ type
     function FindDSN(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
   end;
 
-  TODBCConnection = class(TObject)
+  IODBCConnection = interface
+    ['{6CDDBC7E-3DFF-484C-8769-38C5FB85231D}']
+    
+  end;
+
+  TODBCConnection =
+{$if defined(CONNECTION_AS_RECORD)}
+  record
+{$else}
+  class(TInterfacedObject, IODBCConnection)
+{$ifend}
   private
     FBlobDataType: SQLSMALLINT; // SQL_LONGVARBINARY или SQL_VARBINARY
     Fhdbc: SQLHDBC;
     FParams: TStrings;
-    FConnectWithInfoMessages: String;
-    FSQL_IDENTIFIER_QUOTE_CHAR_VALUE: AnsiString;
   private
     function GetDSN: String;
     function GetPWD: String;
@@ -40,30 +48,39 @@ type
     procedure SetDSN(const Value: String);
     procedure SetPWD(const Value: String);
     procedure SetUID(const Value: String);
-    procedure SetParams(const Value: TStrings);
-    procedure SetConnected(const Value: Boolean);
   private
     function GetHENV: SQLHENV; // SQLHANDLE;
 
-    procedure ODBCDriverInfo(
+    procedure ODBCDriverInfoA(
       InfoType: SQLUSMALLINT;
       InfoValuePtr: SQLPOINTER;
       BufferLength: SQLSMALLINT;
       StringLengthPtr: PSQLSMALLINT;
       const AAllowWithInfo: Boolean = FALSE
     );
-    
-  public
-    ConnectWithParams: Boolean;
-    function IsConnected: Boolean; inline;
-  public
-    constructor Create;
-    destructor Destroy; override;
 
     procedure CheckSQLResult(const ASqlRes: SQLRETURN);
 
+  public
+    ConnectWithParams: Boolean;
+    ConnectWithInfoMessages: String;
+    SQL_IDENTIFIER_QUOTE_CHAR_VALUE: AnsiString;
+    SYNC_SQL_MODE: Integer;
+{$if defined(CONNECTION_AS_CLASS)}
+  private
+{$ifend}
+    procedure Init;
+    procedure Uninit;
+  public
+{$if defined(CONNECTION_AS_CLASS)}
+    constructor Create;
+    destructor Destroy; override;
+{$ifend}
+
     procedure DisConnect;
     procedure Connect;
+
+    function Connected: Boolean; inline;
 
     function ExecuteDirectSQL(
       const ASQLText: AnsiString;
@@ -92,10 +109,7 @@ type
     property PWD: String read GetPWD write SetPWD;
     property DSN: String read GetDSN write SetDSN;
 
-    property Connected: Boolean read IsConnected write SetConnected default FALSE;
-    property Params: TStrings read FParams write SetParams;
-
-    property SQL_IDENTIFIER_QUOTE_CHAR_VALUE: AnsiString read FSQL_IDENTIFIER_QUOTE_CHAR_VALUE;
+    property Params: TStrings read FParams;
   end;
 
 function Load_DSN_Params_from_ODBC(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
@@ -188,7 +202,7 @@ var
   ConnectionString, VUID, VPWD: AnsiString;
   dc:      SQLUSMALLINT;
 begin
-  if IsConnected then
+  if Connected then
     Exit;
 
   // сбросим признак
@@ -196,7 +210,7 @@ begin
 
   CheckSQLResult(SQLAllocHandle(SQL_HANDLE_DBC, GetHENV, Fhdbc));
 
-  FConnectWithInfoMessages := '';
+  ConnectWithInfoMessages := '';
   //VConnectResult := SQL_NO_DATA;
 
   (*
@@ -250,13 +264,13 @@ begin
 
     // подключение удалось, но драйвер выдал информацию к размышлению
     if (SQL_SUCCESS_WITH_INFO=VConnectResult) then begin
-      FConnectWithInfoMessages := MakeODBCInfoMessage(VConnectResult, SQL_HANDLE_DBC, Fhdbc);
+      ConnectWithInfoMessages := MakeODBCInfoMessage(VConnectResult, SQL_HANDLE_DBC, Fhdbc);
     end else begin
       // остальное проверяем
       CheckSQLResult(VConnectResult);
     end;
   except on E: Exception do begin
-      FConnectWithInfoMessages := E.Message;
+      ConnectWithInfoMessages := E.Message;
       SQLFreeHandle(SQL_HANDLE_DBC, Fhdbc);
       Fhdbc := SQL_NULL_HANDLE;
       raise;
@@ -266,10 +280,16 @@ begin
   // успешно подключились
   
   // get quotation options
-  FSQL_IDENTIFIER_QUOTE_CHAR_VALUE := '';
-  SetLength(FSQL_IDENTIFIER_QUOTE_CHAR_VALUE, 4);
-  ODBCDriverInfo( SQL_IDENTIFIER_QUOTE_CHAR,     SQLPOINTER(@FSQL_IDENTIFIER_QUOTE_CHAR_VALUE[1]),  Length(FSQL_IDENTIFIER_QUOTE_CHAR_VALUE), @cbout, TRUE);
-  SetLength(FSQL_IDENTIFIER_QUOTE_CHAR_VALUE, cbout);
+  SQL_IDENTIFIER_QUOTE_CHAR_VALUE := '';
+  SetLength(SQL_IDENTIFIER_QUOTE_CHAR_VALUE, 4);
+  ODBCDriverInfoA(
+    SQL_IDENTIFIER_QUOTE_CHAR,
+    SQLPOINTER(@SQL_IDENTIFIER_QUOTE_CHAR_VALUE[1]),
+    Length(SQL_IDENTIFIER_QUOTE_CHAR_VALUE),
+    @cbout,
+    TRUE
+  );
+  SetLength(SQL_IDENTIFIER_QUOTE_CHAR_VALUE, cbout);
 
   // ещё бы надо прочитать:
   // SQL_DATA_SOURCE_READ_ONLY
@@ -279,23 +299,26 @@ begin
   // SQL_SPECIAL_CHARACTERS
 end;
 
-constructor TODBCConnection.Create;
+function TODBCConnection.Connected: Boolean;
 begin
-  gEnv.Load;
-  inherited Create;
-  Fhdbc := SQL_NULL_HANDLE;
-  FBlobDataType := c_BlobDataType_Default;
-  ConnectWithParams := FALSE;
-  FParams := TStringList.Create;
-  FSQL_IDENTIFIER_QUOTE_CHAR_VALUE := '"'; // default value
+  Result := (Fhdbc <> SQL_NULL_HANDLE)
 end;
 
+{$if defined(CONNECTION_AS_CLASS)}
+constructor TODBCConnection.Create;
+begin
+  Init;
+  inherited Create;
+end;
+{$ifend}
+
+{$if defined(CONNECTION_AS_CLASS)}
 destructor TODBCConnection.Destroy;
 begin
-  DisConnect;
-  FreeAndNil(FParams);
+  Uninit;
   inherited Destroy;
 end;
+{$ifend}
 
 procedure TODBCConnection.DisConnect;
 begin
@@ -403,18 +426,23 @@ begin
   Result := FParams.Values['UID'];
 end;
 
-function TODBCConnection.IsConnected: Boolean;
+procedure TODBCConnection.Init;
 begin
-  Result := (Fhdbc <> SQL_NULL_HANDLE)
+  gEnv.Load;
+  Fhdbc := SQL_NULL_HANDLE;
+  FBlobDataType := c_BlobDataType_Default;
+  ConnectWithParams := FALSE;
+  FParams := TStringList.Create;
+  SQL_IDENTIFIER_QUOTE_CHAR_VALUE := '"'; // default value
 end;
 
-procedure TODBCConnection.ODBCDriverInfo(InfoType: SQLUSMALLINT;
+procedure TODBCConnection.ODBCDriverInfoA(InfoType: SQLUSMALLINT;
   InfoValuePtr: SQLPOINTER; BufferLength: SQLSMALLINT;
   StringLengthPtr: PSQLSMALLINT; const AAllowWithInfo: Boolean);
 var
   sqlres: SQLRETURN;
 begin
-  sqlres := SQLGetInfo(Fhdbc, InfoType, InfoValuePtr, BufferLength, StringLengthPtr);
+  sqlres := SQLGetInfoA(Fhdbc, InfoType, InfoValuePtr, BufferLength, StringLengthPtr);
   case sqlres of
     SQL_SUCCESS:;
     SQL_SUCCESS_WITH_INFO: if not AAllowWithInfo then raise EODBCDriverInfoErrorWithInfo.CreateWithDiag(sqlres, SQL_HANDLE_DBC, Fhdbc);
@@ -444,22 +472,9 @@ begin
   Result := ABufPtr^.DescribeAndBind;
 end;
 
-procedure TODBCConnection.SetConnected(const Value: Boolean);
-begin
-  if Value then
-    Connect
-  else
-    DisConnect;
-end;
-
 procedure TODBCConnection.SetDSN(const Value: String);
 begin
   FParams.Values['DSN'] := Value;
-end;
-
-procedure TODBCConnection.SetParams(const Value: TStrings);
-begin
-  FParams.Assign(Value);
 end;
 
 procedure TODBCConnection.SetPWD(const Value: String);
@@ -478,6 +493,12 @@ var
 begin
   VFullSQL := 'select 1 as a from ' + AFullyQualifiedQuotedTableName + ' where 0=1';
   Result := ExecuteDirectSQL(VFullSQL, TRUE);
+end;
+
+procedure TODBCConnection.Uninit;
+begin
+  DisConnect;
+  FreeAndNil(FParams);
 end;
 
 { TOdbcEnvironment }
