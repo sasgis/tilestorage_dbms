@@ -2495,7 +2495,10 @@ begin
 {$else}
         // если работаем руками - сразу берём буфер
         VColIndex := VOdbcFetchColsEx.Base.ColIndex('tile_body');
-        VOut.ptTileBuffer := VOdbcFetchColsEx.Base.GetLOBBuffer(VColIndex);
+        if (VColIndex<0) then
+          VOut.ptTileBuffer := nil
+        else
+          VOut.ptTileBuffer := VOdbcFetchColsEx.Base.GetLOBBuffer(VColIndex);
 {$ifend}
       end;
 
