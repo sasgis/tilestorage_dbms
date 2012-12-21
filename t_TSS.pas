@@ -24,13 +24,14 @@ type
     SyncSource: String;
   end;
 
+  TTSSType = (tsst_Off, tsst_Section, tsst_DSN, tsst_Prefix);
   TTSSMode = (tssm_Off, tssm_On, tssm_Inversion);
   TTSSSync = (tsss_Off, tsss_On);
 
   PTSS_Info = ^TTSS_Info;
   TTSS_Info = record
     // ETS_INTERNAL_TSS_DEST
-    DestPrefix: String;
+    DestType: TTSSType;
     DestValue: String;
     // ETS_INTERNAL_TSS_AREA
     // ETS_INTERNAL_TSS_ZOOM
@@ -47,27 +48,46 @@ type
   end;
 
 const
-  c_DestPrefix_Default = 'Prefix';
   c_TSSMode_Default = tssm_On;
   c_TSSSync_Default = tsss_Off;
 
 implementation
+
+const
+  c_TSSType_Section = 'Section';
+  c_TSSType_DSN     = 'DSN';
+  c_TSSType_Prefix  = 'Prefix';
+
+function StringToTSSType(const ASource: String): TTSSType;
+begin
+  if SameText(ASource, c_TSSType_Section) then
+    Result := tsst_Section
+  else if SameText(ASource, c_TSSType_DSN) then
+    Result := tsst_DSN
+  else if SameText(ASource, c_TSSType_Prefix) then
+    Result := tsst_Prefix
+  else
+    Result := tsst_Off;
+end;
 
 { TTSS_Info }
 
 function TTSS_Info.ApplyDefinition(const ADefinition: TTSS_Definition): Boolean;
 var VPos: Integer;
 begin
+  Result := FALSE;
+  
   // ETS_INTERNAL_TSS_DEST
   VPos := System.Pos(':', ADefinition.DestSource);
   if (VPos>0) then begin
     // есть префикс - делим
-    DestPrefix := System.Copy(ADefinition.DestSource, 1, (VPos-1));
-    DestValue  := System.Copy(ADefinition.DestSource, (VPos+1), Length(ADefinition.DestSource));
+    DestType  := StringToTSSType(System.Copy(ADefinition.DestSource, 1, (VPos-1)));
+    if (tsst_Off=DestType) then
+      Exit;
+    DestValue := System.Copy(ADefinition.DestSource, (VPos+1), Length(ADefinition.DestSource));
   end else begin
-    // префикс не указан - считаем что это 'Prefix'
-    DestPrefix := c_DestPrefix_Default;
-    DestValue  := ADefinition.DestSource;
+    // префикс не указан
+    Exit;
   end;
 
   // ETS_INTERNAL_TSS_AREA

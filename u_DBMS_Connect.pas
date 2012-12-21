@@ -20,62 +20,6 @@ uses
   t_ETS_Tiles;
 
 type
-  (*
-  IDBMS_Connection = interface
-  ['{D5809427-36C7-49D7-83ED-72C567BD6E08}']
-    // подключение, если ещё не подключено
-    function EnsureConnected(
-      const AllowTryToConnect: Boolean;
-      AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
-    ): Byte;
-
-    // выполнение простого запроса напрямую
-    function ExecuteDirectSQL(
-      const ASQLText: TDBMS_String;
-      const ASilentOnError: Boolean = FALSE // может не поддерживаться
-    ): Boolean;
-
-    // выполнение запроса с параметром типв blob напрямую
-    function ExecuteDirectWithBlob(
-      const ASQLText: TDBMS_String;
-      const ABufferAddr: Pointer;
-      const ABufferSize: LongInt;
-      const ASilentOnError: Boolean = FALSE // может не поддерживаться
-    ): Boolean;
-
-    // проверка существования таблицы
-    function TableExists(const AFullyQualifiedQuotedTableName: TDBMS_String): Boolean;
-
-    // тип сервера БД
-    function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
-    function GetCheckedEngineType: TEngineType;
-
-    // внутренние параметры
-    function GetInternalParameter(const AInternalParameterName: String): String;
-    function ForcedSchemaPrefix: String;
-    function FullSyncronizeSQL: Boolean;
-
-    // текст ошибки при подключении
-    function GetConnectionErrorMessage: String;
-    procedure ResetConnectionError;
-
-    // применение настроек аутентификации из формы
-    procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
-    function AllowSavePassword: Boolean;
-
-    // проверка что одно поле есть и не пустое
-    function CheckDirectSQLSingleNotNull(
-      const ASQLText: String
-    ): Boolean;
-
-    // открытие запроса чтобы фетчить кучу разных полей
-    function OpenDirectSQLFetchCols(
-      const ASQLText: String;
-      const ABufPtr: POdbcFetchCols
-    ): Boolean;
-  end;
-  *)
-
 {$if defined(CONNECTION_AS_CLASS)}
   IDBMS_Connection = interface(IODBCConnection)
     ['{52201DDE-CC76-4861-BAB1-1CDE050CB509}']
@@ -120,8 +64,8 @@ type
   private
 {$ifend}
     // деление по секциям
-    FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
-    FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
+    FNextSectionConn: IDBMS_Connection; // следуюшая секция в цепочке
+    FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичную секцию
     FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
     FRealODBCPtr: IODBCConnection; // напрямую используется в запросах (указывает на себя или на родителя)
 
@@ -129,7 +73,7 @@ type
     procedure Uninit;
 
   private
-    FPathPtr: PETS_Path_Divided_W;
+    FPathDiv: TETS_Path_Divided_W;
     FEngineType: TEngineType;
     FODBCDescription: AnsiString;
     // внутренние параметры из ini
@@ -153,6 +97,13 @@ type
   private
     procedure SaveInternalParameter(const AParamName, AParamValue: String);
     procedure KeepAuthenticationInfo;
+    procedure ProcessTSSParameter(
+      const AParams: TStrings;
+      const AParamName, AParamValue: String
+    );
+    function IsTSSParameter(const AInternalParamName: String): Boolean;
+    function IsInternalParameter(const AParamName: String): Boolean;
+    function AllowReadParamsFromIni: Boolean; inline;
     function ApplySystemDSNtoConnection: Byte;
     function ApplyParamsFromINI(const AParams: TStrings): Byte;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
@@ -321,6 +272,17 @@ end;
 
 { TDBMS_Connection }
 
+function TDBMS_Connection.AllowReadParamsFromIni: Boolean;
+begin
+  // читаем параметры из ini, если текущая секция:
+  // а) первичная
+  // б) типа Section
+  // не читаем параметры из ini, если текущая секция:
+  // а) типа Prefix (используем подключение первичной секции)
+  // б) типа DSN (секция без параметров, будто файла ini вовсе нет)
+  Result := (FTSS_Info_Ptr=nil) or (not (FTSS_Info_Ptr^.DestType in [tsst_DSN, tsst_Prefix]))
+end;
+
 function TDBMS_Connection.AllowSavePassword: Boolean;
 begin
   Result := FReadPrevSavedPwd;
@@ -333,7 +295,7 @@ var
   VIni: TIniFile;
   VParams: TStringList;
 begin
-  VSectionName := FPathPtr^.AsEndpoint;
+  VSectionName := FPathDiv.AsEndpoint;
 
   // хотя возможно подключение через дрйвер ODBC вообще без настройки дополнительных параметров,
   // будем требовать наличия секции в файлике ini, если файл ini есть
@@ -351,11 +313,11 @@ begin
     VIni:=TIniFile.Create(VFilename);
     try
       if VIni.SectionExists(VSectionName) then begin
-        // found - read entire section
+        // секция найдена - читаем её целиком
         VParams := TStringList.Create;
         try
           VIni.ReadSectionValues(VSectionName, VParams);
-          // apply all params
+          // применяем параметры секции
           Result := ApplyParamsFromINI(VParams);
         finally
           VParams.Free;
@@ -509,9 +471,15 @@ begin
   for i := 0 to AParams.Count-1 do begin
     VCurItem := AParams.Names[i];
     VNewValue := AParams.ValueFromIndex[i];
-    if SameText(Copy(VCurItem,1,Length(ETS_INTERNAL_PARAMS_PREFIX)),ETS_INTERNAL_PARAMS_PREFIX) then begin
+    if IsInternalParameter(VCurItem) then begin
       // исключительно внутренний параметр
-      SaveInternalParameter(VCurItem, VNewValue);
+      if IsTSSParameter(VCurItem) then begin
+        // параметры TSS
+        ProcessTSSParameter(AParams, VCurItem, VNewValue);
+      end else begin
+        // остальные внутренние
+        SaveInternalParameter(VCurItem, VNewValue);
+      end;
     end else begin
       // в параметры подключения
 {$if defined(CONNECTION_AS_RECORD)}
@@ -536,7 +504,7 @@ var
 begin
   // применение параметров подключения без ini-шки
   // доступно не для всех СУБД
-  VSystemDSNName := FPathPtr^.Path_Items[0];
+  VSystemDSNName := FPathDiv.ServerName;
   if Load_DSN_Params_from_ODBC(VSystemDSNName, FODBCDescription) then begin
     // нашёлся SystemDSN
 {$if defined(CONNECTION_AS_RECORD)}
@@ -862,7 +830,7 @@ begin
   FPrimaryConn := nil;
   FTSS_Info_Ptr := nil;
   FNextSectionConn := nil;
-  FPathPtr := APathPtr;
+  FPathDiv.CopyFrom(APathPtr);
   FEngineType := et_Unknown;
   FODBCDescription := '';
   FSavePwdAsLsaSecret := FALSE;
@@ -881,6 +849,19 @@ begin
   FConnectionErrorCode := ETS_RESULT_OK;
 end;
 
+function TDBMS_Connection.IsInternalParameter(const AParamName: String): Boolean;
+begin
+  Assert(1=Length(ETS_INTERNAL_PARAMS_PREFIX));
+  Result := (Length(AParamName) > 0) and (ETS_INTERNAL_PARAMS_PREFIX = AParamName[1]);
+end;
+
+function TDBMS_Connection.IsTSSParameter(const AInternalParamName: String): Boolean;
+begin
+  // воспользуемся тем, что все параметры TSS имеют одну длину (плюс возможный индекс)
+  Result := (Length(ETS_INTERNAL_TSS_DEST)<=Length(AInternalParamName)) and
+            (0=StrLIComp(PChar(AInternalParamName), PChar(ETS_INTERNAL_TSS_), Length(ETS_INTERNAL_TSS_)));
+end;
+
 procedure TDBMS_Connection.KeepAuthenticationInfo;
 {$if defined(DBMS_REUSE_CONNECTIONS)}
 var
@@ -891,7 +872,7 @@ begin
   // get info from G_ConnectionList
   G_ConnectionList.FSyncList.BeginWrite;
   try
-    VServer := G_ConnectionList.InternalGetServerObject(FPath.Path_Items[0]);
+    VServer := G_ConnectionList.InternalGetServerObject(FPath.ServerName);
     if (VServer<>nil) then begin
       if (not VServer.FAuthDefined) then begin
         VServer.FUsername := FSQLConnection.UID;
@@ -951,7 +932,7 @@ begin
   if (nil=VPKeyedCrypter) or (not VPKeyedCrypter.KeyAvailable) then
     Exit;
 
-  if VPKeyedCrypter.LoadSecret(FPathPtr^.AsEndpoint, VSecretValue) then begin
+  if VPKeyedCrypter.LoadSecret(FPathDiv.AsEndpoint, VSecretValue) then begin
     VList:=TStringList.Create;
     try
       VList.Text := VSecretValue;
@@ -997,7 +978,94 @@ begin
     VList.Free;
   end;
 
-  Result := VPKeyedCrypter.SaveSecret(FPathPtr^.AsEndpoint, VSecretValue);
+  Result := VPKeyedCrypter.SaveSecret(FPathDiv.AsEndpoint, VSecretValue);
+end;
+
+procedure TDBMS_Connection.ProcessTSSParameter(
+  const AParams: TStrings;
+  const AParamName, AParamValue: String
+);
+var
+  VTSSSuffix: String;
+  VTSS_Definition: TTSS_Definition;
+  VNewTSSPtr: PTSS_Info;
+  VLastSection: IDBMS_Connection;
+begin
+  // создаём дочерние TSS только если первичная секция или секция типа Section
+  if (not AllowReadParamsFromIni) then
+    Exit;
+
+  // проверяем по единственному обязательному параметру TSS
+  // TODO: сделать чтобы работало с индексом после параметров
+  if not SameText(AParamName, ETS_INTERNAL_TSS_DEST) then
+    Exit;
+
+  // пока что только без индекса - одна вторичная секция
+  VTSSSuffix := '';
+  // заполняем структуру полями из INI
+  with VTSS_Definition do begin
+    DestSource := AParamValue;
+    AreaSource := AParams.Values[ETS_INTERNAL_TSS_AREA+VTSSSuffix];
+    ZoomSource := AParams.Values[ETS_INTERNAL_TSS_ZOOM+VTSSSuffix];
+    FullSource := AParams.Values[ETS_INTERNAL_TSS_FULL+VTSSSuffix];
+    ModeSource := AParams.Values[ETS_INTERNAL_TSS_MODE+VTSSSuffix];
+    SyncSource := AParams.Values[ETS_INTERNAL_TSS_SYNC+VTSSSuffix];
+  end;
+
+  VNewTSSPtr := nil;
+  try
+    New(VNewTSSPtr);
+
+    if VNewTSSPtr^.ApplyDefinition(VTSS_Definition) then begin
+      // секция возможно имеет смысл и будет работать
+
+      // найдём последний объект в цепочке (у которого нет ссылки на следующий)
+      VLastSection := @Self;
+      while (VLastSection<>nil) and (VLastSection^.FNextSectionConn<>nil) do begin
+        VLastSection := VLastSection^.FNextSectionConn;
+      end;
+
+      // создаём новую секцию
+      New(VLastSection^.FNextSectionConn);
+      VLastSection^.FNextSectionConn.Init(nil);
+      case VNewTSSPtr^.DestType of
+        tsst_Section, tsst_DSN: begin
+          // новая секция на основе отдельной секции в INI
+          // новая секция без параметров на основе System DSN
+          VLastSection^.FNextSectionConn.FTSS_Info_Ptr := VNewTSSPtr;
+          VNewTSSPtr := nil;
+          // пропихнём имя секции (ну и имя сервиса для порядка)
+          VLastSection^.FNextSectionConn.FPathDiv.ApplyFrom(VNewTSSPtr^.DestValue, FPathDiv.ServiceName);
+          // мы - родитель
+          VLastSection^.FNextSectionConn.FPrimaryConn := @Self;
+          // секция качает через себя
+          VLastSection^.FNextSectionConn.FRealODBCPtr := @(VLastSection^.FNextSectionConn.FODBCConnectionHolder);
+        end;
+        tsst_Prefix: begin
+          // новая секция на основе первичной (текущей), но со специальным префиксом
+          VLastSection^.FNextSectionConn.FTSS_Info_Ptr := VNewTSSPtr;
+          VNewTSSPtr := nil;
+          // НЕ пропихнём имя секции
+          // мы - родитель
+          VLastSection^.FNextSectionConn.FPrimaryConn := @Self;
+          // секция качает через нас (родителя)
+          VLastSection^.FNextSectionConn.FRealODBCPtr := @(Self.FODBCConnectionHolder);
+        end;
+      end;
+
+(*
+    // деление по секциям
+    FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
+    FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
+    FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
+    FRealODBCPtr: IODBCConnection; // напрямую используется в запросах (указывает на себя или на родителя)
+*)
+    end;
+  finally
+    // если ссылка осталась - прибьём
+    if (VNewTSSPtr<>nil) then
+      Dispose(VNewTSSPtr);
+  end;
 end;
 
 procedure TDBMS_Connection.ResetConnectionError;
@@ -1056,7 +1124,7 @@ var
   p: TDBMS_Server;
 begin
   // find server object
-  p := InternalGetServerObject(AConnection.FPath.Path_Items[0]);
+  p := InternalGetServerObject(AConnection.FPath.ServerName);
   if (nil<>p) then begin
     // find connection
     k := TDBMS_Server(p).IndexOf(AConnection);
@@ -1075,12 +1143,12 @@ var
   t: TDBMS_Connection;
 begin
   // find server object
-  p := InternalGetServerObject(APath^.Path_Items[0]);
+  p := InternalGetServerObject(APath^.ServerName);
   if (nil=p) then begin
     // create new server
     p := TDBMS_Server.Create;
     p.OwnsObjects := FALSE;
-    p.FServerName := APath^.Path_Items[0];
+    p.FServerName := APath^.ServerName;
     p.FUsername := '';
     p.FPassword := '';
     p.FAuthDefined := FALSE;
@@ -1094,9 +1162,7 @@ begin
       // check
       if (p.Items[i] is TDBMS_Connection) then
       with TDBMS_Connection(p.Items[i]) do
-      if WideSameStr(FPath.Path_Items[0], APath^.Path_Items[0]) then
-      if WideSameStr(FPath.Path_Items[1], APath^.Path_Items[1]) then{
-      if WideSameStr(FPath.Path_Items[2], APath^.Path_Items[2]) then} begin
+      if WideSameStr(FPath.AsEndpoint, APath^.AsEndpoint) then begin
         // found (skip last identifier - service name)
         Result := TDBMS_Connection(p.Items[i]);
         Exit;

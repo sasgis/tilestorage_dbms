@@ -3860,7 +3860,7 @@ begin
   FPath.ApplyFrom(VGlobalStorageIdentifier, VServiceName);
 
   // проверяем что напарсилось
-  if (0<Length(FPath.Path_Items[0])) and (0<Length(FPath.Path_Items[2])) then begin
+  if (0<Length(FPath.ServerName)) and (0<Length(FPath.ServiceName)) then begin
     // корректно (с точки зрения формата, не обязательно сервис будет доступен)
     Result := ETS_RESULT_OK;
   end else begin
