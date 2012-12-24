@@ -10,6 +10,7 @@ uses
   Classes,
   t_types,
   t_DBMS_Template,
+  u_DBMS_Connect,
   Contnrs;
 
 type
@@ -35,6 +36,7 @@ type
     TabSQLTile: TSQLTile;
     InitialWhereClause: TDBMS_String;
     FullSqlText: TDBMS_String;
+    UsedConnection: IDBMS_Connection;
   end;
 
   TSelectInRectList = class(TList)

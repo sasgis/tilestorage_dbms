@@ -5,6 +5,7 @@ interface
 uses
   Windows,
   SysUtils,
+  t_ETS_Tiles,
   u_ZoomList,
   u_TileArea;
 
@@ -20,18 +21,13 @@ type
     FullSource: String;
     // ETS_INTERNAL_TSS_MODE
     ModeSource: String;
-    // ETS_INTERNAL_TSS_SYNC
-    SyncSource: String;
   end;
 
-  TTSSType = (tsst_Off, tsst_Section, tsst_DSN, tsst_Prefix);
   TTSSMode = (tssm_Off, tssm_On, tssm_Inversion);
-  TTSSSync = (tsss_Off, tsss_On);
 
   PTSS_Info = ^TTSS_Info;
   TTSS_Info = record
     // ETS_INTERNAL_TSS_DEST
-    DestType: TTSSType;
     DestValue: String;
     // ETS_INTERNAL_TSS_AREA
     // ETS_INTERNAL_TSS_ZOOM
@@ -40,55 +36,24 @@ type
     FullValue: IZoomList;
     // ETS_INTERNAL_TSS_MODE
     ModeValue: TTSSMode;
-    // ETS_INTERNAL_TSS_SYNC
-    SyncValue: TTSSSync;
   public
     procedure Clear;
     function ApplyDefinition(const ADefinition: TTSS_Definition): Boolean;
+    function TileInSection(const AXYZ: PTILE_ID_XYZ): Boolean;
   end;
 
 const
   c_TSSMode_Default = tssm_On;
-  c_TSSSync_Default = tsss_Off;
 
 implementation
-
-const
-  c_TSSType_Section = 'Section';
-  c_TSSType_DSN     = 'DSN';
-  c_TSSType_Prefix  = 'Prefix';
-
-function StringToTSSType(const ASource: String): TTSSType;
-begin
-  if SameText(ASource, c_TSSType_Section) then
-    Result := tsst_Section
-  else if SameText(ASource, c_TSSType_DSN) then
-    Result := tsst_DSN
-  else if SameText(ASource, c_TSSType_Prefix) then
-    Result := tsst_Prefix
-  else
-    Result := tsst_Off;
-end;
 
 { TTSS_Info }
 
 function TTSS_Info.ApplyDefinition(const ADefinition: TTSS_Definition): Boolean;
 var VPos: Integer;
 begin
-  Result := FALSE;
-  
   // ETS_INTERNAL_TSS_DEST
-  VPos := System.Pos(':', ADefinition.DestSource);
-  if (VPos>0) then begin
-    // есть префикс - делим
-    DestType  := StringToTSSType(System.Copy(ADefinition.DestSource, 1, (VPos-1)));
-    if (tsst_Off=DestType) then
-      Exit;
-    DestValue := System.Copy(ADefinition.DestSource, (VPos+1), Length(ADefinition.DestSource));
-  end else begin
-    // префикс не указан
-    Exit;
-  end;
+  DestValue := ADefinition.DestSource;
 
   // ETS_INTERNAL_TSS_AREA
   // ETS_INTERNAL_TSS_ZOOM
@@ -107,12 +72,6 @@ begin
   else
     ModeValue := c_TSSMode_Default;
 
-  // ETS_INTERNAL_TSS_SYNC
-  if TryStrToInt(ADefinition.SyncSource, VPos) and (VPos >= 0) and (VPos <= Ord(High(TTSSSync))) then
-    SyncValue := TTSSSync(Ord(LoByte(VPos)))
-  else
-    SyncValue := c_TSSSync_Default;
-
   // некий результат (поправить чтобы был смысл его возвращать)
   Result := (AreaValue<>nil) or (FullValue<>nil);
 end;
@@ -121,6 +80,35 @@ procedure TTSS_Info.Clear;
 begin
   AreaValue := nil;
   FullValue := nil;
+end;
+
+function TTSS_Info.TileInSection(const AXYZ: PTILE_ID_XYZ): Boolean;
+begin
+  Result := FALSE;
+  
+  // может секция отключена
+  if (tssm_Off=ModeValue) then
+    Exit;
+
+  if (FullValue<>nil) then begin
+    // некоторые зумы залетают целиком
+    if FullValue.ZoomInList(AXYZ^.z) then begin
+      // подходит - значит TRUE (если инверсия - FALSE)
+      Result := (tssm_Inversion<>ModeValue);
+      Exit;
+    end;
+  end;
+
+  if (AreaValue<>nil) then begin
+    // может быть попали в область секции
+    if AreaValue.TileInArea(AXYZ) then begin
+      // подходит - значит TRUE (если инверсия - FALSE)
+      Result := (tssm_Inversion<>ModeValue);
+      Exit;
+    end;
+  end;
+
+  // никуда не попали
 end;
 
 end.

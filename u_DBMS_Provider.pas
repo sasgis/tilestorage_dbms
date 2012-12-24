@@ -43,18 +43,14 @@ type
     // flag
     FCompleted: Boolean;
 
-    // признак необходимости переподключиться
-    // поднимается при разрыве соединения сервером
-    FReconnectPending: Boolean;
-
     // callbacks
     FHostCallbacks: TDBMS_INFOCLASS_Callbacks;
     
     // GlobalStorageIdentifier and ServiceName
     FPath: TETS_Path_Divided_W;
 
-    // connection objects
-    FConnection: IDBMS_Connection;
+    // primary connection objects
+    FPrimaryConnnection: IDBMS_Connection;
 
     // guides
     FVersionList: TVersionList;
@@ -62,7 +58,7 @@ type
     // primary ContentTpye from Host (from Map params)
     FPrimaryContentType: AnsiString;
 
-    // flag (read successfully)
+    // признак что для сервиса прочитаны параметры из БД
     FDBMS_Service_OK: Boolean;
     // service and global server params
     FDBMS_Service_Info: TDBMS_Service_Info;
@@ -84,6 +80,9 @@ type
     FUpdateDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
     *)
   private
+    // возвращает подключение для справочников, сервисов и т.п.
+    function GetGuidesConnection: IDBMS_Connection;
+
     // common work
     procedure DoBeginWork(
       const AExclusively: Boolean;
@@ -95,8 +94,14 @@ type
     procedure GuidesBeginWork(const AExclusively: Boolean);
     procedure GuidesEndWork(const AExclusively: Boolean);
 
-    procedure ReadVersionsFromDB(const AExclusively: Boolean);
-    procedure ReadContentTypesFromDB(const AExclusively: Boolean);
+    procedure ReadVersionsFromDB(
+      const AGuideConnection: IDBMS_Connection;
+      const AExclusively: Boolean
+    );
+    procedure ReadContentTypesFromDB(
+      const AGuideConnection: IDBMS_Connection;
+      const AExclusively: Boolean
+    );
   private
     procedure InternalProv_Cleanup;
 
@@ -106,8 +111,17 @@ type
       const AInfoResult: PLongWord
     ): Byte;
 
-    function InternalProv_Connect(const AExclusively: Boolean): Byte;
-    function InternalProv_ReadServiceInfo(const AExclusively: Boolean): Byte;
+    function InternalProv_Connect(
+      const AExclusively: Boolean;
+      const AXYZ: PTILE_ID_XYZ;
+      out ATilesConnection: IDBMS_Connection
+    ): Byte;
+    
+    function InternalProv_ReadServiceInfo(
+      const AGuideConnection: IDBMS_Connection;
+      const AExclusively: Boolean
+    ): Byte;
+    
     procedure InternalProv_ClearServiceInfo;
     procedure InternalProv_Disconnect;
     procedure InternalProv_ClearGuides;
@@ -119,6 +133,7 @@ type
 
     // get version from cache (if not found - read from server)
     function InternalGetVersionAnsiValues(
+      const AGuideConnection: IDBMS_Connection;
       const Aid_ver: SmallInt;
       const AExclusively: Boolean;
       const AVerValuePtr: PPAnsiChar;
@@ -127,6 +142,7 @@ type
 
     // get contenttype from cache (if not found - read from server)
     function InternalGetContentTypeAnsiValues(
+      const AGuideConnection: IDBMS_Connection;
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean;
       const AContentTypeTextPtr: PPAnsiChar;
@@ -136,20 +152,24 @@ type
   private
     // for cached version
     function GetVersionAnsiPointer(
+      const AGuideConnection: IDBMS_Connection;
       const Aid_ver: SmallInt;
       const AExclusively: Boolean
     ): PAnsiChar;  // keep ansi
     function GetVersionWideString(
+      const AGuideConnection: IDBMS_Connection;
       const Aid_ver: SmallInt;
       const AExclusively: Boolean
     ): WideString; // keep wide
 
     // for cached contenttype
     function GetContentTypeAnsiPointer(
+      const AGuideConnection: IDBMS_Connection;
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean
     ): PAnsiChar;  // keep ansi
     function GetContentTypeWideString(
+      const AGuideConnection: IDBMS_Connection;
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean
     ): WideString; // keep wide
@@ -162,34 +182,47 @@ type
     function HasUnknownExceptions: Boolean;
     function GetUnknownExceptions: String;
   private
-    function SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
+    function SQLDateTimeToDBValue(
+      const ATilesConnection: IDBMS_Connection;
+      const ADateTime: TDateTime
+    ): TDBMS_String;
     function SQLDateTimeToVersionValue(const ADateTime: TDateTime): TDBMS_String;
 
-    function GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
+    function GetSQLIntName_Div(
+      const ATilesConnection: IDBMS_Connection;
+      const AXYMaskWidth, AZoom: Byte
+    ): String;
 
-    function GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
+    function GetStatementExceptionType(
+      const ATilesConnection: IDBMS_Connection;
+      const AException: Exception
+    ): TStatementExceptionType;
 
-    procedure DoOnDeadConnection;
-    procedure DoResetConnectionError;
+    procedure DoOnDeadConnection(const ATilesConnection: IDBMS_Connection);
+    procedure DoResetConnectionError(const ATilesConnection: IDBMS_Connection);
 
     function UpdateServiceVerComp(
+      const AGuideConnection: IDBMS_Connection;
       const ANewVerCompMode: AnsiChar;
       out AErrorText: String
     ): Byte;
 
     function UpdateTileLoadMode(
+      const AGuideConnection: IDBMS_Connection;
       const ANewTLMFlag: Byte;
       const AEnabled: Boolean;
       out AErrorText: String
     ): Byte;
 
     function UpdateTileSaveMode(
+      const AGuideConnection: IDBMS_Connection;
       const ANewTSMFlag: Byte;
       const AEnabled: Boolean;
       out AErrorText: String
     ): Byte;
 
     function UpdateVerByTileMode(
+      const AGuideConnection: IDBMS_Connection;
       const ANewVerByTileMode: SmallInt;
       out AErrorText: String
     ): Byte;
@@ -200,12 +233,14 @@ type
     ): Byte;
 
     function ParseMakeVersionSource(
+      const AGuideConnection: IDBMS_Connection;
       const AMakeVersionSource: String;
       const AVerFoundInfo, AVerParsedInfo: PVersionAA;
       out AVersionFound: Boolean
     ): Byte;
 
     function MakeVersionByFormParams(
+      const AGuideConnection: IDBMS_Connection;
       const AFormParams: TStrings
     ): Byte;
 
@@ -214,13 +249,17 @@ type
     ): Byte;
 
   private
-    function CreateAllBaseTablesFromScript: Byte;
+    function CreateAllBaseTablesFromScript(const ATilesConnection: IDBMS_Connection): Byte;
     
     // автоматическое создание записи о текущем сервисе (регистрация сервиса в БД)
-    function AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
+    function AutoCreateServiceRecord(
+      const AGuideConnection: IDBMS_Connection;
+      const AExclusively: Boolean
+    ): Byte;
 
     // автоматическое создание версии для сервиса
     function AutoCreateServiceVersion(
+      const AGuideConnection: IDBMS_Connection;
       const AExclusively: Boolean;
       const AVersionAutodetected: Boolean;
       const AInsertBuffer: PETS_INSERT_TILE_IN;
@@ -237,7 +276,11 @@ type
       AReqVersionPtr: PVersionAA
     ): Byte;
 
-    function GetMaxNextVersionInts(const ANewVersionPtr: PVersionAA; const AKeepVerNumber: Boolean): Boolean;
+    function GetMaxNextVersionInts(
+      const AGuideConnection: IDBMS_Connection;
+      const ANewVersionPtr: PVersionAA;
+      const AKeepVerNumber: Boolean
+    ): Boolean;
 
     // функция для разбора строкового значения версии в целое число для нецелочисленных версий
     function ParseVerValueToVerNumber(
@@ -247,19 +290,25 @@ type
       out ADateTimeValue: TDateTime
     ): Integer;
 
+    // создание версии в БД работает по подключению для справочников
     function MakePtrVersionInDB(
+      const AGuideConnection: IDBMS_Connection;
       const ANewVersionPtr: PVersionAA;
       const AExclusively: Boolean
     ): Boolean;
     
     function MakeEmptyVersionInDB(
+      const AGuideConnection: IDBMS_Connection;
       const AIdVersion: SmallInt;
       const AExclusively: Boolean
     ): Boolean;
     
-    function VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;
+    function VersionExistsInDBWithIdVer(
+      const AGuideConnection: IDBMS_Connection;
+      const AIdVersion: SmallInt
+    ): Boolean;
 
-    function GetNewIdService: SmallInt;
+    function GetNewIdService(const AGuideConnection: IDBMS_Connection): SmallInt;
 
     // check if tile is in common tiles
     function CheckTileInCommonTiles(
@@ -270,6 +319,7 @@ type
 
     // create table using SQL commands from special table
     function CreateTableByTemplate(
+      const ATilesConnection: IDBMS_Connection;
       const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String;
       const AZoom: Byte;
       const ASubstSQLTypes: Boolean
@@ -282,11 +332,13 @@ type
     );
 
     function InternalCalcSQLTile(
+      const ATilesConnection: IDBMS_Connection;
       const AXYZ: PTILE_ID_XYZ;
       const ASQLTile: PSQLTile
     ): Byte;
 
     function FillTableNamesForTiles(
+      const ATilesConnection: IDBMS_Connection;
       ASQLTile: PSQLTile
     ): Boolean;
 
@@ -305,6 +357,7 @@ type
 
   private
     procedure AddVersionOrderBy(
+      const ATilesConnection: IDBMS_Connection;
       const ASQLParts: PSQLParts;
       const AVerInfoPtr: PVersionAA;
       const ACutOnVersion: Boolean
@@ -312,6 +365,7 @@ type
 
     // формирование текста SQL для чтения тайлов из разных режимов
     function GetSQL_SelectTilesInternal(
+      const ATilesConnection: IDBMS_Connection;
       const ASQLTile: PSQLTile;
       const AVersionIn: Pointer;
       const AOptionsIn: LongWord;
@@ -323,6 +377,7 @@ type
     
     // формирование текста SQL для получения (SELECT) тайла или маркера TNE
     function GetSQL_SelectTile(
+      const ATilesConnection: IDBMS_Connection;
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
       const AExclusively: Boolean;
       out ASQLTextResult: TDBMS_String
@@ -331,6 +386,7 @@ type
     // формирование текста SQL для вставки (INSERT) и обновления (UPDATE) тайла или маркера TNE
     // в тексте SQL возможны только параметр c_RTL_Tile_Body_Paramname, остальное подставляется сразу
     function GetSQL_InsertUpdateTile(
+      const ATilesConnection: IDBMS_Connection;
       const AInsertBuffer: PETS_INSERT_TILE_IN;
       const AForceTNE: Boolean;
       const AExclusively: Boolean;
@@ -341,18 +397,20 @@ type
 
     // формирование текста SQL для удаления (DELETE) тайла или маркера TNE
     function GetSQL_DeleteTile(
+      const ATilesConnection: IDBMS_Connection;
       const ADeleteBuffer: PETS_DELETE_TILE_IN;
       out ADeleteSQLResult: TDBMS_String
     ): Byte;
 
     // формирование текста SQL для получения (SELECT) списка существующих версий тайла (XYZ)
     function GetSQL_EnumTileVersions(
+      const ATilesConnection: IDBMS_Connection;
       const ASelectBufferIn: PETS_SELECT_TILE_IN;
       const AExclusively: Boolean;
       out ASQLTextResult: TDBMS_String
     ): Byte;
 
-    // формирует список команд SQL для получения карты заполнения по нескольким таблица
+    // формирует список команд SQL для получения карты заполнения по нескольким таблицам
     function GetSQL_GetTileRectInfo(
       const ATileRectInfoIn: PETS_GET_TILE_RECT_IN;
       const AExclusively: Boolean;
@@ -360,10 +418,14 @@ type
     ): Byte;
 
     function GetSQL_InsertIntoService(
+      const AGuideConnection: IDBMS_Connection;
       const AExclusively: Boolean;
       out ASQLTextResult: TDBMS_String
     ): Byte;
     
+  private
+    // выбор секционированного соединения
+    function ChooseConnection(const AXYZ: PTILE_ID_XYZ): IDBMS_Connection;
   private
     function DBMS_Complete(const AFlags: LongWord): Byte;
 
@@ -424,6 +486,7 @@ uses
 { TDBMS_Provider }
 
 procedure TDBMS_Provider.AddVersionOrderBy(
+  const ATilesConnection: IDBMS_Connection;
   const ASQLParts: PSQLParts;
   const AVerInfoPtr: PVersionAA;
   const ACutOnVersion: Boolean
@@ -471,7 +534,7 @@ begin
     TILE_VERSION_COMPARE_DATE: begin
       // order by ver_value
       if (AVerInfoPtr<>nil) then
-        _AddWithFieldValue('ver_date', SQLDateTimeToDBValue(AVerInfoPtr^.ver_date))
+        _AddWithFieldValue('ver_date', SQLDateTimeToDBValue(ATilesConnection, AVerInfoPtr^.ver_date))
       else
         _AddWithoutFieldValue('ver_date');
     end;
@@ -491,7 +554,10 @@ begin
   end;
 end;
 
-function TDBMS_Provider.AutoCreateServiceRecord(const AExclusively: Boolean): Byte;
+function TDBMS_Provider.AutoCreateServiceRecord(
+  const AGuideConnection: IDBMS_Connection;
+  const AExclusively: Boolean
+): Byte;
 var
   VSQLText: TDBMS_String;
   VStatementExceptionType: TStatementExceptionType;
@@ -503,23 +569,24 @@ begin
   end;
 
   // сформируем текст SQL для создания записи
-  Result := GetSQL_InsertIntoService(AExclusively, VSQLText);
+  Result := GetSQL_InsertIntoService(AGuideConnection, AExclusively, VSQLText);
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
   // исполняем INSERT (вставляем запись о сервисе)
   VStatementExceptionType := set_Success;
   try
-    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
+    AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
     Result := ETS_RESULT_OK;
   except on E: Exception do
-    VStatementExceptionType := GetStatementExceptionType(E);
+    VStatementExceptionType := GetStatementExceptionType(AGuideConnection, E);
   end;
 
   StandardExceptionType(VStatementExceptionType, FALSE, Result);
 end;
 
 function TDBMS_Provider.AutoCreateServiceVersion(
+  const AGuideConnection: IDBMS_Connection;
   const AExclusively: Boolean;
   const AVersionAutodetected: Boolean;
   const AInsertBuffer: PETS_INSERT_TILE_IN;
@@ -558,19 +625,19 @@ begin
     // если пустая версия
     if (0=Length(AReqVersionPtr^.ver_value)) then begin
       // возможно СУБД не допускает пустую версию
-      if c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
+      if c_SQL_Empty_Version_Denied[AGuideConnection.GetCheckedEngineType] then begin
         Result := ETS_RESULT_EMPTY_VERSION_DENIED;
         Exit;
       end;
 
       // TODO: try to use 0 as id_ver
-      if (not VersionExistsInDBWithIdVer(0)) then begin
+      if (not VersionExistsInDBWithIdVer(AGuideConnection, 0)) then begin
         // создаём пустую версию только если СУБД это допускает
-        if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
-          MakeEmptyVersionInDB(0, AExclusively);
+        if not c_SQL_Empty_Version_Denied[AGuideConnection.GetCheckedEngineType] then begin
+          MakeEmptyVersionInDB(AGuideConnection, 0, AExclusively);
         end;
         // читаем список версий
-        ReadVersionsFromDB(AExclusively);
+        ReadVersionsFromDB(AGuideConnection, AExclusively);
         ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(0, AReqVersionPtr);
         if ARequestedVersionFound then begin
           Result := ETS_RESULT_OK;
@@ -639,7 +706,7 @@ begin
 
   if VGenerateNewIdVer then begin
     // генерим новый id_ver (и возможно ver_number)
-    GetMaxNextVersionInts(AReqVersionPtr, VKeepVerNumber);
+    GetMaxNextVersionInts(AGuideConnection, AReqVersionPtr, VKeepVerNumber);
   end;
 
   if (not VDateTimeIsDefined) then begin
@@ -647,8 +714,8 @@ begin
   end;
 
   repeat
-    if MakePtrVersionInDB(AReqVersionPtr, AExclusively) then begin
-      ReadVersionsFromDB(AExclusively);
+    if MakePtrVersionInDB(AGuideConnection, AReqVersionPtr, AExclusively) then begin
+      ReadVersionsFromDB(AGuideConnection, AExclusively);
       ARequestedVersionFound := FVersionList.FindItemByIdVerInternal(AReqVersionPtr^.id_ver, AReqVersionPtr);
       if ARequestedVersionFound then begin
         Result := ETS_RESULT_OK;
@@ -718,6 +785,36 @@ begin
   // TODO: check size and hash
 end;
 
+function TDBMS_Provider.ChooseConnection(const AXYZ: PTILE_ID_XYZ): IDBMS_Connection;
+begin
+  // выбираем соединение (секцию) исходя из XYZ
+  // начинаем с первичной секции, и далее по цепочке
+  // если ничего не нашли - используем первичную секцию
+  Result := FPrimaryConnnection;
+
+  if (nil=AXYZ) or (nil=Result^.FNextSectionConn) then
+    Exit;
+
+  repeat
+    // к следующей секции по цепочке
+    Result := Result^.FNextSectionConn;
+
+    if (nil=Result) then begin
+      // так ничего и не нашлось - будем использовать первичное подключение
+      Result := FPrimaryConnnection;
+      Exit;
+    end;
+
+    // проверяем, залетает ли координата в секцию
+    if (Result^.FTSS_Info_Ptr<>nil) then
+    if (Result^.FTSS_Info_Ptr^.TileInSection(AXYZ)) then begin
+      // секция нашлась
+      Exit;
+    end;
+
+  until FALSE;
+end;
+
 procedure TDBMS_Provider.ClearUnknownExceptions;
 begin
   FUnknownExceptionsCS.BeginWrite;
@@ -742,7 +839,6 @@ begin
   FFormatSettings.TimeSeparator    := c_Time_Separator;
 
   FCompleted := FALSE;
-  FReconnectPending := FALSE;
   
   // initialization
   FStatusBuffer := AStatusBuffer;
@@ -756,7 +852,7 @@ begin
   FProvSync := MakeSyncRW_Std(Self);
   FGuidesSync := MakeSyncRW_Std(Self);
 
-  FConnection := nil;
+  FPrimaryConnnection := nil;
 
   // если всё нормально настроено - сюда ничего не залетит
   // так что заранее создавать этот объект нелогично
@@ -770,13 +866,13 @@ begin
   InternalProv_Cleanup;
 end;
 
-function TDBMS_Provider.CreateAllBaseTablesFromScript: Byte;
+function TDBMS_Provider.CreateAllBaseTablesFromScript(const ATilesConnection: IDBMS_Connection): Byte;
 var
   VUniqueEngineType: String;
   VSQLTemplates: TDBMS_SQLTemplates_File;
 begin
   // получим уникальный код типа СУБД
-  VUniqueEngineType := c_SQL_Engine_Name[FConnection.GetCheckedEngineType];
+  VUniqueEngineType := c_SQL_Engine_Name[ATilesConnection.GetCheckedEngineType];
   // если пусто - значит неизвестный типа СУБД, и ловить тут нечего
   if (0=Length(VUniqueEngineType)) then begin
     Result := ETS_RESULT_UNKNOWN_DBMS;
@@ -786,18 +882,19 @@ begin
   // создадим объект для генерации структуры для конкретного типа БД
   VSQLTemplates := TDBMS_SQLTemplates_File.Create(
     VUniqueEngineType,
-    FConnection.ForcedSchemaPrefix,
-    FConnection.GetInternalParameter(ETS_INTERNAL_SCRIPT_APPENDER)
+    ATilesConnection.ForcedSchemaPrefix,
+    ATilesConnection.GetInternalParameter(ETS_INTERNAL_SCRIPT_APPENDER)
   );
   try
     // исполним всё что есть
-    Result := VSQLTemplates.ExecuteAllSQLs(FConnection);
+    Result := VSQLTemplates.ExecuteAllSQLs(ATilesConnection);
   finally
     VSQLTemplates.Free;
   end;
 end;
 
 function TDBMS_Provider.CreateTableByTemplate(
+  const ATilesConnection: IDBMS_Connection;
   const ATemplateName, AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String;
   const AZoom: Byte;
   const ASubstSQLTypes: Boolean
@@ -811,11 +908,11 @@ var
   i: Integer;
 begin
   // а вдруг нет базовой таблицы с шаблонами
-  if (not FConnection.TableExistsDirect(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
+  if (not ATilesConnection.TableExistsDirect(ATilesConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
     // создадим базовые таблицы
-    CreateAllBaseTablesFromScript;
+    CreateAllBaseTablesFromScript(ATilesConnection);
     // а вдруг обломались?
-    if (not FConnection.TableExistsDirect(FConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
+    if (not ATilesConnection.TableExistsDirect(ATilesConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
       // полный отстой и нам тут делать нечего
       Result := ETS_RESULT_INVALID_STRUCTURE;
       Exit;
@@ -823,13 +920,13 @@ begin
   end;
 
   // если запрошенная таблица уже есть - валим
-  if (FConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
+  if (ATilesConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
 
   VSQLText := 'SELECT index_sql,ignore_errors,object_sql' +
-               ' FROM ' + FConnection.ForcedSchemaPrefix + Z_ALL_SQL+
+               ' FROM ' + ATilesConnection.ForcedSchemaPrefix + Z_ALL_SQL+
               ' WHERE object_name=' + DBMSStrToDB(ATemplateName) +
                 ' AND object_oper=''C'' AND skip_sql=''0''' +
               ' ORDER BY index_sql';
@@ -839,7 +936,7 @@ begin
   try
     VOdbcFetchColsEx.Init;
     try
-      FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+      ATilesConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
 
       if (not VOdbcFetchColsEx.Base.IsActive) then begin
         // ничего не прочиталось - значит нет шаблона
@@ -863,7 +960,7 @@ begin
           if ASubstSQLTypes then begin
             // также необходимо подставить нужные типы полей для оптимального хранения XY
             // а именно - заменить numeric на INT нужной ширины
-            VReplaceNumeric := GetSQLIntName_Div(FDBMS_Service_Info.XYMaskWidth, AZoom);
+            VReplaceNumeric := GetSQLIntName_Div(ATilesConnection, FDBMS_Service_Info.XYMaskWidth, AZoom);
             VSQLText := StringReplace(VSQLText, c_RTL_Numeric, VReplaceNumeric, [rfReplaceAll,rfIgnoreCase]);
           end;
 
@@ -884,11 +981,11 @@ begin
     for i := 0 to VExecuteSQLArray.Count-1 do
     try
       // выполняем напрямую
-      FConnection.ExecuteDirectSQL(VExecuteSQLArray.GetSQLItem(i).Text, FALSE);
+      ATilesConnection.ExecuteDirectSQL(VExecuteSQLArray.GetSQLItem(i).Text, FALSE);
     except
       on E: Exception do begin
         // тут если стандартные критичные ошибки - надо валить и сообщать юзеру
-        if StandardExceptionType(GetStatementExceptionType(E), TRUE, Result) then
+        if StandardExceptionType(GetStatementExceptionType(ATilesConnection, E), TRUE, Result) then
           Exit;
         // прочее покажем в зависимости от настройки
         if (not VExecuteSQLArray.GetSQLItem(i).SkipErrorsOnExec) then
@@ -900,7 +997,7 @@ begin
   end;
 
   // проверяем что табла успешно создалась
-  if (FConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
+  if (ATilesConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
   end;
@@ -930,19 +1027,21 @@ var
   VDeleteSQL: TDBMS_String;
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
+  VConnectionToDeleteTile: IDBMS_Connection;
 begin
   VExclusive := ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusive, so_Delete, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive);
+    Result := InternalProv_Connect(VExclusive, ADeleteBuffer^.XYZ, VConnectionToDeleteTile);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
     // make DELETE statements
     Result := GetSQL_DeleteTile(
+      VConnectionToDeleteTile,
       ADeleteBuffer,
       VDeleteSQL
     );
@@ -953,11 +1052,11 @@ begin
     VStatementExceptionType := set_Success;
     try
       // execute DELETE statement
-      FConnection.ExecuteDirectSQL(VDeleteSQL, TRUE);
+      VConnectionToDeleteTile.ExecuteDirectSQL(VDeleteSQL, TRUE);
       // done (successfully DELETEed)
       // Result := ETS_RESULT_OK;
     except on E: Exception do
-      VStatementExceptionType := GetStatementExceptionType(E);
+      VStatementExceptionType := GetStatementExceptionType(VConnectionToDeleteTile, E);
     end;
 
     // что случилось
@@ -993,19 +1092,25 @@ var
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
   VFetchedIdVer: SmallInt;
+  VConnectionToEnumVersions: IDBMS_Connection;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusive, so_EnumVersions, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive);
+    Result := InternalProv_Connect(VExclusive, ASelectBufferIn.XYZ, VConnectionToEnumVersions);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
     // fill full sql text and open
-    Result := GetSQL_EnumTileVersions(ASelectBufferIn, VExclusive, VSQLText);
+    Result := GetSQL_EnumTileVersions(
+      VConnectionToEnumVersions,
+      ASelectBufferIn,
+      VExclusive,
+      VSQLText
+    );
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
@@ -1027,9 +1132,9 @@ begin
       // open sql
       VStatementExceptionType := set_Success;
       try
-        FConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchCols);
+        VConnectionToEnumVersions.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchCols);
       except on E: Exception do
-        VStatementExceptionType := GetStatementExceptionType(E);
+        VStatementExceptionType := GetStatementExceptionType(VConnectionToEnumVersions, E);
       end;
 
       if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
@@ -1073,7 +1178,7 @@ begin
               Result := ETS_RESULT_NEED_EXCLUSIVE;
               Exit;
             end;
-            ReadVersionsFromDB(VExclusive);
+            ReadVersionsFromDB(GetGuidesConnection, VExclusive);
             VVersionFound := FVersionList.FindItemByIdVerInternal(VFetchedIdVer, @VVersionAA);
           end;
 
@@ -1146,6 +1251,8 @@ const
 
 var
   VFullPrefix: String;
+  VConnectionForOptions: IDBMS_Connection;
+
 
   function _AddReturnFooter: String;
   begin
@@ -1252,15 +1359,15 @@ var
                  '<br>' +
                  'Service code is "' + FDBMS_Service_Code + '"' +
                  '<br>' +
-                 'Database server defined as ' + c_SQL_Engine_Name[FConnection.GetCheckedEngineType] + '<br>';
+                 'Database server defined as ' + c_SQL_Engine_Name[VConnectionForOptions.GetCheckedEngineType] + '<br>';
 
-    Result := (nil<>FConnection) and (ETS_RESULT_OK=FConnection.EnsureConnected(FALSE, nil));
+    Result := (nil<>VConnectionForOptions) and (ETS_RESULT_OK=VConnectionForOptions.EnsureConnected(FALSE, nil));
     if (not Result) then begin
       AResponseText := AResponseText +
                    '<br>' +
                    '<h1>Not connected</h1>' +
                    '<br>' +
-                   FConnection.GetConnectionErrorMessage +
+                   VConnectionForOptions.GetConnectionErrorMessage +
                    '<br>' +
                    '<br>' +
                    'Click <a href="' + VFullPrefix + '/' + c_EO_SetAuthOpt + '">HERE</a> to set or change Authentication options' +
@@ -1277,7 +1384,7 @@ var
   begin
     DoBeginWork(TRUE, so_ReloadVersions, VExclusivelyLocked);
     try
-      ReadVersionsFromDB(TRUE);
+      ReadVersionsFromDB(GetGuidesConnection, TRUE);
     finally
       DoEndWork(VExclusivelyLocked);
     end;
@@ -1316,7 +1423,8 @@ var
 
   function _AllowSavePassword: Boolean;
   begin
-    Result := (nil <> FConnection) and (FConnection.AllowSavePassword);
+    // TODO: параметр важен на каждой секции
+    Result := (nil <> VConnectionForOptions) and (VConnectionForOptions.AllowSavePassword);
   end;
 
   function _AddHtmlLabelCheckbox(const ANameId, ALabelText: String; const AChecked: Boolean): String;
@@ -1333,6 +1441,7 @@ var
     p: Integer;
     VFormAction: String;
     VFormParams: TStringList;
+    VGuidesConnection: IDBMS_Connection;
   begin
     p := System.Pos('?', ASourceText);
     Result := (p>0);
@@ -1352,12 +1461,13 @@ var
         VFormParams.DelimitedText := System.Copy(ASourceText, (p+1), Length(ASourceText));
 
         // тут распарсились параметры - применяем их
-        if (nil<>FConnection) then begin
-          FConnection.ApplyCredentialsFormParams(VFormParams);
+        // TODO: важно уметь это на каждой секции
+        if (nil<>VConnectionForOptions) then begin
+          VConnectionForOptions.ApplyCredentialsFormParams(VFormParams);
 
           // сброс ошибки подключения
           if (VFormParams.Values[c_Cred_ResetErr]='1') then begin
-            DoResetConnectionError;
+            DoResetConnectionError(VConnectionForOptions);
             AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE or ETS_EOO_NEED_REFRESH;
           end;
 
@@ -1401,8 +1511,9 @@ var
         // ver_comment=Panchromatic%2C0.50%2Ccountry_coverage%2CWV01%2CDigitalGlobe
 
         // тут распарсились параметры - применяем их
-        if (nil<>FConnection) then begin
-          p := MakeVersionByFormParams(VFormParams);
+        VGuidesConnection := GetGuidesConnection;
+        if (nil<>VGuidesConnection) then begin
+          p := MakeVersionByFormParams(VGuidesConnection, VFormParams);
           if (ETS_RESULT_OK = LoByte(p)) then
             VFormAction := 'Done'
           else if (ETS_RESULT_SKIP_EXISTING = LoByte(p)) then
@@ -1471,7 +1582,7 @@ var
     VExistingVersion, VParsedVersion: TVersionAA;
     VVersionFound: Boolean;
   begin
-    ParseMakeVersionSource(AMakeVersionSrc, @VExistingVersion, @VParsedVersion, VVersionFound);
+    ParseMakeVersionSource(GetGuidesConnection, AMakeVersionSrc, @VExistingVersion, @VParsedVersion, VVersionFound);
     
     Result := '<br>' +
               '<form method="GET" name="form_make_ver" action="' + VFullPrefix+'/'+c_EO_ExecMakeVer + '">' +
@@ -1524,6 +1635,10 @@ var
 begin
   Result := ETS_RESULT_OK;
   VResponse := '';
+
+  // по умолчанию опции работают по подключению для справочников
+  VConnectionForOptions := GetGuidesConnection;
+  
   // get input values
   VRequest := '';
   if ((AExecOptionIn^.dwOptionsIn and ETS_EOI_ANSI_VALUES) <> 0) then begin
@@ -1641,7 +1756,7 @@ begin
       if LoByte(VSetTLMIndex) in [ETS_TLM_WITHOUT_VERSION, ETS_TLM_PREV_VERSION, ETS_TLM_LAST_VERSION] then begin
         // ok
         // если 3-й символ равен 1 - включаем, иначе выключаем
-        Result := UpdateTileLoadMode(LoByte(VSetTLMIndex), (VRequest[3]='1'), VSetTLMValue);
+        Result := UpdateTileLoadMode(GetGuidesConnection, LoByte(VSetTLMIndex), (VRequest[3]='1'), VSetTLMValue);
         // check
         if (ETS_RESULT_OK=Result) then begin
           // success
@@ -1671,7 +1786,7 @@ begin
       if LoByte(VSetTLMIndex) in [ETS_TSM_PARSE_EMPTY, ETS_TSM_PARSE_UNKNOWN, ETS_TSM_PARSE_KNOWN,ETS_TSM_ALLOW_NO_EXIF] then begin
         // ok
         // если 3-й символ равен 1 - включаем, иначе выключаем
-        Result := UpdateTileSaveMode(LoByte(VSetTLMIndex), (VRequest[Length(VRequest)]='1'), VSetTLMValue);
+        Result := UpdateTileSaveMode(GetGuidesConnection, LoByte(VSetTLMIndex), (VRequest[Length(VRequest)]='1'), VSetTLMValue);
         // check
         if (ETS_RESULT_OK=Result) then begin
           // success
@@ -1697,7 +1812,7 @@ begin
       if TryStrToInt(VRequest, VSetTLMIndex) then
       if Abs(VSetTLMIndex)<=32767 then begin
         // ok
-        Result := UpdateVerByTileMode(VSetTLMIndex, VSetTLMValue);
+        Result := UpdateVerByTileMode(GetGuidesConnection, VSetTLMIndex, VSetTLMValue);
         // check result
         if (ETS_RESULT_OK=Result) then begin
           // success
@@ -1719,7 +1834,7 @@ begin
         TILE_VERSION_COMPARE_DATE,
         TILE_VERSION_COMPARE_NUMBER: begin
           // ok
-          Result := UpdateServiceVerComp(VRequest[1], VSetTLMValue);
+          Result := UpdateServiceVerComp(GetGuidesConnection, VRequest[1], VSetTLMValue);
           // check result
           if (ETS_RESULT_OK=Result) then begin
             // success
@@ -1773,14 +1888,14 @@ begin
     end else if SameText(c_EO_ResetConnError, VSetTLMValue) then begin
       // ResetConnError
       VResponse := '<h1>Reset connection information</h1>';
-      if (FConnection=nil) then begin
+      if (VConnectionForOptions=nil) then begin
         // nothing to reset
         VResponse := VResponse +
                    '<br>' +
                    'No connection - nothing to reset';
       end else begin
         // can reset
-        DoResetConnectionError;
+        DoResetConnectionError(VConnectionForOptions);
         AExecOptionIn.dwOptionsOut := AExecOptionIn.dwOptionsOut or ETS_EOO_CLEAR_MEMCACHE or ETS_EOO_NEED_REFRESH;
 
         VResponse := VResponse +
@@ -1921,13 +2036,17 @@ var
   VSelectInRectList: TSelectInRectList;
   VSelectInRectItem: PSelectInRectItem;
   i: Integer;
+  // здесь подключение фиктивно, так как могут вернуться данных из некольких секций
+  VConnectionDummy: IDBMS_Connection;
 begin
   VExclusive := ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusive, so_SelectInRect, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive);
+    // здесь нельзя заранее выбрать одно подключение, так как граница области может пересечь несколько секций
+    // так что вернётся первичное
+    Result := InternalProv_Connect(VExclusive, nil, VConnectionDummy);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
@@ -1969,7 +2088,7 @@ begin
             // открываемся
             try
               VOdbcFetchColsEx.Base.Close;
-              FConnection.OpenDirectSQLFetchCols(VSelectInRectItem^.FullSqlText, @(VOdbcFetchColsEx.Base));
+              VSelectInRectItem^.UsedConnection.OpenDirectSQLFetchCols(VSelectInRectItem^.FullSqlText, @(VOdbcFetchColsEx.Base));
             except
               // нет таблицы - нет данных - молча пропускаем
             end;
@@ -2054,13 +2173,14 @@ var
   VBodyAsLiteralValue: TDBMS_String;
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
+  VConnectionForInsert: IDBMS_Connection;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusive, so_Insert, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive);
+    Result := InternalProv_Connect(VExclusive, AInsertBuffer^.XYZ, VConnectionForInsert);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
@@ -2070,6 +2190,7 @@ begin
       
       // получим выражения INSERT и UPDATE
       Result := GetSQL_InsertUpdateTile(
+        VConnectionForInsert,
         AInsertBuffer,
         AForceTNE,
         VExclusive,
@@ -2114,17 +2235,17 @@ begin
 
         if VExecuteWithBlob then begin
           // INSERT with BLOB
-          FConnection.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
+          VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
         end else begin
           // INSERT without BLOB
-          FConnection.ExecuteDirectSQL(VInsertSQL, FALSE);
+          VConnectionForInsert.ExecuteDirectSQL(VInsertSQL, FALSE);
         end;
         
         // готово (вставлено!)
         Result := ETS_RESULT_OK;
       except on E: Exception do
         // обломались со вставкой новой записи
-        VStatementExceptionType := GetStatementExceptionType(E);
+        VStatementExceptionType := GetStatementExceptionType(VConnectionForInsert, E);
       end;
 
       if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
@@ -2146,6 +2267,7 @@ begin
 
           // пробуем создать таблицу по шаблону
           CreateTableByTemplate(
+            VConnectionForInsert,
             c_Templated_RealTiles,
             VUnquotedTableNameWithoutPrefix,
             VQuotedTableNameWithPrefix,
@@ -2154,7 +2276,7 @@ begin
           );
 
           // проверяем существование таблицы
-          if (not FConnection.TableExistsDirect(VQuotedTableNameWithPrefix)) then begin
+          if (not VConnectionForInsert.TableExistsDirect(VQuotedTableNameWithPrefix)) then begin
             // не удалось даже создать - валим
             Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
             Exit;
@@ -2187,10 +2309,10 @@ begin
           // здесь в VInsertSQL может быть и текст для UPDATE
           if VExecuteWithBlob then begin
             // UPDATE with BLOB
-            FConnection.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
+            VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
           end else begin
             // UPDATE without BLOB
-            FConnection.ExecuteDirectSQL(VInsertSQL, FALSE);
+            VConnectionForInsert.ExecuteDirectSQL(VInsertSQL, FALSE);
           end;
 
           // однако повторно получилось успешно
@@ -2198,7 +2320,7 @@ begin
           Result := ETS_RESULT_OK;
         except on E: Exception do
           // смотрим что за ошибка
-          VStatementExceptionType := GetStatementExceptionType(E);
+          VStatementExceptionType := GetStatementExceptionType(VConnectionForInsert, E);
         end;
 
         if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
@@ -2248,19 +2370,20 @@ var
   VVersionW, VContentTypeW: WideString; // keep wide
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
+  VConnectionForSelect: IDBMS_Connection;
 begin
   VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VExclusive, so_Select, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive);
+    Result := InternalProv_Connect(VExclusive, ASelectBufferIn^.XYZ, VConnectionForSelect);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
     // забацаем полный текст SELECT
-    Result := GetSQL_SelectTile(ASelectBufferIn, VExclusive, VSQLText);
+    Result := GetSQL_SelectTile(VConnectionForSelect, ASelectBufferIn, VExclusive, VSQLText);
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
@@ -2271,9 +2394,9 @@ begin
       // open sql
       VStatementExceptionType := set_Success;
       try
-        FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+        VConnectionForSelect.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
       except on E: Exception do
-        VStatementExceptionType := GetStatementExceptionType(E);
+        VStatementExceptionType := GetStatementExceptionType(VConnectionForSelect, E);
       end;
 
       if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
@@ -2336,10 +2459,10 @@ begin
 
       if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
         // as AnsiString
-        VOut.szVersionOut := GetVersionAnsiPointer(Vid_ver, VExclusive);
+        VOut.szVersionOut := GetVersionAnsiPointer(GetGuidesConnection, Vid_ver, VExclusive);
       end else begin
         // as WideString
-        VVersionW := GetVersionWideString(Vid_ver, VExclusive);
+        VVersionW := GetVersionWideString(GetGuidesConnection, Vid_ver, VExclusive);
         VOut.szVersionOut := PWideChar(VVersionW);
       end;
 
@@ -2349,10 +2472,10 @@ begin
 
       if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_CONTENTTYPE_OUT) <> 0) then begin
           // as AnsiString
-          VOut.szContentTypeOut := GetContentTypeAnsiPointer(Vid_contenttype, VExclusive);
+          VOut.szContentTypeOut := GetContentTypeAnsiPointer(GetGuidesConnection, Vid_contenttype, VExclusive);
       end else begin
           // as WideString
-          VContentTypeW := GetContentTypeWideString(Vid_contenttype, VExclusive);
+          VContentTypeW := GetContentTypeWideString(GetGuidesConnection, Vid_contenttype, VExclusive);
           VOut.szContentTypeOut := PWideChar(VContentTypeW);
       end;
 
@@ -2448,9 +2571,10 @@ procedure TDBMS_Provider.DoBeginWork(
   out AExclusivelyLocked: Boolean
 );
 begin
-  AExclusivelyLocked := AExclusively OR
-                        (FConnection=nil) OR
-                        (FConnection.FullSyncronizeSQL);
+  AExclusivelyLocked := AExclusively (* OR
+                        // TODO: тут только по первичному подключению или по подключению для справочников?
+                        (FPrimaryConnnection=nil) OR
+                        (FPrimaryConnnection.FullSyncronizeSQL) *) ;
 
   if AExclusivelyLocked then
     FProvSync.BeginWrite
@@ -2466,10 +2590,10 @@ begin
     FProvSync.EndRead;
 end;
 
-procedure TDBMS_Provider.DoOnDeadConnection;
+procedure TDBMS_Provider.DoOnDeadConnection(const ATilesConnection: IDBMS_Connection);
 begin
   // взводим признак необходимости RECONNECT-а в эксклюзивном режиме
-  FReconnectPending := TRUE;
+  ATilesConnection.NeedReconnect;
 
   // пропихнём признак в хост
   if (FStatusBuffer<>nil) then
@@ -2479,10 +2603,10 @@ begin
   end;
 end;
 
-procedure TDBMS_Provider.DoResetConnectionError;
+procedure TDBMS_Provider.DoResetConnectionError(const ATilesConnection: IDBMS_Connection);
 begin
-  if (FConnection<>nil) then begin
-    FConnection.ResetConnectionError;
+  if (ATilesConnection<>nil) then begin
+    ATilesConnection.ResetConnectionError;
   end;
 
   // пропихнём признак в хост
@@ -2496,6 +2620,7 @@ begin
 end;
 
 function TDBMS_Provider.FillTableNamesForTiles(
+  const ATilesConnection: IDBMS_Connection;
   ASQLTile: PSQLTile
 ): Boolean;
 var
@@ -2512,7 +2637,7 @@ begin
                                      '_' +
                                      InternalGetServiceNameByDB;
 
-  VEngineType := FConnection.GetCheckedEngineType;
+  VEngineType := ATilesConnection.GetCheckedEngineType;
 
   // заквотируем или нет
   Result := Result or c_SQL_QuotedIdentifierForcedForTiles[VEngineType];
@@ -2524,6 +2649,7 @@ begin
 end;
 
 function TDBMS_Provider.GetContentTypeAnsiPointer(
+  const AGuideConnection: IDBMS_Connection;
   const Aid_contenttype: SmallInt;
   const AExclusively: Boolean
 ): PAnsiChar;
@@ -2532,7 +2658,7 @@ var
 begin
   GuidesBeginWork(AExclusively);
   try
-    if InternalGetContentTypeAnsiValues(Aid_contenttype, AExclusively, @Result, VDummy) then
+    if InternalGetContentTypeAnsiValues(AGuideConnection, Aid_contenttype, AExclusively, @Result, VDummy) then
       Exit;
   finally
     GuidesEndWork(AExclusively);
@@ -2544,11 +2670,12 @@ begin
     Result := '';
   end else begin
     // try to repeat exclusively
-    Result := GetContentTypeAnsiPointer(Aid_contenttype, TRUE);
+    Result := GetContentTypeAnsiPointer(AGuideConnection, Aid_contenttype, TRUE);
   end;
 end;
 
 function TDBMS_Provider.GetContentTypeWideString(
+  const AGuideConnection: IDBMS_Connection;
   const Aid_contenttype: SmallInt;
   const AExclusively: Boolean
 ): WideString;
@@ -2557,7 +2684,7 @@ var
 begin
   GuidesBeginWork(AExclusively);
   try
-    if InternalGetContentTypeAnsiValues(Aid_contenttype, AExclusively, nil, VContentTypeTextStr) then begin
+    if InternalGetContentTypeAnsiValues(AGuideConnection, Aid_contenttype, AExclusively, nil, VContentTypeTextStr) then begin
       Result := VContentTypeTextStr;
       Exit;
     end;
@@ -2571,11 +2698,21 @@ begin
     Result := '';
   end else begin
     // try to repeat exclusively
-    Result := GetContentTypeWideString(Aid_contenttype, TRUE);
+    Result := GetContentTypeWideString(AGuideConnection, Aid_contenttype, TRUE);
   end;
 end;
 
+function TDBMS_Provider.GetGuidesConnection: IDBMS_Connection;
+begin
+  Result := FPrimaryConnnection;
+  if (nil=Result) then
+    Exit;
+  if (gst_Secondary=Result.GuidesSrcType) and (Result.FNextSectionConn<>nil) then
+    Result := Result.FNextSectionConn;
+end;
+
 function TDBMS_Provider.GetMaxNextVersionInts(
+  const AGuideConnection: IDBMS_Connection;
   const ANewVersionPtr: PVersionAA;
   const AKeepVerNumber: Boolean
 ): Boolean;
@@ -2591,11 +2728,11 @@ begin
       // для ver_number тоже потащим максимум
       VSQLText := VSQLText + ', max(ver_number) as ver_number';
     end;
-    VSQLText := VSQLText + ' FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
+    VSQLText := VSQLText + ' FROM ' + AGuideConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
 
     // выполняем
     try
-      Result := FConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchColsEx);
+      Result := AGuideConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchColsEx);
       if Result then
         Result := VOdbcFetchColsEx.Base.FetchRecord;
     except
@@ -2625,19 +2762,19 @@ begin
   end;
 end;
 
-function TDBMS_Provider.GetNewIdService: SmallInt;
+function TDBMS_Provider.GetNewIdService(const AGuideConnection: IDBMS_Connection): SmallInt;
 var
   VOdbcFetchCols: TOdbcFetchCols;
   VSQLText: TDBMS_String;
 begin
   // здесь если обломались - надо кидать исключение
   VSQLText := 'SELECT max(id_service) as id_service' +
-               ' FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE;
+               ' FROM ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE;
 
   VOdbcFetchCols.Init;
   try
     Result := 0;
-    if FConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchCols) then
+    if AGuideConnection.OpenDirectSQLFetchCols(VSQLText, @VOdbcFetchCols) then
       if VOdbcFetchCols.FetchRecord then
         VOdbcFetchCols.ColToSmallInt(1, Result);
   finally
@@ -2648,7 +2785,10 @@ begin
   Inc(Result);
 end;
 
-function TDBMS_Provider.GetSQLIntName_Div(const AXYMaskWidth, AZoom: Byte): String;
+function TDBMS_Provider.GetSQLIntName_Div(
+  const ATilesConnection: IDBMS_Connection;
+  const AXYMaskWidth, AZoom: Byte
+): String;
 var
   VEngineType: TEngineType;
 begin
@@ -2709,7 +2849,7 @@ begin
   // 15 - от 0 до 32767 - INT2 или NUMBER(5)
 
   // в зависимости от типа сервера БД и расчётов выше будем формировать тип поля
-  VEngineType := FConnection.GetCheckedEngineType;
+  VEngineType := ATilesConnection.GetCheckedEngineType;
 
   if UseSingleTable(AXYMaskWidth, AZoom) then begin
     // вообще не делимся по таблицам (или деление отключено, или зум маловат)
@@ -2841,6 +2981,7 @@ begin
 end;
 
 function TDBMS_Provider.GetSQL_DeleteTile(
+  const ATilesConnection: IDBMS_Connection;
   const ADeleteBuffer: PETS_DELETE_TILE_IN;
   out ADeleteSQLResult: TDBMS_String
 ): Byte;
@@ -2871,18 +3012,23 @@ begin
   end;
 
   // заполняем VSQLTile
-  Result := InternalCalcSQLTile(ADeleteBuffer^.XYZ, @VSQLTile);
+  Result := InternalCalcSQLTile(
+    ATilesConnection,
+    ADeleteBuffer^.XYZ,
+    @VSQLTile
+  );
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
   // забацаем DELETE
-  ADeleteSQLResult := 'delete from ' + FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName +
+  ADeleteSQLResult := 'delete from ' + ATilesConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName +
                       ' where x=' + IntToStr(VSQLTile.XYLowerToID.X) +
                         ' and y=' + IntToStr(VSQLTile.XYLowerToID.Y) +
                         ' and id_ver=' + IntToStr(VReqVersion.id_ver);  
 end;
 
 function TDBMS_Provider.GetSQL_EnumTileVersions(
+  const ATilesConnection: IDBMS_Connection;
   const ASelectBufferIn: PETS_SELECT_TILE_IN;
   const AExclusively: Boolean;
   out ASQLTextResult: TDBMS_String
@@ -2893,6 +3039,7 @@ var
 begin
   // заполняем VSQLTile по переданным значениям
   Result := InternalCalcSQLTile(
+    ATilesConnection,
     ASelectBufferIn^.XYZ,
     @VSQLTile
   );
@@ -2901,12 +3048,12 @@ begin
 
   // забацаем SELECT
   VSQLParts.SelectSQL := 'select v.id_ver';
-  VSQLParts.FromSQL := FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName + ' v';
+  VSQLParts.FromSQL := ATilesConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
 
   // добавим FROM, WHERE и ORDER BY
-  AddVersionOrderBy(@VSQLParts, nil, FALSE);
+  AddVersionOrderBy(ATilesConnection, @VSQLParts, nil, FALSE);
 
   // соберём всё вместе
   ASQLTextResult := VSQLParts.SelectSQL +
@@ -2927,6 +3074,7 @@ var
   VSQLTileMin, VSQLTileMax: TSQLTile;
   i,j: Integer;
   VSelectInRectItem: PSelectInRectItem;
+  VTilesConnection: IDBMS_Connection;
 begin
   // смотрим какие координаты и таблицы по углам запрошенного прямоугольника
   if (ATileRectInfoIn^.ptTileRect<>nil) then begin
@@ -2939,11 +3087,16 @@ begin
     VTileXYZMax.xy.X := VTileXYZMax.xy.X-1;
     VTileXYZMax.xy.Y := VTileXYZMax.xy.Y-1;
 
-    // выщитываем координаты в таблицах
-    Result := InternalCalcSQLTile(@VTileXYZMin, @VSQLTileMin);
+    // TODO: здесь по идее прямоугольник может пересекаться с секциями
+    // так что надо формировать запросы исходя из секции, куда что попало
+    // пока что только по подключению для справочников
+    VTilesConnection := GetGuidesConnection;
+
+    // высчитываем координаты в таблицах
+    Result := InternalCalcSQLTile(VTilesConnection, @VTileXYZMin, @VSQLTileMin);
     if (Result<>ETS_RESULT_OK) then
       Exit;
-    Result := InternalCalcSQLTile(@VTileXYZMax, @VSQLTileMax);
+    Result := InternalCalcSQLTile(VTilesConnection, @VTileXYZMax, @VSQLTileMax);
     if (Result<>ETS_RESULT_OK) then
       Exit;
 
@@ -2967,8 +3120,11 @@ begin
         with VSelectInRectItem^ do begin
           InitialWhereClause := '';
 
+          // TODO: тут надо чё-то выдумать, чтобы корректно определять пересечения секций с запрошенной областью
+          UsedConnection := VTilesConnection;
+
           // получим имя таблицы
-          FillTableNamesForTiles(@(VSelectInRectItem^.TabSQLTile));
+          FillTableNamesForTiles(UsedConnection, @(VSelectInRectItem^.TabSQLTile));
 
           // по X
           GetSQL_AddIntWhereClause(
@@ -2993,6 +3149,7 @@ begin
 
         // а теперь можно забацать SELECT
         Result := GetSQL_SelectTilesInternal(
+          VSelectInRectItem^.UsedConnection,
           @(VSelectInRectItem^.TabSQLTile),
           ATileRectInfoIn^.szVersionIn,
           ATileRectInfoIn^.dwOptionsIn,
@@ -3028,6 +3185,7 @@ begin
 end;
 
 function TDBMS_Provider.GetSQL_InsertIntoService(
+  const AGuideConnection: IDBMS_Connection;
   const AExclusively: Boolean;
   out ASQLTextResult: TDBMS_String
 ): Byte;
@@ -3052,17 +3210,17 @@ begin
     SetLength(VNewServiceCode, 20);
 
   // а может такой внутренний код сервиса уже есть
-  VSQLText := 'SELECT id_service FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+  VSQLText := 'SELECT id_service FROM ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE +
               ' WHERE service_code='+DBMSStrToDB(VNewServiceCode);
 
-  if FConnection.CheckDirectSQLSingleNotNull(VSQLText) then begin
+  if AGuideConnection.CheckDirectSQLSingleNotNull(VSQLText) then begin
     // такой сервис уже зарегистрирован в БД (очевидно, с другим внешним уникальным кодом)
     Result := ETS_RESULT_INVALID_SERVICE_CODE;
     Exit;
   end;
 
   // здесь всегда обновляем список типов тайлов
-  ReadContentTypesFromDB(AExclusively);
+  ReadContentTypesFromDB(AGuideConnection, AExclusively);
 
   // получим первичный тип тайла
   if not FContentTypeList.FindItemByAnsiValueInternal(FPrimaryContentType, VNewIdContentType) then begin
@@ -3072,12 +3230,12 @@ begin
   end;
 
   // следующий идентификатор
-  VNewIdService := GetNewIdService;
+  VNewIdService := GetNewIdService(AGuideConnection);
 
   // генерим текст команды INSERT
   // прочие поля (id_ver_comp, id_div_mode,...) залетают из DEFAULT-ных значений
   // при необходимости DBA может указать нужные значения в таблице, а также изменить значения для сервиса после его регистрации в БД
-  ASQLTextResult := 'INSERT INTO ' + FConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
+  ASQLTextResult := 'INSERT INTO ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE + ' (id_service,service_code,service_name,id_contenttype) VALUES (' +
                           IntToStr(VNewIdService) + ',' +
                           DBMSStrToDB(VNewServiceCode) + ',' +
                           DBMSStrToDB(InternalGetServiceNameByHost) + ',' +
@@ -3086,6 +3244,7 @@ begin
 end;
 
 function TDBMS_Provider.GetSQL_InsertUpdateTile(
+  const ATilesConnection: IDBMS_Connection;
   const AInsertBuffer: PETS_INSERT_TILE_IN;
   const AForceTNE: Boolean;
   const AExclusively: Boolean;
@@ -3109,7 +3268,7 @@ begin
       Result := ETS_RESULT_NEED_EXCLUSIVE;
       Exit;
     end;
-    ReadContentTypesFromDB(AExclusively);
+    ReadContentTypesFromDB(GetGuidesConnection, AExclusively);
   end;
 
   // смотрим что за тип тайла подсунули
@@ -3173,6 +3332,7 @@ begin
   if (not VRequestedVersionFound) then begin
     // если такой версии нет - пробуем создать её автоматически
     Result := AutoCreateServiceVersion(
+      GetGuidesConnection,
       AExclusively,
       VVersionAutodetected,
       AInsertBuffer,
@@ -3189,14 +3349,14 @@ begin
   end;
 
   // заполняем VSQLTile
-  Result := InternalCalcSQLTile(AInsertBuffer^.XYZ, @VSQLTile);
+  Result := InternalCalcSQLTile(ATilesConnection, AInsertBuffer^.XYZ, @VSQLTile);
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
   // отдельно вернём имя таблицы для тайлов (для обработки ошибок)
   AUnquotedTableNameWithoutPrefix := VSQLTile.UnquotedTileTableName;
   // а здесь таблица будет с префиксом схемы
-  AQuotedTableNameWithPrefix := FConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName;
+  AQuotedTableNameWithPrefix := ATilesConnection.ForcedSchemaPrefix + VSQLTile.QuotedTileTableName;
 
   if AForceTNE then begin
     // при вставке маркера TNE не проверяем вхождение тайла в часто используемые
@@ -3240,12 +3400,12 @@ begin
                       IntToStr(VSQLTile.XYLowerToID.Y) + ',' +
                       IntToStr(VReqVersion.id_ver) + ',' +
                       IntToStr(VIdContentType) + ',' +
-                      SQLDateTimeToDBValue(AInsertBuffer^.dtLoadedUTC) + ',' +
+                      SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) + ',' +
                       IntToStr(VNewTileSize) + VNewTileBody + ')';
 
   // соберём выражение UPDATE
   AUpdateSQLResult := 'UPDATE ' + AQuotedTableNameWithPrefix + ' SET id_contenttype=' + IntToStr(VIdContentType) +
-                           ', load_date=' + SQLDateTimeToDBValue(AInsertBuffer^.dtLoadedUTC) +
+                           ', load_date=' + SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) +
                            ', tile_size=' + IntToStr(VNewTileSize) +
                            AUpdateSQLResult +
                       ' WHERE x=' + IntToStr(VSQLTile.XYLowerToID.X) +
@@ -3254,6 +3414,7 @@ begin
 end;
 
 function TDBMS_Provider.GetSQL_SelectTile(
+  const ATilesConnection: IDBMS_Connection;
   const ASelectBufferIn: PETS_SELECT_TILE_IN;
   const AExclusively: Boolean;
   out ASQLTextResult: TDBMS_String
@@ -3263,6 +3424,7 @@ var
 begin
   // заполняем VSQLTile по переданным значениям
   Result := InternalCalcSQLTile(
+    ATilesConnection,
     ASelectBufferIn^.XYZ,
     @VSQLTile
   );
@@ -3271,6 +3433,7 @@ begin
 
   // забацаем SELECT
   Result := GetSQL_SelectTilesInternal(
+    ATilesConnection,
     @VSQLTile,
     ASelectBufferIn^.szVersionIn,
     ASelectBufferIn^.dwOptionsIn,
@@ -3283,6 +3446,7 @@ begin
 end;
 
 function TDBMS_Provider.GetSQL_SelectTilesInternal(
+  const ATilesConnection: IDBMS_Connection;
   const ASQLTile: PSQLTile;
   const AVersionIn: Pointer;
   const AOptionsIn: LongWord;
@@ -3355,7 +3519,7 @@ begin
     // запрос без версии
     if ((FStatusBuffer^.tile_load_mode and ETS_TLM_LAST_VERSION) <> 0) then begin
       // берём последнюю версию (добавляем в OrderBySQL кусок)
-      AddVersionOrderBy(@VSQLParts, @VReqVersion, FALSE);
+      AddVersionOrderBy(ATilesConnection, @VSQLParts, @VReqVersion, FALSE);
     end else begin
       // берём только пустую версию (так как она одна - обойдёмся без ORDER BY)
       VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver=' + IntToStr(VReqVersion.id_ver);
@@ -3364,7 +3528,7 @@ begin
     // запрос с непустой версией
     if ((FStatusBuffer^.tile_load_mode and ETS_TLM_PREV_VERSION) <> 0) then begin
       // разрешена предыдущая версия
-      AddVersionOrderBy(@VSQLParts, @VReqVersion, TRUE);
+      AddVersionOrderBy(ATilesConnection, @VSQLParts, @VReqVersion, TRUE);
       if ((FStatusBuffer^.tile_load_mode and ETS_TLM_WITHOUT_VERSION) = 0) then begin
         // но не разрешено без версии!
         VSQLParts.WhereSQL := VSQLParts.WhereSQL + ' and v.id_ver!=' + IntToStr(FVersionList.EmptyVersionIdVer);
@@ -3397,6 +3561,7 @@ begin
 end;
 
 function TDBMS_Provider.GetVersionAnsiPointer(
+  const AGuideConnection: IDBMS_Connection;
   const Aid_ver: SmallInt;
   const AExclusively: Boolean
 ): PAnsiChar;
@@ -3405,7 +3570,7 @@ var
 begin
   GuidesBeginWork(AExclusively);
   try
-    if InternalGetVersionAnsiValues(Aid_ver, AExclusively, @Result, VDummy) then
+    if InternalGetVersionAnsiValues(AGuideConnection, Aid_ver, AExclusively, @Result, VDummy) then
       Exit;
   finally
     GuidesEndWork(AExclusively);
@@ -3417,11 +3582,12 @@ begin
     Result := '';
   end else begin
     // try to repeat exclusively
-    Result := GetVersionAnsiPointer(Aid_ver, TRUE);
+    Result := GetVersionAnsiPointer(AGuideConnection, Aid_ver, TRUE);
   end;
 end;
 
 function TDBMS_Provider.GetVersionWideString(
+  const AGuideConnection: IDBMS_Connection;
   const Aid_ver: SmallInt;
   const AExclusively: Boolean
 ): WideString;
@@ -3430,7 +3596,7 @@ var
 begin
   GuidesBeginWork(AExclusively);
   try
-    if InternalGetVersionAnsiValues(Aid_ver, AExclusively, nil, VVerValueAnsiStr) then begin
+    if InternalGetVersionAnsiValues(AGuideConnection, Aid_ver, AExclusively, nil, VVerValueAnsiStr) then begin
       // found
       Result := VVerValueAnsiStr;
       Exit;
@@ -3445,7 +3611,7 @@ begin
     Result := '';
   end else begin
     // try to repeat exclusively
-    Result := GetVersionWideString(Aid_ver, TRUE);
+    Result := GetVersionWideString(AGuideConnection, Aid_ver, TRUE);
   end;
 end;
 
@@ -3476,6 +3642,7 @@ begin
 end;
 
 function TDBMS_Provider.InternalCalcSQLTile(
+  const ATilesConnection: IDBMS_Connection;
   const AXYZ: PTILE_ID_XYZ;
   const ASQLTile: PSQLTile
 ): Byte;
@@ -3487,7 +3654,7 @@ begin
   InternalDivideXY(AXYZ^.xy, ASQLTile);
 
   // строим имя таблицы для тайлов
-  FillTableNamesForTiles(ASQLTile);
+  FillTableNamesForTiles(ATilesConnection, ASQLTile);
 
   Result := ETS_RESULT_OK;
 end;
@@ -3518,6 +3685,7 @@ begin
 end;
 
 function TDBMS_Provider.InternalGetContentTypeAnsiValues(
+  const AGuideConnection: IDBMS_Connection;
   const Aid_contenttype: SmallInt;
   const AExclusively: Boolean;
   const AContentTypeTextPtr: PPAnsiChar;
@@ -3537,7 +3705,7 @@ begin
       Exit;
       
     // read from DB
-    ReadContentTypesFromDB(AExclusively);
+    ReadContentTypesFromDB(AGuideConnection, AExclusively);
 
     // again
     Result := FContentTypeList.FindItemByIdContentType(
@@ -3559,6 +3727,7 @@ begin
 end;
 
 function TDBMS_Provider.InternalGetVersionAnsiValues(
+  const AGuideConnection: IDBMS_Connection;
   const Aid_ver: SmallInt;
   const AExclusively: Boolean;
   const AVerValuePtr: PPAnsiChar;
@@ -3573,7 +3742,7 @@ begin
       Exit;
       
     // read from DB
-    ReadVersionsFromDB(AExclusively);
+    ReadVersionsFromDB(AGuideConnection, AExclusively);
 
     Result := FVersionList.FindItemByIdVer(Aid_ver, AVerValuePtr, AVerValueStr);
   end;
@@ -3611,7 +3780,13 @@ begin
   end;
 end;
 
-function TDBMS_Provider.InternalProv_Connect(const AExclusively: Boolean): Byte;
+function TDBMS_Provider.InternalProv_Connect(
+  const AExclusively: Boolean;
+  const AXYZ: PTILE_ID_XYZ;
+  out ATilesConnection: IDBMS_Connection
+): Byte;
+var
+  VGuidesConnection: IDBMS_Connection;
 begin
   if (not FCompleted) then begin
     Result := ETS_RESULT_INCOMPLETE;
@@ -3626,25 +3801,14 @@ begin
     Exit;
   end;
 
-  // разрыв соединения
-  if (nil<>FConnection) and (FReconnectPending) then begin
-    if (not AExclusively) then begin
-      // переподключаемся только в эксклюзивном режиме
-      Result := ETS_RESULT_NEED_EXCLUSIVE;
-      Exit;
-    end;
-    // грохаемся и по новой
-    InternalProv_Disconnect;
-    FReconnectPending := FALSE;
-  end;
-
-  // safe create connection object
-  if (nil=FConnection) then begin
+  // при необходимости создаём первичное подключение
+  // вторичные создадутся автоматически при натягивании параметров
+  if (nil=FPrimaryConnnection) then begin
     // check exclusive mode
     if AExclusively then begin
       // make connection
-      FConnection := GetConnectionByPath(@FPath);
-      if (nil=FConnection) then begin
+      FPrimaryConnnection := GetConnectionByPath(@FPath);
+      if (nil=FPrimaryConnnection) then begin
         Result := ETS_RESULT_CANNOT_CONNECT;
         Exit;
       end;
@@ -3655,8 +3819,12 @@ begin
     end;
   end;
 
+  // ищем рабочее подключение по XYZ
+  ATilesConnection := ChooseConnection(AXYZ);
+  
   // пробуем подключиться
-  Result := FConnection.EnsureConnected(AExclusively, FStatusBuffer);
+  // требование переподключения после разрыва соединения будем проверять внутри
+  Result := ATilesConnection.EnsureConnected(AExclusively, FStatusBuffer);
 
   // при ошибке валим
   if (ETS_RESULT_OK<>Result) then
@@ -3668,19 +3836,30 @@ begin
       Result := ETS_RESULT_NEED_EXCLUSIVE;
       Exit;
     end;
-    Result := InternalProv_ReadServiceInfo(AExclusively);
+
+    // подключение для справочников
+    VGuidesConnection := GetGuidesConnection;
+
+    // подключаемся если ещё не подключены
+    Result := VGuidesConnection.EnsureConnected(AExclusively, FStatusBuffer);
     if (ETS_RESULT_OK<>Result) then
       Exit;
+
+    // читаем параметры сервиса
+    Result := InternalProv_ReadServiceInfo(VGuidesConnection, AExclusively);
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
     // если сервис нашёлся - вытащим из базы его версии
-    ReadVersionsFromDB(AExclusively);
+    ReadVersionsFromDB(VGuidesConnection, AExclusively);
     // если версий нет вообще - создадим запись для пустой версии (без версии)
     try
       if (0=FVersionList.Count) then begin
         // создаём только если СУБД допускает пустую версию
-        if not c_SQL_Empty_Version_Denied[FConnection.GetCheckedEngineType] then begin
-          MakeEmptyVersionInDB(0, AExclusively);
+        if not c_SQL_Empty_Version_Denied[VGuidesConnection.GetCheckedEngineType] then begin
+          MakeEmptyVersionInDB(VGuidesConnection, 0, AExclusively);
         end;
-        ReadVersionsFromDB(AExclusively);
+        ReadVersionsFromDB(VGuidesConnection, AExclusively);
       end;
     except
     end;
@@ -3690,10 +3869,13 @@ end;
 procedure TDBMS_Provider.InternalProv_Disconnect;
 begin
   // detach connection object from provider
-  FreeDBMSConnection(FConnection);
+  FreeDBMSConnection(FPrimaryConnnection);
 end;
 
-function TDBMS_Provider.InternalProv_ReadServiceInfo(const AExclusively: Boolean): Byte;
+function TDBMS_Provider.InternalProv_ReadServiceInfo(
+  const AGuideConnection: IDBMS_Connection;
+  const AExclusively: Boolean
+): Byte;
 var
   VOdbcFetchColsEx: TOdbcFetchCols12;
   VSelectCurrentServiceSQL: TDBMS_String;
@@ -3704,16 +3886,16 @@ begin
   // тащим инфу о текущем сервисе
   // исходя из указанного при инициализации внешнего уникального кода сервиса
   VSelectCurrentServiceSQL := 'SELECT *' +
-                               ' FROM ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+                               ' FROM ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE +
                               ' WHERE service_name='+DBMSStrToDB(InternalGetServiceNameByHost);
 
   VOdbcFetchColsEx.Init;
   try
     VStatementExceptionType := set_Success;
     try
-      FConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
+      AGuideConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
     except on E: Exception do
-      VStatementExceptionType := GetStatementExceptionType(E);
+      VStatementExceptionType := GetStatementExceptionType(AGuideConnection, E);
     end;
 
     if StandardExceptionType(VStatementExceptionType, FALSE, Result) then begin
@@ -3730,10 +3912,10 @@ begin
         // нет таблицы с сервисами
         VOdbcFetchColsEx.Base.Close;
         // создаём базовые таблицы из скрипта
-        CreateAllBaseTablesFromScript;
+        CreateAllBaseTablesFromScript(AGuideConnection);
         // переоткрываемся
         try
-          FConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
+          AGuideConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
         except
         end;
       end;
@@ -3756,7 +3938,7 @@ begin
       VOdbcFetchColsEx.Base.Close;
 
       // однако попробуем создать его
-      Result := AutoCreateServiceRecord(AExclusively);
+      Result := AutoCreateServiceRecord(AGuideConnection, AExclusively);
 
       // проверка чего насоздавали
       if (Result<>ETS_RESULT_OK) then begin
@@ -3766,7 +3948,7 @@ begin
 
       // и снова пробуем переоткрыться
       try
-        FConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
+        AGuideConnection.OpenDirectSQLFetchCols(VSelectCurrentServiceSQL, @(VOdbcFetchColsEx.Base));
       except
       end;
 
@@ -3870,6 +4052,7 @@ begin
 end;
 
 function TDBMS_Provider.MakeEmptyVersionInDB(
+  const AGuideConnection: IDBMS_Connection;
   const AIdVersion: SmallInt;
   const AExclusively: Boolean
 ): Boolean;
@@ -3881,13 +4064,14 @@ begin
   // создание записи в БД для пустой версии текущего сервиса
   VNewVersion.id_ver := AIdVersion;
   VNewVersion.ver_value :='';
-  VNewVersion.ver_date := c_SQL_DateTimeForEmptyVersion[FConnection.GetCheckedEngineType]; //NowUTC;
+  VNewVersion.ver_date := c_SQL_DateTimeForEmptyVersion[AGuideConnection.GetCheckedEngineType]; //NowUTC;
   VNewVersion.ver_number := AIdVersion;
   VNewVersion.ver_comment := '';
-  Result := MakePtrVersionInDB(@VNewVersion, AExclusively);
+  Result := MakePtrVersionInDB(AGuideConnection, @VNewVersion, AExclusively);
 end;
 
 function TDBMS_Provider.MakePtrVersionInDB(
+  const AGuideConnection: IDBMS_Connection;
   const ANewVersionPtr: PVersionAA;
   const AExclusively: Boolean
 ): Boolean;
@@ -3898,13 +4082,14 @@ begin
   Assert(AExclusively);
 
   VVersionsTableName_UnquotedWithoutPrefix := c_Prefix_Versions + InternalGetServiceNameByDB;
-  VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
+  VVersionsTableName_QuotedWithPrefix := AGuideConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
 
   // проверим, а есть ли табличка с версиями сервиса
-  if (not FConnection.TableExistsDirect(VVersionsTableName_QuotedWithPrefix)) then
+  if (not AGuideConnection.TableExistsDirect(VVersionsTableName_QuotedWithPrefix)) then
   try
     // создадим
     CreateTableByTemplate(
+      AGuideConnection,
       c_Templated_Versions,
       VVersionsTableName_UnquotedWithoutPrefix,
       VVersionsTableName_QuotedWithPrefix,
@@ -3918,12 +4103,12 @@ begin
 
   try
     // выполним SQL для вставки записи о новой версии напрямую
-    FConnection.ExecuteDirectSQL(
+    AGuideConnection.ExecuteDirectSQL(
       'INSERT INTO ' + VVersionsTableName_QuotedWithPrefix +
       '(id_ver,ver_value,ver_date,ver_number,ver_comment) VALUES (' +
       IntToStr(ANewVersionPtr^.id_ver) + ',' +
       DBMSStrToDB(ANewVersionPtr^.ver_value) + ',' +
-      SQLDateTimeToDBValue(ANewVersionPtr^.ver_date) + ',' +
+      SQLDateTimeToDBValue(AGuideConnection, ANewVersionPtr^.ver_date) + ',' +
       IntToStr(ANewVersionPtr^.ver_number) + ',' +
       DBMSStrToDB(ANewVersionPtr^.ver_comment) + ')',
 
@@ -3936,6 +4121,7 @@ begin
 end;
 
 function TDBMS_Provider.MakeVersionByFormParams(
+  const AGuideConnection: IDBMS_Connection;
   const AFormParams: TStrings
 ): Byte;
 
@@ -3977,7 +4163,7 @@ begin
 
   DoBeginWork(TRUE, so_ReloadVersions, VExclusivelyLocked);
   try
-    ReadVersionsFromDB(VExclusivelyLocked);
+    ReadVersionsFromDB(AGuideConnection, VExclusivelyLocked);
 
     if FVersionList.FindItemByAnsiValue(PAnsiChar(VFormVersion.ver_value), @VFoundVersion) then begin
       // надо обновляться
@@ -3989,23 +4175,23 @@ begin
 
       // обновляемся - это проще
       VVersionsTableName_UnquotedWithoutPrefix := c_Prefix_Versions + InternalGetServiceNameByDB;
-      VVersionsTableName_QuotedWithPrefix := FConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
+      VVersionsTableName_QuotedWithPrefix := AGuideConnection.ForcedSchemaPrefix + VVersionsTableName_UnquotedWithoutPrefix;
 
       VSQLText := 'UPDATE ' + VVersionsTableName_QuotedWithPrefix +
-                    ' SET ' + 'ver_date=' + SQLDateTimeToDBValue(VFormVersion.ver_date) +
+                    ' SET ' + 'ver_date=' + SQLDateTimeToDBValue(AGuideConnection, VFormVersion.ver_date) +
                              ',ver_number=' + IntToStr(VFormVersion.ver_number) +
                              ',ver_comment=' + DBMSStrToDB(VFormVersion.ver_comment) +
                   ' WHERE ver_value=' + DBMSStrToDB(VFormVersion.ver_value);
 
       VStatementExceptionType := set_Success;
       try
-        FConnection.ExecuteDirectSQL(VSQLText, FALSE);
+        AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
       except on E: Exception do
-        VStatementExceptionType := GetStatementExceptionType(E);
+        VStatementExceptionType := GetStatementExceptionType(AGuideConnection, E);
       end;
 
       // хоть успешно обновили, хоть с ошибкой - надо обновить список версий
-      ReadVersionsFromDB(VExclusivelyLocked);
+      ReadVersionsFromDB(AGuideConnection, VExclusivelyLocked);
 
       if StandardExceptionType(VStatementExceptionType, FALSE, Result) then
         Exit;
@@ -4018,6 +4204,7 @@ begin
 
     // создаём версию
     Result := AutoCreateServiceVersion(
+      AGuideConnection,
       VExclusivelyLocked,
       TRUE, // чтобы только определилось значение id_ver
       nil,  // нет необходимости
@@ -4038,6 +4225,7 @@ begin
 end;
 
 function TDBMS_Provider.ParseMakeVersionSource(
+  const AGuideConnection: IDBMS_Connection;
   const AMakeVersionSource: String;
   const AVerFoundInfo, AVerParsedInfo: PVersionAA;
   out AVersionFound: Boolean
@@ -4053,7 +4241,7 @@ begin
   AVerFoundInfo^.Clear;
   DoBeginWork(TRUE, so_ReloadVersions, VExclusivelyLocked);
   try
-    ReadVersionsFromDB(TRUE);
+    ReadVersionsFromDB(AGuideConnection, TRUE);
     AVersionFound := FVersionList.FindItemByAnsiValue(PAnsiChar(AVerParsedInfo^.ver_value), AVerFoundInfo);
   finally
     DoEndWork(VExclusivelyLocked);
@@ -4249,7 +4437,10 @@ begin
   ADoneVerNumber := (Result<>0);
 end;
 
-function TDBMS_Provider.GetStatementExceptionType(const AException: Exception): TStatementExceptionType;
+function TDBMS_Provider.GetStatementExceptionType(
+  const ATilesConnection: IDBMS_Connection;
+  const AException: Exception
+): TStatementExceptionType;
 var
   VMessage: String;
   VEngineType: TEngineType;
@@ -4266,10 +4457,10 @@ begin
 
   VMessage := UpperCase(VMessage);
 
-  if (nil=FConnection) then
+  if (nil=ATilesConnection) then
     VEngineType := et_Unknown
   else
-    VEngineType := FConnection.GetCheckedEngineType;
+    VEngineType := ATilesConnection.GetCheckedEngineType;
   
   // проверка нарушения уникальности (не обязательно описано как PRIMARY KEY)
   if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_PrimaryKeyViolation[et_Unknown]) then begin
@@ -4327,12 +4518,12 @@ begin
   if (0<Length(c_ODBC_SQLSTATE_ConnectionIsDead_1[VEngineType])) then begin
     if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ConnectionIsDead_1[VEngineType]) then begin
       Result := set_ConnectionIsDead;
-      DoOnDeadConnection;
+      DoOnDeadConnection(ATilesConnection);
       Exit;
     end;
     if OdbcEceptionStartsWith(VMessage, c_ODBC_SQLSTATE_ConnectionIsDead_2[VEngineType]) then begin
       Result := set_ConnectionIsDead;
-      DoOnDeadConnection;
+      DoOnDeadConnection(ATilesConnection);
       Exit;
     end;
   end;
@@ -4372,7 +4563,10 @@ begin
   end;
 end;
 
-procedure TDBMS_Provider.ReadContentTypesFromDB(const AExclusively: Boolean);
+procedure TDBMS_Provider.ReadContentTypesFromDB(
+  const AGuideConnection: IDBMS_Connection;
+  const AExclusively: Boolean
+);
 var
   VOdbcFetchColsEx: TOdbcFetchCols2;
   VSQLText: TDBMS_String;
@@ -4383,11 +4577,11 @@ begin
     FContentTypeList.SetCapacity(0);
 
     VSQLText := 'SELECT id_contenttype,contenttype_text' +
-                 ' FROM ' + FConnection.ForcedSchemaPrefix + Z_CONTENTTYPE;
+                 ' FROM ' + AGuideConnection.ForcedSchemaPrefix + Z_CONTENTTYPE;
 
     VOdbcFetchColsEx.Init;
     try
-      FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+      AGuideConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
 
       if not VOdbcFetchColsEx.Base.IsActive then
         Exit;
@@ -4412,7 +4606,10 @@ begin
   end;
 end;
 
-procedure TDBMS_Provider.ReadVersionsFromDB(const AExclusively: Boolean);
+procedure TDBMS_Provider.ReadVersionsFromDB(
+  const AGuideConnection: IDBMS_Connection;
+  const AExclusively: Boolean
+);
 var
   VOdbcFetchColsEx: TOdbcFetchCols5;
   VSQLText: TDBMS_String;
@@ -4424,11 +4621,11 @@ begin
     FVersionList.Clear;
 
     VSQLText := 'SELECT id_ver,ver_value,ver_date,ver_number,ver_comment' +
-                 ' FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
+                 ' FROM ' + AGuideConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB;
 
     VOdbcFetchColsEx.Init;
     try
-      FConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
+      AGuideConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
 
       if not VOdbcFetchColsEx.Base.IsActive then
         Exit;
@@ -4472,12 +4669,22 @@ begin
   end;
 end;
 
-function TDBMS_Provider.SQLDateTimeToDBValue(const ADateTime: TDateTime): TDBMS_String;
+function TDBMS_Provider.SQLDateTimeToDBValue(
+  const ATilesConnection: IDBMS_Connection;
+  const ADateTime: TDateTime
+): TDBMS_String;
+var
+  VEngineType: TEngineType;
 begin
-  if (FConnection<>nil) and (FConnection.GetCheckedEngineType=et_MSSQL) then
+  if (ATilesConnection<>nil) then
+    VEngineType := ATilesConnection.GetCheckedEngineType
+  else
+    VEngineType := et_Unknown;
+
+  if (VEngineType=et_MSSQL) then
     Result := DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat_MSSQL, ADateTime, FFormatSettings))
   else
-    Result := c_SQL_DateTime_Literal_Prefix[FConnection.GetCheckedEngineType] +
+    Result := c_SQL_DateTime_Literal_Prefix[VEngineType] +
               DBMSStrToDB(FormatDateTime(c_DateTimeToDBFormat_Common, ADateTime, FFormatSettings));
 end;
 
@@ -4641,23 +4848,24 @@ begin
 end;
 
 function TDBMS_Provider.UpdateServiceVerComp(
+  const AGuideConnection: IDBMS_Connection;
   const ANewVerCompMode: AnsiChar;
   out AErrorText: String
-  ): Byte;
+): Byte;
 var
   VSQLText: TDBMS_String;
 begin
   AErrorText := '';
-  Result := FConnection.EnsureConnected(FALSE, nil);
+  Result := AGuideConnection.EnsureConnected(FALSE, nil);
   if (ETS_RESULT_OK<>Result) then
     Exit;
 
-  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+  VSQLText := 'UPDATE ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE +
                 ' SET id_ver_comp=' + DBMSStrToDB(ANewVerCompMode) +
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
+    AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
     // success
     FStatusBuffer^.id_ver_comp := ANewVerCompMode;
     FDBMS_Service_Info.id_ver_comp := ANewVerCompMode;
@@ -4670,6 +4878,7 @@ begin
 end;
 
 function TDBMS_Provider.UpdateTileLoadMode(
+  const AGuideConnection: IDBMS_Connection;
   const ANewTLMFlag: Byte;
   const AEnabled: Boolean;
   out AErrorText: String
@@ -4678,7 +4887,7 @@ var
   VSQLText: TDBMS_String;
 begin
   AErrorText := '';
-  Result := FConnection.EnsureConnected(FALSE, nil);
+  Result := AGuideConnection.EnsureConnected(FALSE, nil);
   if (ETS_RESULT_OK<>Result) then
     Exit;
 
@@ -4691,12 +4900,12 @@ begin
   FDBMS_Service_Info.tile_load_mode := FStatusBuffer^.tile_load_mode;
 
   // забацаем запрос
-  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+  VSQLText := 'UPDATE ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE +
                 ' SET tile_load_mode='  + IntToStr(FStatusBuffer^.tile_load_mode) +
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
+    AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
   except
     on E: Exception do begin
       AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
@@ -4706,6 +4915,7 @@ begin
 end;
 
 function TDBMS_Provider.UpdateTileSaveMode(
+  const AGuideConnection: IDBMS_Connection;
   const ANewTSMFlag: Byte;
   const AEnabled: Boolean;
   out AErrorText: String
@@ -4714,7 +4924,7 @@ var
   VSQLText: TDBMS_String;
 begin
   AErrorText := '';
-  Result := FConnection.EnsureConnected(FALSE, nil);
+  Result := AGuideConnection.EnsureConnected(FALSE, nil);
   if (ETS_RESULT_OK<>Result) then
     Exit;
 
@@ -4727,12 +4937,12 @@ begin
   FDBMS_Service_Info.tile_save_mode := FStatusBuffer^.tile_save_mode;
 
   // забацаем запрос
-  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+  VSQLText := 'UPDATE ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE +
                 ' SET tile_save_mode='  + IntToStr(FStatusBuffer^.tile_save_mode) +
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
+    AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
   except
     on E: Exception do begin
       AErrorText := 'Failed to store new value in database' + '<br>' + E.Message;
@@ -4742,6 +4952,7 @@ begin
 end;
 
 function TDBMS_Provider.UpdateVerByTileMode(
+  const AGuideConnection: IDBMS_Connection;
   const ANewVerByTileMode: SmallInt;
   out AErrorText: String
 ): Byte;
@@ -4749,17 +4960,17 @@ var
   VSQLText: TDBMS_String;
 begin
   AErrorText := '';
-  Result := FConnection.EnsureConnected(FALSE, nil);
+  Result := AGuideConnection.EnsureConnected(FALSE, nil);
   if (ETS_RESULT_OK<>Result) then
     Exit;
 
   // забацаем запрос
-  VSQLText := 'UPDATE ' + FConnection.ForcedSchemaPrefix + Z_SERVICE +
+  VSQLText := 'UPDATE ' + AGuideConnection.ForcedSchemaPrefix + Z_SERVICE +
                 ' SET new_ver_by_tile=' + IntToStr(ANewVerByTileMode) +
               ' WHERE service_code=' + DBMSStrToDB(InternalGetServiceNameByDB);
 
   try
-    FConnection.ExecuteDirectSQL(VSQLText, FALSE);
+    AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
     // это сильно необязательная функциональность
     // для её использования будем требовать соответствия структуры БД второй версии модели
     FStatusBuffer^.new_ver_by_tile := ANewVerByTileMode;
@@ -4772,15 +4983,18 @@ begin
   end;
 end;
 
-function TDBMS_Provider.VersionExistsInDBWithIdVer(const AIdVersion: SmallInt): Boolean;
+function TDBMS_Provider.VersionExistsInDBWithIdVer(
+  const AGuideConnection: IDBMS_Connection;
+  const AIdVersion: SmallInt
+): Boolean;
 var
   VSqlText: TDBMS_String;
 begin
   VSqlText := 'SELECT id_ver' +
-               ' FROM ' + FConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB +
+               ' FROM ' + AGuideConnection.ForcedSchemaPrefix + c_Prefix_Versions + InternalGetServiceNameByDB +
               ' WHERE id_ver=' + IntToStr(AIdVersion);
   try
-    Result := FConnection.CheckDirectSQLSingleNotNull(VSqlText);
+    Result := AGuideConnection.CheckDirectSQLSingleNotNull(VSqlText);
   except
     Result := FALSE;
   end;

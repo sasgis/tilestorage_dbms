@@ -39,7 +39,8 @@ type
 
     procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
     function AllowSavePassword: Boolean;
-    
+
+    procedure NeedReconnect;
   end;
 {$ifend}
 
@@ -67,7 +68,6 @@ type
     FNextSectionConn: IDBMS_Connection; // следуюшая секция в цепочке
     FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичную секцию
     FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
-    FRealODBCPtr: IODBCConnection; // напрямую используется в запросах (указывает на себя или на родителя)
 
     procedure Init(const APathPtr: PETS_Path_Divided_W);
     procedure Uninit;
@@ -90,6 +90,10 @@ type
     // если FALSE - просто в реестре (в обоих случаях он шифруется)
     FSavePwdAsLsaSecret: Boolean;
     FReadPrevSavedPwd: Boolean;
+    // признак необходимости переподключиться из-за разрыва соединения
+    FReconnectPending: Boolean;
+    // источник данных для справочников, сервисом и т.п.
+    FGuidesSrcType: TGuidesSrcType;
   private
     // читает настройки из INI и применяет их
     // при необходимости создаёт дочерние секции
@@ -103,7 +107,6 @@ type
     );
     function IsTSSParameter(const AInternalParamName: String): Boolean;
     function IsInternalParameter(const AParamName: String): Boolean;
-    function AllowReadParamsFromIni: Boolean; inline;
     function ApplySystemDSNtoConnection: Byte;
     function ApplyParamsFromINI(const AParams: TStrings): Byte;
     function GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
@@ -145,6 +148,9 @@ type
     function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean; inline;
 {$ifend}
 
+{$if defined(CONNECTION_AS_RECORD)}
+    property GuidesSrcType: TGuidesSrcType read FGuidesSrcType;
+{$ifend}
   public
     function EnsureConnected(
       const AllowTryToConnect: Boolean;
@@ -163,6 +169,8 @@ type
     procedure ApplyCredentialsFormParams(const AFormParams: TStrings);
     function AllowSavePassword: Boolean;
 
+    procedure NeedReconnect;
+    
 {$if defined(CONNECTION_AS_CLASS)}
   public
     constructor Create(const APathPtr: PETS_Path_Divided_W);
@@ -240,16 +248,22 @@ begin
   {$if defined(CONNECTION_AS_CLASS)}
   // create new connection and add it to p
   t := TDBMS_Connection.Create(APathPtr);
+  // для первичной секции параметры читаются сразу
+  t.ApplyConnectionParams;
   Result := t;
   {$else}
   New(Result);
   Result^.Init(APathPtr);
+  // для первичной секции параметры читаются сразу
+  Result^.ApplyConnectionParams;
   {$ifend}
 {$ifend}
 end;
 
 procedure FreeDBMSConnection(var AConnection: IDBMS_Connection);
 begin
+  if (nil=AConnection) then
+    Exit;
 {$if defined(DBMS_REUSE_CONNECTIONS)}
   G_ConnectionList.FSyncList.BeginWrite;
   try
@@ -271,17 +285,6 @@ begin
 end;
 
 { TDBMS_Connection }
-
-function TDBMS_Connection.AllowReadParamsFromIni: Boolean;
-begin
-  // читаем параметры из ini, если текущая секция:
-  // а) первичная
-  // б) типа Section
-  // не читаем параметры из ini, если текущая секция:
-  // а) типа Prefix (используем подключение первичной секции)
-  // б) типа DSN (секция без параметров, будто файла ini вовсе нет)
-  Result := (FTSS_Info_Ptr=nil) or (not (FTSS_Info_Ptr^.DestType in [tsst_DSN, tsst_Prefix]))
-end;
 
 function TDBMS_Connection.AllowSavePassword: Boolean;
 begin
@@ -363,6 +366,12 @@ begin
     FSavePwdAsLsaSecret := SameText(AParamValue, ETS_INTERNAL_PWD_Save_Lsa);
     FReadPrevSavedPwd := FSavePwdAsLsaSecret or (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
+  end else if SameText(ETS_INTERNAL_GUIDES_SRC, AParamName) then begin
+    // источник данных для справочников
+    if SameText(AParamValue, 'Secondary') then
+      FGuidesSrcType := gst_Secondary
+    else
+      FGuidesSrcType := gst_Primary;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(CONNECTION_AS_RECORD)}
     FODBCConnectionHolder.
@@ -380,7 +389,7 @@ end;
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
 begin
-  Result := FRealODBCPtr^.TableExistsDirect(AFullyQualifiedQuotedTableName)
+  Result := FODBCConnectionHolder.TableExistsDirect(AFullyQualifiedQuotedTableName)
 end;
 {$ifend}
 
@@ -404,6 +413,7 @@ begin
   try
 {$if defined(CONNECTION_AS_RECORD)}
     // здесь не FRealODBCPtr^ а всегда свой коннект
+    // чужой (родительский) не имеем права разрывать
     FODBCConnectionHolder.Disconnect;
 {$else}
     Disconnect;
@@ -433,7 +443,6 @@ begin
     FInternalLoadLibraryStd:=0;
   end;
 
-  FRealODBCPtr := nil;
   FPrimaryConn := nil;
 
   if (FTSS_Info_Ptr <> nil) then begin
@@ -449,6 +458,7 @@ begin
 {$if defined(CONNECTION_AS_RECORD)}
   with FODBCConnectionHolder do begin
 {$ifend}
+    // только к своему коннекту (родительский коннект сам пропихнёт параметры)
     UID := AFormParams.Values[c_Cred_UserName];
     PWD := AFormParams.Values[c_Cred_Password];
 {$if defined(CONNECTION_AS_RECORD)}
@@ -542,7 +552,7 @@ end;
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
 begin
-  Result := FRealODBCPtr^.CheckDirectSQLSingleNotNull(ASQLText)
+  Result := FODBCConnectionHolder.CheckDirectSQLSingleNotNull(ASQLText)
 end;
 {$ifend}
 
@@ -570,11 +580,27 @@ function TDBMS_Connection.EnsureConnected(
   AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS
 ): Byte;
 begin
+  // проверка необходимости переподключения из-за разрыва соединения
+  if FReconnectPending then begin
+    // только эксклюзивно, если можем подключаться
+    if (not AllowTryToConnect) then begin
+      Result := ETS_RESULT_NEED_EXCLUSIVE;
+      Exit;
+    end;
+    // переподключаемся
+{$if defined(CONNECTION_AS_RECORD)}
+    with FODBCConnectionHolder do
+{$ifend}
+    begin
+      DisConnect;
+      Connect;
+    end;
+    FReconnectPending := FALSE;
+  end;
+
   if
 {$if defined(CONNECTION_AS_RECORD)}
-     // а вот тут как раз нужно актуальное подключение
-     // чтобы если секция настроена на родителя - сама не лазила в БД
-     FRealODBCPtr^.
+     FODBCConnectionHolder.
 {$ifend}
      Connected then begin
     // connected
@@ -586,9 +612,11 @@ begin
     // not connected
     if AllowTryToConnect then begin
       // apply params and try to connect
+      (*
       Result := ApplyConnectionParams;
       if (ETS_RESULT_OK<>Result) then
         Exit;
+      *)
 
       // пропихнём опции в хост
       if (AStatusBuffer<>nil) then
@@ -671,7 +699,7 @@ function TDBMS_Connection.ExecuteDirectWithBlob(const ASQLText,
   AFullParamName: AnsiString; const ABufferAddr: Pointer;
   const ABufferSize: Integer; const ASilentOnError: Boolean): Boolean;
 begin
-  Result := FRealODBCPtr^.ExecuteDirectWithBlob(
+  Result := FODBCConnectionHolder.ExecuteDirectWithBlob(
     ASQLText,AFullParamName, ABufferAddr,
     ABufferSize, ASilentOnError);
 end;
@@ -683,7 +711,7 @@ function TDBMS_Connection.ExecuteDirectSQL(
   const ASilentOnError: Boolean
 ): Boolean;
 begin
-  Result := FRealODBCPtr^.ExecuteDirectSQL(ASQLText, ASilentOnError);
+  Result := FODBCConnectionHolder.ExecuteDirectSQL(ASQLText, ASilentOnError);
 end;
 {$ifend}
 
@@ -696,8 +724,7 @@ function TDBMS_Connection.FullSyncronizeSQL: Boolean;
 begin
   // если c_SYNC_SQL_MODE_All_In_DLL - синхронизируются запросы полностью
 {$if defined(CONNECTION_AS_RECORD)}
-  // по актуальной секции
-  with FRealODBCPtr^ do
+  with FODBCConnectionHolder do
 {$ifend}
   Result := (SYNC_SQL_MODE=c_SYNC_SQL_MODE_All_In_DLL) or (not Connected);
 end;
@@ -735,8 +762,7 @@ begin
 
         if Load_DSN_Params_from_ODBC(
 {$if defined(CONNECTION_AS_RECORD)}
-          // по актуальной секции
-          FRealODBCPtr^.
+          FODBCConnectionHolder.
 {$ifend}
           DSN,
           FODBCDescription
@@ -745,8 +771,7 @@ begin
         else
           FEngineType := GetEngineTypeByODBCDescription(
 {$if defined(CONNECTION_AS_RECORD)}
-            // по актуальной секции
-            FRealODBCPtr^.
+            FODBCConnectionHolder.
 {$ifend}
             DSN,
             VSecondarySQLCheckServerTypeMode
@@ -770,13 +795,36 @@ end;
 function TDBMS_Connection.GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
 var
   VOdbcFetchColsEx: TOdbcFetchCols12;
-  VSQLText: TDBMS_String;
+  //VSQLText: TDBMS_String;
   VText: AnsiString;
+  VColIndex: SmallInt;
+  VSecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode;
+
+  function _CheckSqlFromClause(const ACheckType: TEngineType; out AResult: TEngineType): Boolean;
+  var V: LongInt;
+  begin
+    try
+      VOdbcFetchColsEx.Base.Close;
+      Result := OpenDirectSQLFetchCols('SELECT 1 as a' +
+                                        ' FROM ' + c_SQL_FROM[ACheckType], @(VOdbcFetchColsEx.Base)) and
+                VOdbcFetchColsEx.Base.FetchRecord;
+      if Result then begin
+        VOdbcFetchColsEx.Base.ColToLongInt(1, V);
+        Result := (1=V);
+        if Result then begin
+          // нашли
+          AResult := ACheckType;
+        end;
+      end;
+    except
+      Result := FALSE;
+    end;
+  end;
+  
 begin
   if (not
 {$if defined(CONNECTION_AS_RECORD)}
-          // актуальная секция
-          FRealODBCPtr^.
+          FODBCConnectionHolder.
 {$ifend}
           Connected) then begin
     // not connected
@@ -788,14 +836,14 @@ begin
       // определение типа сервера исходя из его реакции на шаблонные действия
 
       // сперва проверим select @@version // MSSQL+ASE+ASA
-      VSQLText := 'SELECT @@VERSION as v';
       try
-        OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
-
-        // тащим первое поле
-        VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
-        if GetEngineTypeUsingSQL_Version_Upper(VText, Result) then
-          Exit;
+        if OpenDirectSQLFetchCols('SELECT @@VERSION as v', @(VOdbcFetchColsEx.Base)) then
+        if VOdbcFetchColsEx.Base.FetchRecord then begin
+          // тащим первое поле
+          VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
+          if GetEngineTypeUsingSQL_Version_Upper(UpperCase(VText), Result) then
+            Exit;
+        end;
 
         // unknown
         Result := et_Unknown;
@@ -804,20 +852,85 @@ begin
         Result := GetEngineTypeUsingSelectVersionException(E);
       end;
 
-      if (et_Unknown=Result) then begin
-      (*
-      // second check
+      // если определилось - валим
+      if (et_Unknown<>Result) then
+        Exit;
+
+      // вторая проверка - select version()
       try
-        VDataset.OpenSQL(c_SQLCMD_FROM_DUAL);
-        // TODO: check resultset
-      except
-        on E: Exception do begin
-          // TODO: check message
+        VOdbcFetchColsEx.Base.Close;
+        if OpenDirectSQLFetchCols('SELECT version()', @(VOdbcFetchColsEx.Base)) then
+        if VOdbcFetchColsEx.Base.FetchRecord then begin
+          // PostgreSQL или MySQL
+          // тащим первое поле
+          VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
+          Result := GetEngineTypeByODBCDescription(VText, VSecondarySQLCheckServerTypeMode);
+          if (et_Unknown<>Result) then
+            Exit;
         end;
+      except on E: Exception do
+        // а тут смотрим чего понаписали в ошибку
+        Result := GetEngineTypeUsingSelectVersionException(E);
       end;
-      *)
+
+      // третья проверка - select * from dual
+      // DUAL может быть стандартной таблицей или вьюхой
+      // а может быть нашей вьюхой
+      // комментарий должен сработать для MySQL начиная с версии 1
+      try
+        VOdbcFetchColsEx.Base.Close;
+        if OpenDirectSQLFetchCols('SELECT * FROM DUAL', @(VOdbcFetchColsEx.Base)) then
+        if VOdbcFetchColsEx.Base.FetchRecord then begin
+          // смотрим что за поля вернулись
+          // ENGINE_VERSION
+          VColIndex := VOdbcFetchColsEx.Base.ColIndex('ENGINE_VERSION');
+          if (VColIndex>0) then begin
+            VOdbcFetchColsEx.Base.ColToAnsiString(VColIndex, VText);
+            Result := GetEngineTypeByODBCDescription(VText, VSecondarySQLCheckServerTypeMode);
+            if (et_Unknown<>Result) then
+              Exit;
+          end;
+          // ENGINETYPE
+          VColIndex := VOdbcFetchColsEx.Base.ColIndex('ENGINETYPE');
+          if (VColIndex>0) then begin
+            VOdbcFetchColsEx.Base.ColToAnsiString(VColIndex, VText);
+            Result := GetEngineTypeByODBCDescription(VText, VSecondarySQLCheckServerTypeMode);
+            if (et_Unknown<>Result) then
+              Exit;
+          end;
+          // открылось и не наша вьюха - тут скорее всего Oracle
+          VColIndex := VOdbcFetchColsEx.Base.ColIndex('DUMMY');
+          if (VColIndex>0) and (1=VOdbcFetchColsEx.Base.ColumnCount) then begin
+            // одно поле
+            Result := et_Oracle;
+            Exit;
+          end;
+        end;
+      except on E: Exception do
+        // а тут смотрим чего понаписали в ошибку
+        Result := GetEngineTypeUsingSelectFromDualException(E);
       end;
-      
+
+      // если определилось - валим
+      if (et_Unknown<>Result) then
+        Exit;
+
+      // имеем непроинсталлированную БД (без вьюхи DUAL) и один из серверов:
+      // Oracle, Informix, DB2, Mimer, Firebird
+
+      // остальные проверки - исходя из разных вариантов обязательных источников данных в секции FROM
+      if _CheckSqlFromClause(et_DB2, Result) then
+        Exit;
+      if _CheckSqlFromClause(et_Mimer, Result) then
+        Exit;
+      if _CheckSqlFromClause(et_Firebird, Result) then
+        Exit;
+      if _CheckSqlFromClause(et_Informix, Result) then
+        Exit;
+      if _CheckSqlFromClause(et_Oracle, Result) then
+        Exit;
+
+      Result := et_Unknown;
     finally
       VOdbcFetchColsEx.Base.Close;
     end;
@@ -826,24 +939,29 @@ end;
 
 procedure TDBMS_Connection.Init(const APathPtr: PETS_Path_Divided_W);
 begin
+{$if defined(CONNECTION_AS_RECORD)}
+  FillChar(Self, SizeOf(Self), 0);
+{$else}
   FRealODBCPtr := nil;
   FPrimaryConn := nil;
   FTSS_Info_Ptr := nil;
   FNextSectionConn := nil;
-  FPathDiv.CopyFrom(APathPtr);
-  FEngineType := et_Unknown;
-  FODBCDescription := '';
   FSavePwdAsLsaSecret := FALSE;
   FReadPrevSavedPwd := FALSE;
-{$if defined(CONNECTION_AS_RECORD)}
-  FODBCConnectionHolder.Init;
-  FRealODBCPtr := @FODBCConnectionHolder;
-{$else}
-  FRealODBCPtr := Self;
-{$ifend}
+  FReconnectPending := FALSE;
   FInternalLoadLibraryStd := 0;
   FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
+{$ifend}
+  // прочее
+  FPathDiv.CopyFrom(APathPtr);
+  FEngineType := et_Unknown;
+  FGuidesSrcType := gst_Primary;
+  FODBCDescription := '';
+{$if defined(CONNECTION_AS_RECORD)}
+  FODBCConnectionHolder.Init;
+{$else}
+{$ifend}
   FETS_INTERNAL_SCHEMA_PREFIX := '';
   FConnectionErrorMessage := '';
   FConnectionErrorCode := ETS_RESULT_OK;
@@ -887,10 +1005,15 @@ begin
 {$ifend}
 end;
 
+procedure TDBMS_Connection.NeedReconnect;
+begin
+  FReconnectPending:=TRUE;
+end;
+
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: AnsiString; const ABufPtr: POdbcFetchCols): Boolean;
 begin
-  Result := FRealODBCPtr^.OpenDirectSQLFetchCols(ASQLText, ABufPtr)
+  Result := FODBCConnectionHolder.OpenDirectSQLFetchCols(ASQLText, ABufPtr)
 end;
 {$ifend}
 
@@ -989,12 +1112,10 @@ var
   VTSSSuffix: String;
   VTSS_Definition: TTSS_Definition;
   VNewTSSPtr: PTSS_Info;
+  VNewSection: IDBMS_Connection;
   VLastSection: IDBMS_Connection;
+  VResult: Byte;
 begin
-  // создаём дочерние TSS только если первичная секция или секция типа Section
-  if (not AllowReadParamsFromIni) then
-    Exit;
-
   // проверяем по единственному обязательному параметру TSS
   // TODO: сделать чтобы работало с индексом после параметров
   if not SameText(AParamName, ETS_INTERNAL_TSS_DEST) then
@@ -1009,10 +1130,11 @@ begin
     ZoomSource := AParams.Values[ETS_INTERNAL_TSS_ZOOM+VTSSSuffix];
     FullSource := AParams.Values[ETS_INTERNAL_TSS_FULL+VTSSSuffix];
     ModeSource := AParams.Values[ETS_INTERNAL_TSS_MODE+VTSSSuffix];
-    SyncSource := AParams.Values[ETS_INTERNAL_TSS_SYNC+VTSSSuffix];
   end;
 
   VNewTSSPtr := nil;
+  VNewSection := nil;
+  //VLastSection := nil;
   try
     New(VNewTSSPtr);
 
@@ -1026,45 +1148,38 @@ begin
       end;
 
       // создаём новую секцию
-      New(VLastSection^.FNextSectionConn);
-      VLastSection^.FNextSectionConn.Init(nil);
-      case VNewTSSPtr^.DestType of
-        tsst_Section, tsst_DSN: begin
-          // новая секция на основе отдельной секции в INI
-          // новая секция без параметров на основе System DSN
-          VLastSection^.FNextSectionConn.FTSS_Info_Ptr := VNewTSSPtr;
-          VNewTSSPtr := nil;
-          // пропихнём имя секции (ну и имя сервиса для порядка)
-          VLastSection^.FNextSectionConn.FPathDiv.ApplyFrom(VNewTSSPtr^.DestValue, FPathDiv.ServiceName);
-          // мы - родитель
-          VLastSection^.FNextSectionConn.FPrimaryConn := @Self;
-          // секция качает через себя
-          VLastSection^.FNextSectionConn.FRealODBCPtr := @(VLastSection^.FNextSectionConn.FODBCConnectionHolder);
-        end;
-        tsst_Prefix: begin
-          // новая секция на основе первичной (текущей), но со специальным префиксом
-          VLastSection^.FNextSectionConn.FTSS_Info_Ptr := VNewTSSPtr;
-          VNewTSSPtr := nil;
-          // НЕ пропихнём имя секции
-          // мы - родитель
-          VLastSection^.FNextSectionConn.FPrimaryConn := @Self;
-          // секция качает через нас (родителя)
-          VLastSection^.FNextSectionConn.FRealODBCPtr := @(Self.FODBCConnectionHolder);
-        end;
-      end;
+      New(VNewSection);
+      VNewSection.Init(nil);
 
-(*
-    // деление по секциям
-    FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
-    FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
-    FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
-    FRealODBCPtr: IODBCConnection; // напрямую используется в запросах (указывает на себя или на родителя)
-*)
+      // пристегнём параметры
+      VNewSection.FTSS_Info_Ptr := VNewTSSPtr;
+
+      // пропихнём имя секции (ну и имя сервиса для порядка)
+      VNewSection.FPathDiv.ApplyFrom(VNewTSSPtr^.DestValue, FPathDiv.ServiceName);
+      // сбросим ссылку, дальше за неё отвечает подключение
+      VNewTSSPtr := nil;
+
+      // мы - родитель
+      VNewSection.FPrimaryConn := @Self;
+
+      // читаем параметры для новой секции
+      VResult := VNewSection.ApplyConnectionParams;
+      if (ETS_RESULT_OK = VResult) then begin
+        // всё в порядке
+        VLastSection^.FNextSectionConn := VNewSection;
+        VNewSection := nil;
+      end;
     end;
   finally
-    // если ссылка осталась - прибьём
-    if (VNewTSSPtr<>nil) then
+    // если ссылка осталась - прибьём всё что насоздавали (ошибка)
+    if (VNewSection<>nil) then begin
+      VNewSection.Uninit;
+      Dispose(VNewSection);
+    end;
+    if (VNewTSSPtr<>nil) then begin
+      VNewTSSPtr.Clear;
       Dispose(VNewTSSPtr);
+    end;
   end;
 end;
 

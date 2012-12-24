@@ -57,12 +57,14 @@ type
     set_Unknown
   );
 
+  // откуда читаем справочники, инфу о сервисах и версиях
+  TGuidesSrcType = (gst_Primary, gst_Secondary);
+
   TStatementRepeatType = (srt_None, srt_Insert, srt_Update);
 
   TSecondarySQLCheckServerTypeMode = (schstm_None, schstm_SomeSybase);
 
 const
-  c_SQLCMD_FROM_DUAL  = 'SELECT * FROM DUAL'; // if 'select @@version as v into DUAL' executed from model
   c_SQLCMD_FROM_SYSDUMMY1 = 'SELECT * FROM SYSIBM.SYSDUMMY1'; // DB2 only!
   //c_SQLCMD_MySQL_DUAL = 'SELECT /*!1 111 AS F, */ * FROM DUAL'; //  /*!1 */ works at version 1 and higher
   //c_SQLCMD_Version_F  = 'SELECT version()'; // PostgreSQL, MySQL
@@ -719,13 +721,14 @@ function GetEngineTypeByZEOSLibProtocol(const AZEOSLibProtocol: String): TEngine
 {$ifend}
 
 function GetEngineTypeByODBCDescription(
-  const AODBCDescription: WideString;
+  const AODBCDescription: AnsiString;
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
 
 function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: AnsiString; var AResult: TEngineType): Boolean;
 
 function GetEngineTypeUsingSelectVersionException(const AException: Exception): TEngineType;
+function GetEngineTypeUsingSelectFromDualException(const AException: Exception): TEngineType;
 
 // формирует 16-ричную константу для записи BLOB-а, есть работа через параметры невозможна
 function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
@@ -745,7 +748,7 @@ function StandardExceptionType(
 implementation
 
 function GetEngineTypeByODBCDescription(
-  const AODBCDescription: WideString;
+  const AODBCDescription: AnsiString;
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
 var VDescUpper: String;
@@ -888,8 +891,11 @@ begin
     // Sybase ASA
     AResult := et_ASA;
     Result := TRUE;
-  end else if (System.Pos('MICROSOFT', AUppercasedText)>0) then begin
+  end else if (System.Pos('MICROSOFT', AUppercasedText)>0) and
+              (System.Pos('SQL', AUppercasedText)>0) and
+              (System.Pos('SERVER', AUppercasedText)>0) then begin
     // MSSQL
+    // 'MICROSOFT SQL SERVER 2008 R2 (SP2) - 10.50.4000.0 (INTEL X86) '#$A#9'JUN 28 2012 08:42:37 '#$A#9'COPYRIGHT (C) MICROSOFT CORPORATION'#$A#9'DEVELOPER EDITION ON WINDOWS NT 6.0 <X86> (BUILD 6002: SERVICE PACK 2)'
     AResult := et_MSSQL;
     Result := TRUE;
   end else begin
@@ -905,6 +911,11 @@ begin
   // нет такой переменной
   // полный бред и неверный синтаксис
   // имя типа сервера где-то в ответе
+  Result := et_Unknown;
+end;
+
+function GetEngineTypeUsingSelectFromDualException(const AException: Exception): TEngineType;
+begin
   Result := et_Unknown;
 end;
 

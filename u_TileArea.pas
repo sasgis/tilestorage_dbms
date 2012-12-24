@@ -18,7 +18,7 @@ type
 
   ITileArea = interface(IZoomList)
     ['{F0247423-8584-4DA1-AD52-A2CC11442AC7}']
-    function TileInArea(const XYZ: PTILE_ID_XYZ): Boolean;
+    function TileInArea(const AXYZ: PTILE_ID_XYZ): Boolean;
   end;
 
   TTileArea = class(TZoomList, ITileArea)
@@ -38,7 +38,7 @@ type
     procedure EnableZoomInZoomBits(const AZoom: Byte); override;
   private
     { ITileArea }
-    function TileInArea(const XYZ: PTILE_ID_XYZ): Boolean;
+    function TileInArea(const AXYZ: PTILE_ID_XYZ): Boolean;
   public
     constructor Create(const ATileAreaSrc, AZoomAreaSrc: String);
   end;
@@ -204,21 +204,21 @@ begin
   end;
 end;
 
-function TTileArea.TileInArea(const XYZ: PTILE_ID_XYZ): Boolean;
+function TTileArea.TileInArea(const AXYZ: PTILE_ID_XYZ): Boolean;
 begin
-  Result := ZoomInList(XYZ^.z);
+  Result := ZoomInList(AXYZ^.z);
   if (not Result) then
     Exit;
   
-  if (XYZ^.z = FTileAreaInfo.Zoom) then begin
+  if (AXYZ^.z = FTileAreaInfo.Zoom) then begin
     // исходный зум
-    Result := CheckTileInRect(XYZ, @(FTileAreaInfo.Rect));
-  end else if (XYZ^.z > FTileAreaInfo.Zoom) then begin
+    Result := CheckTileInRect(AXYZ, @(FTileAreaInfo.Rect));
+  end else if (AXYZ^.z > FTileAreaInfo.Zoom) then begin
     // бќльшие зумы
-    Result := CheckTileInRect(XYZ, @(FGreaterZooms[XYZ^.z - FTileAreaInfo.Zoom - 1]));
+    Result := CheckTileInRect(AXYZ, @(FGreaterZooms[AXYZ^.z - FTileAreaInfo.Zoom - 1]));
   end else begin
     // меньшие зумы
-    Result := CheckTileInRect(XYZ, @(FSmallerZooms[FTileAreaInfo.Zoom - XYZ^.z - 1]));
+    Result := CheckTileInRect(AXYZ, @(FSmallerZooms[FTileAreaInfo.Zoom - AXYZ^.z - 1]));
   end;
 end;
 
