@@ -120,9 +120,9 @@ type
   private
 {$ifend}
     // деление по секциям
-    FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
-    FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
-    FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
+    //FNextSectionConn: IDBMS_Connection; // следуюший в цепочке
+    //FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичный
+    //FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
 
     procedure Init(const APathPtr: PETS_Path_Divided_W);
     procedure Uninit;
@@ -425,6 +425,7 @@ begin
   G_ConnectionList.InternalRemoveConnection(Self);
 {$ifend}
 
+  (*
   // убиваем рекурсивно по цепочке
   if (FNextSectionConn<>nil) then begin
 {$if defined(CONNECTION_AS_RECORD)}
@@ -434,6 +435,7 @@ begin
     // убиваем ссылку (если интерфейс - умрёт)
     FNextSectionConn := nil;
   end;
+  *)
 
   try
 {$if defined(CONNECTION_AS_RECORD)}
@@ -466,6 +468,7 @@ begin
     FInternalLoadLibraryStd:=0;
   end;
 
+  (*
   FPrimaryConn := nil;
 
   if (FTSS_Info_Ptr <> nil) then begin
@@ -473,6 +476,7 @@ begin
     Dispose(FTSS_Info_Ptr);
     FTSS_Info_Ptr := nil;
   end;
+  *)
 end;
 
 procedure TDBMS_Connection.ApplyCredentialsFormParams(const AFormParams: TStrings);
@@ -847,9 +851,11 @@ end;
 
 procedure TDBMS_Connection.Init(const APathPtr: PETS_Path_Divided_W);
 begin
+  (*
   FPrimaryConn := nil;
   FTSS_Info_Ptr := nil;
   FNextSectionConn := nil;
+  *)
   FPathPtr := APathPtr;
   FEngineType := et_Unknown;
   FODBCDescription := '';
