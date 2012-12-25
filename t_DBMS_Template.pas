@@ -98,8 +98,8 @@ type
     // зум (от 1 до 24)
     Zoom: Byte;
     // им€ таблицы дл€ тайлов - здесь без возможного префикса схемы
-    UnquotedTileTableName: WideString;
-    QuotedTileTableName: WideString;
+    UnquotedTileTableName: TDBMS_String;
+    QuotedTileTableName: TDBMS_String;
     // "верхн€€" часть идентификатора тайла - в им€ таблицы
     XYUpperToTable: TPoint;
     // "нижн€€" часть идентификатора тайла - в идентификатор (в поле таблицы)
@@ -110,6 +110,7 @@ type
     // get upper part of X and Y (for tablename)
     function HXToTableNameChar(const AXYMaskWidth: Byte): String;
     function HYToTableNameChar(const AXYMaskWidth: Byte): String;
+    function HXYToTableNamePos(const AXYMaskWidth: Byte): PPoint;
     // deprecated version (for both XY)
     function GetXYUpperInfix(const AXYMaskWidth: Byte): String; deprecated;
   end;
@@ -163,6 +164,17 @@ begin
   // оставл€ем хот€ бы один символ
   while (Length(Result)>1) and (Result[1]='0') do begin
     System.Delete(Result, 1, 1);
+  end;
+end;
+
+function TSQLTile.HXYToTableNamePos(const AXYMaskWidth: Byte): PPoint;
+begin
+  // если одна таблица - значит не делимс€ - вернЄм нули
+  if UseSingleTable(AXYMaskWidth, Zoom) then begin
+    Result := nil;
+  end else begin
+    // делимс€
+    Result := @XYUpperToTable;
   end;
 end;
 

@@ -18,7 +18,10 @@ type
 
   ITileArea = interface(IZoomList)
     ['{F0247423-8584-4DA1-AD52-A2CC11442AC7}']
-    function TileInArea(const AXYZ: PTILE_ID_XYZ): Boolean;
+    function TileInArea(
+      const AZoom: Byte;
+      const AXYPtr: PPoint
+    ): Boolean;
   end;
 
   TTileArea = class(TZoomList, ITileArea)
@@ -33,12 +36,18 @@ type
     procedure CalcGreaterZoom(AZoom: Byte; const ARect: PRect);
     procedure CalcSmallerZoom(AZoom: Byte; const ARect: PRect);
     function ParseTileAreaItem(const ATileAreaItemSrc: String): Boolean;
-    function CheckTileInRect(const XYZ: PTILE_ID_XYZ; const ARect: PRect): Boolean;
+    function CheckTileInRect(
+      const AXYPtr: PPoint;
+      const ARect: PRect
+    ): Boolean;
   protected
     procedure EnableZoomInZoomBits(const AZoom: Byte); override;
   private
     { ITileArea }
-    function TileInArea(const AXYZ: PTILE_ID_XYZ): Boolean;
+    function TileInArea(
+      const AZoom: Byte;
+      const AXYPtr: PPoint
+    ): Boolean;
   public
     constructor Create(const ATileAreaSrc, AZoomAreaSrc: String);
   end;
@@ -49,11 +58,6 @@ implementation
 
 procedure TTileArea.CalcGreaterZoom(AZoom: Byte; const ARect: PRect);
 begin
-  // пример с 2-м€ тайлами на 12 зуме:
-  // z12\x1356\y587\x1358\y588
-  // на старших зумах:
-  // z13\x2712\y1174\x2716\y1176
-  // z14\x5424\y2348\x5432\y2352
   ARect^ := FTileAreaInfo.Rect;
   while (AZoom > FTileAreaInfo.Zoom) do begin
     with ARect^ do begin
@@ -96,9 +100,12 @@ begin
   end;
 end;
 
-function TTileArea.CheckTileInRect(const XYZ: PTILE_ID_XYZ; const ARect: PRect): Boolean;
+function TTileArea.CheckTileInRect(
+  const AXYPtr: PPoint;
+  const ARect: PRect
+): Boolean;
 begin
-  with XYZ^.xy, ARect^ do begin
+  with AXYPtr^, ARect^ do begin
     Result := (X >= Left) and (X < Right) and (Y >= Top) and (Y < Bottom);
   end;
 end;
@@ -204,21 +211,24 @@ begin
   end;
 end;
 
-function TTileArea.TileInArea(const AXYZ: PTILE_ID_XYZ): Boolean;
+function TTileArea.TileInArea(
+  const AZoom: Byte;
+  const AXYPtr: PPoint
+): Boolean;
 begin
-  Result := ZoomInList(AXYZ^.z);
+  Result := ZoomInList(AZoom);
   if (not Result) then
     Exit;
   
-  if (AXYZ^.z = FTileAreaInfo.Zoom) then begin
+  if (AZoom = FTileAreaInfo.Zoom) then begin
     // исходный зум
-    Result := CheckTileInRect(AXYZ, @(FTileAreaInfo.Rect));
-  end else if (AXYZ^.z > FTileAreaInfo.Zoom) then begin
+    Result := CheckTileInRect(AXYPtr, @(FTileAreaInfo.Rect));
+  end else if (AZoom > FTileAreaInfo.Zoom) then begin
     // бќльшие зумы
-    Result := CheckTileInRect(AXYZ, @(FGreaterZooms[AXYZ^.z - FTileAreaInfo.Zoom - 1]));
+    Result := CheckTileInRect(AXYPtr, @(FGreaterZooms[AZoom - FTileAreaInfo.Zoom - 1]));
   end else begin
     // меньшие зумы
-    Result := CheckTileInRect(AXYZ, @(FSmallerZooms[FTileAreaInfo.Zoom - AXYZ^.z - 1]));
+    Result := CheckTileInRect(AXYPtr, @(FSmallerZooms[FTileAreaInfo.Zoom - AZoom - 1]));
   end;
 end;
 

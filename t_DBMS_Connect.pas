@@ -46,7 +46,7 @@ const
   ETS_INTERNAL_DBX_GetDriverFunc = ETS_INTERNAL_PARAMS_PREFIX + 'DBX_GetDriverFunc';
   ETS_INTERNAL_DBX_VendorLib     = ETS_INTERNAL_PARAMS_PREFIX + 'DBX_VendorLib';
   *)
-  
+
   // для подключения через ODBC
   ETS_INTERNAL_ODBC_ConnectWithParams = ETS_INTERNAL_PARAMS_PREFIX + 'ODBC_ConnectWithParams';
 
@@ -59,6 +59,17 @@ const
   // параметры для секционирования вручную по INI-шке (между серверами и/или базами)
   // применяется для возможности резервного копирования и восстановления разных БД по-разному
   ETS_INTERNAL_TSS_              = ETS_INTERNAL_PARAMS_PREFIX + 'TSS_';
+
+  // способ вызова секций в хранилище
+  // ПУСТО - всё вручную (по умолчанию)
+  // для всех операций в рамках секции используется отдельное подключение
+  // ИМЯ - имя функции или хранимой процедуры (на первичном подключении)
+  // отдельное подключение используется только для создания объекта (см. CODE далее)
+  // прочие операции (чтение, вставка и удаление тайлов) выполняются через первичное подключение
+  // для реализации секционирования хранилища встроенными в СУБД методами
+  // один параметр без суффикса на все секции
+  // специально сделан другой длины, чем остальные
+  ETS_INTERNAL_TSS_PROCEDURE_NEW = ETS_INTERNAL_TSS_ + 'ProcedureNew';
 
   // вторичное подключение - указывается либо секция либо DSN
   // единственный обязательный параметр из TSS
@@ -87,13 +98,21 @@ const
   // 2 - инверсия окончательного условия "попал - не попал"
   ETS_INTERNAL_TSS_MODE          = ETS_INTERNAL_TSS_ + 'Mode';
 
+  // код секции (для процедуры)
+  // целое число
+  // если не 0 - то передаётся в процедуру
+  // если 0 или не число - используется ручной режим без процедуры
+  ETS_INTERNAL_TSS_CODE          = ETS_INTERNAL_TSS_ + 'Code';
+
 
   // откуда читать справочники, версии и сервисы
-  ETS_INTERNAL_GUIDES_SRC        = ETS_INTERNAL_PARAMS_PREFIX + 'GUIDES_SRC';
+  ETS_INTERNAL_GUIDES_LINK       = ETS_INTERNAL_PARAMS_PREFIX + 'GUIDES_LINK';
   // значения:
   // Primary - с первичного подключения (по умолчанию)
   // Secondary - со вторичного (Primary.Next), если его нет - с Primary
-
+  // ETS_INTERNAL_GUIDES_DEST       = ETS_INTERNAL_PARAMS_PREFIX + 'GUIDES_DEST';
+  // имя секции со справочниками
+  
 const
   // параметры для Credentials
   c_Cred_UserName = 'username';
@@ -108,6 +127,11 @@ const
   c_MkVer_Comment      = 'ver_comment';
   c_MkVer_UpdOld       = 'updoldver';
   c_MkVer_SwitchToVer  = 'switchtover';
+
+  // параметры для CalcTableCoord
+  c_CalcTableCoord_Z = 'z';
+  c_CalcTableCoord_X = 'x';
+  c_CalcTableCoord_Y = 'y';
 
 implementation
 

@@ -78,6 +78,7 @@ type
     function GetLOBBuffer(const AColNumber: Byte): Pointer;
     function GetOptionalSmallInt(const AExpectedColName: AnsiString): SmallInt;
     function GetOptionalLongInt(const AExpectedColName: AnsiString): LongInt;
+    function GetOptionalAnsiChar(const AExpectedColName: AnsiString; const ADefaultValue: AnsiChar): AnsiChar;
   public
     procedure Init;
     procedure FetchLOBs;
@@ -368,7 +369,7 @@ begin
 
   if (VItem^.Bind_StrLen_or_Ind>0) then begin
     SetString(AValue, PAnsiChar(InternalColData(VItem)), VItem^.Bind_StrLen_or_Ind);
-    AValue := Trim(AValue);
+    AValue := TrimRight(AValue);
   end;
 end;
 
@@ -545,12 +546,17 @@ var
   VDesc: PDescribeColData;
   VColNameBufLen: SQLUSMALLINT;
 begin
+  Result := FALSE;
+  
   // определим фактическое число полей
   VRes := SQLNumResultCols(Stmt, @ColumnCount);
   CheckStatementResult(Stmt, VRes, EODBCNumResultColsError);
 
-  // проверки
-  Assert(ColumnCount>0);
+  // вообще нет полей
+  if (0=ColumnCount) then
+    Exit;
+  
+  // проверка что выделили достаточно памяти под поля
   Assert(Abs(ColumnCount)<=ColumnsAllocated);
 
   // сбросим общий буфер
@@ -923,6 +929,17 @@ begin
     Result := VItem^.LOBPtr
   else with VItem^.DescribeColData do
     raise EODBCConvertLOBError.Create(IntToStr(AColNumber)+': '+IntToStr(DataType)+'['+IntToStr(ColumnSize)+']');
+end;
+
+function TOdbcFetchCols.GetOptionalAnsiChar(const AExpectedColName: AnsiString; const ADefaultValue: AnsiChar): AnsiChar;
+var
+  VIndex: SmallInt;
+begin
+  VIndex := ColIndex(AExpectedColName);
+  if (VIndex<0) then
+    Result := ADefaultValue
+  else
+    ColToAnsiCharDef(VIndex, Result, ADefaultValue);
 end;
 
 function TOdbcFetchCols.GetOptionalLongInt(const AExpectedColName: AnsiString): LongInt;

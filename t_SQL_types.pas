@@ -58,11 +58,13 @@ type
   );
 
   // откуда читаем справочники, инфу о сервисах и версиях
-  TGuidesSrcType = (gst_Primary, gst_Secondary);
+  TGuidesLinkType = (glt_Primary, glt_Secondary);
 
   TStatementRepeatType = (srt_None, srt_Insert, srt_Update);
 
   TSecondarySQLCheckServerTypeMode = (schstm_None, schstm_SomeSybase);
+
+  TProcedureNewMode = (pnm_None, pnm_SelectFromFunction, pnm_ExecuteProcedure);
 
 const
   c_SQLCMD_FROM_SYSDUMMY1 = 'SELECT * FROM SYSIBM.SYSDUMMY1'; // DB2 only!
@@ -282,7 +284,22 @@ const
   'rdb$database',  // Firebird
   ''
   );
-  
+
+  // how to call function or procedure to get sql for new object
+  c_SQL_ProcedureNew_Mode: array [TEngineType] of TProcedureNewMode = (
+  pnm_ExecuteProcedure,   // MSSQL
+  pnm_ExecuteProcedure,   // ASE
+  pnm_None,               // ASA
+  pnm_None,               // Oracle
+  pnm_None,               // Informix
+  pnm_None,               // DB2
+  pnm_None,               // MySQL
+  pnm_SelectFromFunction, // PostgreSQL
+  pnm_None,               // Mimer
+  pnm_None,               // Firebird
+  pnm_None                // always NONE here
+  );
+
   // max length of SQL identifier and tablename
   c_SQL_ID_Len: array [TEngineType] of SmallInt = (
   128,    // MSSQL // Microsoft SQL Server 2000

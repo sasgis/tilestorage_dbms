@@ -21,6 +21,8 @@ type
     FullSource: String;
     // ETS_INTERNAL_TSS_MODE
     ModeSource: String;
+    // ETS_INTERNAL_TSS_CODE
+    CodeSource: String;
   end;
 
   TTSSMode = (tssm_Off, tssm_On, tssm_Inversion);
@@ -36,10 +38,21 @@ type
     FullValue: IZoomList;
     // ETS_INTERNAL_TSS_MODE
     ModeValue: TTSSMode;
+    // ETS_INTERNAL_TSS_CODE
+    CodeValue: LongInt;
   public
     procedure Clear;
     function ApplyDefinition(const ADefinition: TTSS_Definition): Boolean;
-    function TileInSection(const AXYZ: PTILE_ID_XYZ): Boolean;
+    function TileInSection(
+      const AZoom: Byte;
+      const AXYPtr: PPoint
+    ): Boolean;
+  end;
+
+  PTSS_Primary_Params = ^TTSS_Primary_Params;
+  TTSS_Primary_Params = record
+    HasWithoutCode: Boolean;
+    ProcedureNew: String;
   end;
 
 const
@@ -72,6 +85,10 @@ begin
   else
     ModeValue := c_TSSMode_Default;
 
+  // ETS_INTERNAL_TSS_CODE
+  if not TryStrToInt(ADefinition.CodeSource, CodeValue) then
+    CodeValue := 0;
+
   // некий результат (поправить чтобы был смысл его возвращать)
   Result := (AreaValue<>nil) or (FullValue<>nil);
 end;
@@ -82,7 +99,10 @@ begin
   FullValue := nil;
 end;
 
-function TTSS_Info.TileInSection(const AXYZ: PTILE_ID_XYZ): Boolean;
+function TTSS_Info.TileInSection(
+  const AZoom: Byte;
+  const AXYPtr: PPoint
+): Boolean;
 begin
   Result := FALSE;
   
@@ -92,7 +112,7 @@ begin
 
   if (FullValue<>nil) then begin
     // некоторые зумы залетают целиком
-    if FullValue.ZoomInList(AXYZ^.z) then begin
+    if FullValue.ZoomInList(AZoom) then begin
       // подходит - значит TRUE (если инверсия - FALSE)
       Result := (tssm_Inversion<>ModeValue);
       Exit;
@@ -101,7 +121,7 @@ begin
 
   if (AreaValue<>nil) then begin
     // может быть попали в область секции
-    if AreaValue.TileInArea(AXYZ) then begin
+    if AreaValue.TileInArea(AZoom, AXYPtr) then begin
       // подходит - значит TRUE (если инверсия - FALSE)
       Result := (tssm_Inversion<>ModeValue);
       Exit;
@@ -109,6 +129,7 @@ begin
   end;
 
   // никуда не попали
+  Result := (tssm_Inversion=ModeValue);
 end;
 
 end.

@@ -68,6 +68,7 @@ type
     FNextSectionConn: IDBMS_Connection; // следуюшая секция в цепочке
     FPrimaryConn: IDBMS_Connection; // опциональная ссылка на первичную секцию
     FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
+    FTSS_Primary_Params: TTSS_Primary_Params;
 
     procedure Init(const APathPtr: PETS_Path_Divided_W);
     procedure Uninit;
@@ -92,8 +93,8 @@ type
     FReadPrevSavedPwd: Boolean;
     // признак необходимости переподключиться из-за разрыва соединения
     FReconnectPending: Boolean;
-    // источник данных для справочников, сервисом и т.п.
-    FGuidesSrcType: TGuidesSrcType;
+    // источник данных для справочников, сервисов и т.п.
+    FGuidesLinkType: TGuidesLinkType;
   private
     // читает настройки из INI и применяет их
     // при необходимости создаёт дочерние секции
@@ -149,7 +150,7 @@ type
 {$ifend}
 
 {$if defined(CONNECTION_AS_RECORD)}
-    property GuidesSrcType: TGuidesSrcType read FGuidesSrcType;
+    property GuidesLinkType: TGuidesLinkType read FGuidesLinkType;
 {$ifend}
   public
     function EnsureConnected(
@@ -366,12 +367,12 @@ begin
     FSavePwdAsLsaSecret := SameText(AParamValue, ETS_INTERNAL_PWD_Save_Lsa);
     FReadPrevSavedPwd := FSavePwdAsLsaSecret or (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
-  end else if SameText(ETS_INTERNAL_GUIDES_SRC, AParamName) then begin
+  end else if SameText(ETS_INTERNAL_GUIDES_LINK, AParamName) then begin
     // источник данных для справочников
     if SameText(AParamValue, 'Secondary') then
-      FGuidesSrcType := gst_Secondary
+      FGuidesLinkType := glt_Secondary
     else
-      FGuidesSrcType := gst_Primary;
+      FGuidesLinkType := glt_Primary;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(CONNECTION_AS_RECORD)}
     FODBCConnectionHolder.
@@ -949,6 +950,7 @@ begin
   FSavePwdAsLsaSecret := FALSE;
   FReadPrevSavedPwd := FALSE;
   FReconnectPending := FALSE;
+  FTSS_Primary_Params.HasWithoutCode := FALSE;
   FInternalLoadLibraryStd := 0;
   FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
@@ -956,13 +958,14 @@ begin
   // прочее
   FPathDiv.CopyFrom(APathPtr);
   FEngineType := et_Unknown;
-  FGuidesSrcType := gst_Primary;
+  FGuidesLinkType := glt_Primary;
   FODBCDescription := '';
 {$if defined(CONNECTION_AS_RECORD)}
   FODBCConnectionHolder.Init;
 {$else}
 {$ifend}
   FETS_INTERNAL_SCHEMA_PREFIX := '';
+  FTSS_Primary_Params.ProcedureNew := '';
   FConnectionErrorMessage := '';
   FConnectionErrorCode := ETS_RESULT_OK;
 end;
@@ -1116,6 +1119,12 @@ var
   VLastSection: IDBMS_Connection;
   VResult: Byte;
 begin
+  if SameText(ETS_INTERNAL_TSS_PROCEDURE_NEW, AParamName) then begin
+    // имя процедуры для создания объектов
+    FTSS_Primary_Params.ProcedureNew := AParamValue;
+    Exit;
+  end;
+
   // проверяем по единственному обязательному параметру TSS
   // TODO: сделать чтобы работало с индексом после параметров
   if not SameText(AParamName, ETS_INTERNAL_TSS_DEST) then
@@ -1130,6 +1139,7 @@ begin
     ZoomSource := AParams.Values[ETS_INTERNAL_TSS_ZOOM+VTSSSuffix];
     FullSource := AParams.Values[ETS_INTERNAL_TSS_FULL+VTSSSuffix];
     ModeSource := AParams.Values[ETS_INTERNAL_TSS_MODE+VTSSSuffix];
+    CodeSource := AParams.Values[ETS_INTERNAL_TSS_CODE+VTSSSuffix];
   end;
 
   VNewTSSPtr := nil;
@@ -1165,6 +1175,10 @@ begin
       // читаем параметры для новой секции
       VResult := VNewSection.ApplyConnectionParams;
       if (ETS_RESULT_OK = VResult) then begin
+        // поднимем признак у родителя, что есть секции без кода
+        if (0 = VNewSection.FTSS_Info_Ptr^.CodeValue) then begin
+          Self.FTSS_Primary_Params.HasWithoutCode := TRUE;
+        end;
         // всё в порядке
         VLastSection^.FNextSectionConn := VNewSection;
         VNewSection := nil;

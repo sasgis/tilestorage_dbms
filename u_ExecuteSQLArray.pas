@@ -17,14 +17,17 @@ type
   TExecuteSQLItem = class(TStringList)
   private
     FSkipErrorsOnExec: Boolean;
+    FIndexSQL: SmallInt;
   public
     property SkipErrorsOnExec: Boolean read FSkipErrorsOnExec;
+    property IndexSQL: SmallInt read FIndexSQL;
   end;
 
   // owns objects by default
   TExecuteSQLArray = class(TObjectList)
   public
     procedure AddSQLItem(
+      const AIndexSQL: SmallInt;
       const ASQLText: String;
       const ASkipErrorsOnExec: Boolean
     );
@@ -53,6 +56,7 @@ implementation
 { TExecuteSQLArray }
 
 procedure TExecuteSQLArray.AddSQLItem(
+  const AIndexSQL: SmallInt;
   const ASQLText: String;
   const ASkipErrorsOnExec: Boolean
 );
@@ -60,6 +64,7 @@ var
   VItem: TExecuteSQLItem;
 begin
   VItem := TExecuteSQLItem.Create;
+  VItem.FIndexSQL := AIndexSQL;
   VItem.Text := ASQLText;
   VItem.FSkipErrorsOnExec := ASkipErrorsOnExec;
   Self.Add(VItem);
