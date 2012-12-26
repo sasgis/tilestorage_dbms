@@ -93,8 +93,6 @@ type
     FReadPrevSavedPwd: Boolean;
     // признак необходимости переподключиться из-за разрыва соединения
     FReconnectPending: Boolean;
-    // источник данных для справочников, сервисов и т.п.
-    FGuidesLinkType: TGuidesLinkType;
   private
     // читает настройки из INI и применяет их
     // при необходимости создаёт дочерние секции
@@ -149,9 +147,6 @@ type
     function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean; inline;
 {$ifend}
 
-{$if defined(CONNECTION_AS_RECORD)}
-    property GuidesLinkType: TGuidesLinkType read FGuidesLinkType;
-{$ifend}
   public
     function EnsureConnected(
       const AllowTryToConnect: Boolean;
@@ -367,12 +362,6 @@ begin
     FSavePwdAsLsaSecret := SameText(AParamValue, ETS_INTERNAL_PWD_Save_Lsa);
     FReadPrevSavedPwd := FSavePwdAsLsaSecret or (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
-  end else if SameText(ETS_INTERNAL_GUIDES_LINK, AParamName) then begin
-    // источник данных для справочников
-    if SameText(AParamValue, 'Secondary') then
-      FGuidesLinkType := glt_Secondary
-    else
-      FGuidesLinkType := glt_Primary;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(CONNECTION_AS_RECORD)}
     FODBCConnectionHolder.
@@ -950,7 +939,11 @@ begin
   FSavePwdAsLsaSecret := FALSE;
   FReadPrevSavedPwd := FALSE;
   FReconnectPending := FALSE;
-  FTSS_Primary_Params.HasWithoutCode := FALSE;
+  FTSS_Primary_Params.Algorithm := tssal_None;
+  FTSS_Primary_Params.Guides_Link := tsslt_Primary;
+  FTSS_Primary_Params.Undefined_Link := tsslt_Primary;
+  FTSS_Primary_Params.NewTileTable_Link := tsslt_Primary;
+  FTSS_Primary_Params.HasSectionWithoutCode := FALSE;
   FInternalLoadLibraryStd := 0;
   FInternalLoadLibraryAlt := 0;
   FInternalParams := nil;
@@ -958,14 +951,13 @@ begin
   // прочее
   FPathDiv.CopyFrom(APathPtr);
   FEngineType := et_Unknown;
-  FGuidesLinkType := glt_Primary;
   FODBCDescription := '';
 {$if defined(CONNECTION_AS_RECORD)}
   FODBCConnectionHolder.Init;
 {$else}
 {$ifend}
   FETS_INTERNAL_SCHEMA_PREFIX := '';
-  FTSS_Primary_Params.ProcedureNew := '';
+  FTSS_Primary_Params.NewTileTable_Proc := '';
   FConnectionErrorMessage := '';
   FConnectionErrorCode := ETS_RESULT_OK;
 end;
@@ -1119,19 +1111,50 @@ var
   VLastSection: IDBMS_Connection;
   VResult: Byte;
 begin
-  if SameText(ETS_INTERNAL_TSS_PROCEDURE_NEW, AParamName) then begin
+  if SameText(ETS_INTERNAL_TSS_Algorithm, AParamName) then begin
+    // общий алгоритм секционирования
+    FTSS_Primary_Params.ApplyAlgorithmValue(AParamValue);
+    Exit;
+  end;
+
+  // если отключено секционирование - тут нечего делать
+  if (tssal_None = FTSS_Primary_Params.Algorithm) then
+    Exit;
+
+  if SameText(ETS_INTERNAL_TSS_NewTileTable_Proc, AParamName) then begin
     // имя процедуры для создания объектов
-    FTSS_Primary_Params.ProcedureNew := AParamValue;
+    FTSS_Primary_Params.NewTileTable_Proc := AParamValue;
+    Exit;
+  end;
+
+  if SameText(ETS_INTERNAL_TSS_NewTileTable_Link, AParamName) then begin
+    // секция для запуска процедуры для создания объектов
+    with FTSS_Primary_Params do
+      ApplyLinkValue(AParamValue, @NewTileTable_Link);
+    Exit;
+  end;
+
+  if SameText(ETS_INTERNAL_TSS_Guides_Link, AParamName) then begin
+    // секция для справочников
+    with FTSS_Primary_Params do
+      ApplyLinkValue(AParamValue, @Guides_Link);
+    Exit;
+  end;
+
+  if SameText(ETS_INTERNAL_TSS_Undefined_Link, AParamName) then begin
+    // секция для тайлов, не попавших ни в одну из секций
+    with FTSS_Primary_Params do
+      ApplyLinkValue(AParamValue, @Undefined_Link);
     Exit;
   end;
 
   // проверяем по единственному обязательному параметру TSS
-  // TODO: сделать чтобы работало с индексом после параметров
-  if not SameText(AParamName, ETS_INTERNAL_TSS_DEST) then
+  if not SameText(System.Copy(AParamName, 1, Length(ETS_INTERNAL_TSS_DEST)), ETS_INTERNAL_TSS_DEST) then
     Exit;
 
-  // пока что только без индекса - одна вторичная секция
-  VTSSSuffix := '';
+  // индекс секции (суффикс параметра)
+  VTSSSuffix := System.Copy(AParamName, (Length(ETS_INTERNAL_TSS_DEST)+1), Length(AParamName));
+
   // заполняем структуру полями из INI
   with VTSS_Definition do begin
     DestSource := AParamValue;
@@ -1175,9 +1198,9 @@ begin
       // читаем параметры для новой секции
       VResult := VNewSection.ApplyConnectionParams;
       if (ETS_RESULT_OK = VResult) then begin
-        // поднимем признак у родителя, что есть секции без кода
+        // поднимем признак на первичной секции (у нас), что есть секция без кода
         if (0 = VNewSection.FTSS_Info_Ptr^.CodeValue) then begin
-          Self.FTSS_Primary_Params.HasWithoutCode := TRUE;
+          Self.FTSS_Primary_Params.HasSectionWithoutCode := TRUE;
         end;
         // всё в порядке
         VLastSection^.FNextSectionConn := VNewSection;

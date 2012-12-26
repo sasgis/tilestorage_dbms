@@ -49,10 +49,34 @@ type
     ): Boolean;
   end;
 
+  // общий алгоритм секционирования
+  TTSS_Algorithm = (tssal_None, tssal_Linked, tssal_Manual);
+
+  // настройка использования конкретной секции
+  // здесь по умолчанию самым первым должно быть Primary
+  TTSS_Link_Type = (tsslt_Primary, tsslt_Secondary, tsslt_Destination);
+  PTSS_Link_Type = ^TTSS_Link_Type;
+
   PTSS_Primary_Params = ^TTSS_Primary_Params;
   TTSS_Primary_Params = record
-    HasWithoutCode: Boolean;
-    ProcedureNew: String;
+    // обший тип секционирования
+    Algorithm: TTSS_Algorithm;
+    // секция для справочников
+    Guides_Link: TTSS_Link_Type;
+    // секция для тайловых таблиц, которые не попали ни в одну из секций
+    Undefined_Link: TTSS_Link_Type;
+    // секция для исполнения процедуры при создании новой таблицы
+    NewTileTable_Link: TTSS_Link_Type;
+    NewTileTable_Proc: String;
+    // есть хотя бы одна секция без кода (вспомогательное поле)
+    HasSectionWithoutCode: Boolean;
+  public
+    // Если TRUE - используется только одна секция
+    function UseSingleConn(const AAllowNewObjects: Boolean): Boolean;
+    // устанавливает значение алгоритма
+    procedure ApplyAlgorithmValue(const AParamValue: String);
+    // устанавливает значение настройки секции
+    procedure ApplyLinkValue(const AParamValue: String; const AValuePtr: PTSS_Link_Type);
   end;
 
 const
@@ -130,6 +154,41 @@ begin
 
   // никуда не попали
   Result := (tssm_Inversion=ModeValue);
+end;
+
+{ TTSS_Primary_Params }
+
+procedure TTSS_Primary_Params.ApplyAlgorithmValue(const AParamValue: String);
+begin
+  if SameText(AParamValue, 'Linked') then
+    Algorithm := tssal_Linked
+  else if SameText(AParamValue, 'Manual') then
+    Algorithm := tssal_Manual
+  else
+    Algorithm := tssal_None;
+end;
+
+procedure TTSS_Primary_Params.ApplyLinkValue(const AParamValue: String; const AValuePtr: PTSS_Link_Type);
+begin
+  if SameText(AParamValue, 'Primary') then
+    AValuePtr^ := tsslt_Primary
+  else if SameText(AParamValue, 'Secondary') then
+    AValuePtr^ := tsslt_Secondary
+  else if (AValuePtr = @NewTileTable_Link) and SameText(AParamValue, 'Destination') then
+    AValuePtr^ := tsslt_Destination
+  else
+    AValuePtr^ := tsslt_Primary;
+end;
+
+function TTSS_Primary_Params.UseSingleConn(const AAllowNewObjects: Boolean): Boolean;
+begin
+  Result := 
+  // либо вообще не должно быть секционирования
+  (tssal_None = Algorithm)
+  OR
+  // либо это только встроенное секционирование и нет секций без кодов
+  // и не создаём новые таблицы
+  ((tssal_Linked = Algorithm) and (not HasSectionWithoutCode) and (not AAllowNewObjects));
 end;
 
 end.

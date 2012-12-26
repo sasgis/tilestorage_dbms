@@ -24,6 +24,7 @@ uses
   u_DBMS_Connect,
   t_ODBC_Connection,
   t_ODBC_Buffer,
+  t_TSS,
   u_ExecuteSQLArray,
   u_DBMS_Utils;
 
@@ -53,6 +54,8 @@ type
     FPrimaryConnnection: IDBMS_Connection;
     // подключение для справочников (только ссылка, не закрывать!)
     FGuidesConnnection: IDBMS_Connection;
+    // подключение для непопавших никуда тайлов
+    FUndefinedConnnection: IDBMS_Connection;
 
     // guides
     FVersionList: TVersionList;
@@ -82,10 +85,15 @@ type
     FUpdateDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
     *)
   private
-    // определяет подключение для справочников, сервисов и т.п.
-    procedure CheckGuidesConnection;
+    // определяет подключение для справочников, сервисов и т.п. и для непопавших никуда тайлов
+    procedure CheckSecondaryConnections;
     function GetGuidesConnection: IDBMS_Connection; inline;
-    
+    function GetUndefinedConnection: IDBMS_Connection; inline;
+
+    // секционирование по табличным координатам (иначе по тайловым)
+    function UseSectionByTableXY: Boolean; inline;
+    function UseSectionByTileXY: Boolean; inline;
+
     // common work
     procedure DoBeginWork(
       const AExclusively: Boolean;
@@ -340,13 +348,13 @@ type
       const AXYZ: PTILE_ID_XYZ;
       const ASQLTile: PSQLTile;
       const AAllowNewObjects: Boolean;
-      out ATilesConnection: IDBMS_Connection
+      out AResultConnection: IDBMS_Connection
     ): Byte;
 
     function FillTableNamesForTiles(
       ASQLTile: PSQLTile;
       const AAllowNewObjects: Boolean;
-      out ATilesConnection: IDBMS_Connection
+      var AResultConnection: IDBMS_Connection
     ): Boolean;
 
     function CalcBackToTilePos(
@@ -766,33 +774,27 @@ begin
   end;
 
   Result := TRUE;
-
-{
-  // прямой расчёт:
-  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
-
-  if (0=VXYMaskWidth) then begin
-    // do not divide
-    ASQLTile^.XYUpperToTable.X := 0;
-    ASQLTile^.XYUpperToTable.Y := 0;
-    ASQLTile^.XYLowerToID := AXY;
-  end else begin
-    // divide
-    VMask := (1 shl VXYMaskWidth)-1;
-    ASQLTile^.XYUpperToTable.X := AXY.X shr VXYMaskWidth;
-    ASQLTile^.XYUpperToTable.Y := AXY.Y shr VXYMaskWidth;
-    ASQLTile^.XYLowerToID.X := AXY.X and VMask;
-    ASQLTile^.XYLowerToID.Y := AXY.Y and VMask;
-  end;
-}
 end;
 
-procedure TDBMS_Provider.CheckGuidesConnection;
+procedure TDBMS_Provider.CheckSecondaryConnections;
 begin
   // здесь FPrimaryConnnection уже есть
-  FGuidesConnnection := FPrimaryConnnection;
-  if (glt_Secondary=FGuidesConnnection.GuidesLinkType) and (FGuidesConnnection.FNextSectionConn<>nil) then
-    FGuidesConnnection := FGuidesConnnection.FNextSectionConn;
+  if (nil = FPrimaryConnnection.FNextSectionConn) then begin
+    // нет секций
+    FGuidesConnnection := FPrimaryConnnection;
+    FUndefinedConnnection := FPrimaryConnnection;
+  end else begin
+    // секции есть - подключение для справочников
+    if (tsslt_Secondary = FPrimaryConnnection.FTSS_Primary_Params.Guides_Link) then
+      FGuidesConnnection := FPrimaryConnnection.FNextSectionConn
+    else
+      FGuidesConnnection := FPrimaryConnnection;
+    // а теперь - подключение для непопавших никуда тайлов
+    if (tsslt_Secondary = FPrimaryConnnection.FTSS_Primary_Params.Undefined_Link) then
+      FUndefinedConnnection := FPrimaryConnnection.FNextSectionConn
+    else
+      FUndefinedConnnection := FPrimaryConnnection;
+  end;
 end;
 
 function TDBMS_Provider.CheckTileInCommonTiles(
@@ -812,17 +814,12 @@ function TDBMS_Provider.ChooseConnection(
   const AAllowNewObjects: Boolean
 ): IDBMS_Connection;
 begin
-  // выбираем соединение (секцию) исходя из табличных кооринат
+  // выбираем соединение (секцию) исходя из табличных или тайловых кооринат
   Result := GetGuidesConnection;
 
-  // однако если указана процедура для создания объектов
-  // и нет секций с пустыми кодами
-  // и не будем в любом случае создавать объекты
+  // если можно работать только по одному коннекту
   // то сразу можем вернуть подключение для справочников
-  if (not AAllowNewObjects) then
-  with FPrimaryConnnection.FTSS_Primary_Params do
-  if (not HasWithoutCode) then
-  if (0<Length(ProcedureNew)) then
+  if FPrimaryConnnection.FTSS_Primary_Params.UseSingleConn(AAllowNewObjects) then
     Exit;
 
   if (nil=AXYPtr) or (nil=Result^.FNextSectionConn) then
@@ -835,8 +832,8 @@ begin
     Result := Result^.FNextSectionConn;
 
     if (nil=Result) then begin
-      // так ничего и не нашлось - будем использовать подключение для справочников
-      Result := GetGuidesConnection;
+      // так ничего и не нашлось - будем использовать подключение для неопределившихся тайлов
+      Result := GetUndefinedConnection;
       Exit;
     end;
 
@@ -889,6 +886,7 @@ begin
 
   FPrimaryConnnection := nil;
   FGuidesConnnection := nil;
+  FUndefinedConnnection := nil;
 
   // если всё нормально настроено - сюда ничего не залетит
   // так что заранее создавать этот объект нелогично
@@ -942,10 +940,15 @@ var
   Vignore_errors: AnsiChar;
   VReplaceNumeric: String;
   VIndexSQL: SmallInt;
-  VCode: LongInt;
   i: Integer;
   VExecuteSQLItem: TExecuteSQLItem;
-  VProcessBySectionCodeAtPrimary: Boolean;
+  // код секции (обязателен для выполнения процедуры)
+  VSectionCode: LongInt;
+  // подключение для выполнения процедуры NewTileTable
+  // если NIL - значит не выполняем процедуру
+  VNewTileProcConn: IDBMS_Connection;
+  // подключение для  выполнения CREATE TABLE
+  VCreateTableConn: IDBMS_Connection;
 
   function _GetTxtSQL(out ATxtSql: AnsiString): Boolean;
   var VColIdx: SmallInt;
@@ -957,15 +960,7 @@ var
     end else
       Result := FALSE;
   end;
-
-  function _GetConn: IDBMS_Connection;
-  begin
-    if VProcessBySectionCodeAtPrimary then
-      Result := FPrimaryConnnection
-    else
-      Result := ATilesConnection;
-  end;
-  
+ 
 begin
   // а вдруг нет базовой таблицы с шаблонами
   if (not ATilesConnection.TableExistsDirect(ATilesConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
@@ -985,6 +980,62 @@ begin
     Exit;
   end;
 
+  // по умолчанию процедуру не выполняем
+  VNewTileProcConn := nil;
+  VSectionCode := 0;
+
+  // определим используемые подключения для создания таблицы
+  if (not ATableForTiles) then begin
+    // таблица не тайловая - значит используем подключение для справочников
+    VCreateTableConn  := GetGuidesConnection;
+  end else begin
+    // тайловая таблица - возможны разные варианты
+    // определим нужные подключения
+    if (ATilesConnection.FTSS_Info_Ptr<>nil) then begin
+      // код целевой секции
+      VSectionCode := ATilesConnection.FTSS_Info_Ptr^.CodeValue;
+    end;
+
+    // только если есть процедура и есть код целевой секции
+    if (VSectionCode <> 0) then
+    if (0 < Length(FPrimaryConnnection.FTSS_Primary_Params.NewTileTable_Proc)) then
+    case FPrimaryConnnection.FTSS_Primary_Params.NewTileTable_Link of
+      tsslt_Destination: begin
+        // целевое подключение
+        VNewTileProcConn := ATilesConnection;
+      end;
+      tsslt_Secondary: begin
+        // вторичное, если нет - первичное
+        VNewTileProcConn := FPrimaryConnnection;
+        if VNewTileProcConn.FNextSectionConn<>nil then
+          VNewTileProcConn := VNewTileProcConn.FNextSectionConn;
+      end;
+      else begin
+        // первичное
+        VNewTileProcConn := FPrimaryConnnection;
+      end;
+    end;
+
+    // однако ещё должны уметь выполнять процедуры на этом сервере
+    if (VNewTileProcConn <> nil) then
+    if (pnm_None = c_SQL_ProcedureNew_Mode[VNewTileProcConn.GetCheckedEngineType]) then begin
+      // к сожалению, не умеем
+      VNewTileProcConn := nil;
+    end;
+
+    // определим подключение для выполнения CREATE TABLE
+    // если секционирование настроено через удалённые таблицы, то
+    // будем выполняться на подключении для процедуры
+    // иначе будем использовать целевое подключение
+    if (VNewTileProcConn <> nil) and (tssal_Linked = FPrimaryConnnection.FTSS_Primary_Params.Algorithm) then begin
+      VCreateTableConn := VNewTileProcConn;
+    end else begin
+      // нет секционирования или ручное секционирование - используем целевое подключение
+      VCreateTableConn := ATilesConnection;
+    end;
+  end;
+
+  // читаем Z_ALL_SQL на целевой секции
   VSQLText := 'SELECT index_sql,ignore_errors,object_sql' +
                ' FROM ' + ATilesConnection.ForcedSchemaPrefix + Z_ALL_SQL+
               ' WHERE object_name=' + DBMSStrToDB(ATemplateName) +
@@ -1041,21 +1092,6 @@ begin
     // а теперь если чего залетело в список - выполним
     if (VExecuteSQLArray<>nil) then
     if (VExecuteSQLArray.Count>0) then begin
-
-      // если есть процедура и код секции - выполняться надо на первичном подключении
-      VProcessBySectionCodeAtPrimary := ATableForTiles
-                                    and (ATilesConnection.FTSS_Info_Ptr<>nil)
-                                    and (c_SQL_ProcedureNew_Mode[FPrimaryConnnection.GetCheckedEngineType] <> pnm_None)
-                                    and (0<Length(FPrimaryConnnection.FTSS_Primary_Params.ProcedureNew));
-
-      if VProcessBySectionCodeAtPrimary then begin
-        VCode := ATilesConnection.FTSS_Info_Ptr^.CodeValue;
-        if (0=VCode) then
-          VProcessBySectionCodeAtPrimary := FALSE;
-      end else begin
-        VCode := 0;
-      end;
-
       for i := 0 to VExecuteSQLArray.Count-1 do begin
         VExecuteSQLItem := VExecuteSQLArray.GetSQLItem(i);
         VSQLText := VExecuteSQLItem.Text;
@@ -1063,8 +1099,8 @@ begin
 
         // если это таблица для хранения тайлов - то возможно, что запрос надо подправить
         // или вообще заменить, выполнить другой и т.п.
-        if VProcessBySectionCodeAtPrimary then begin
-          // зовём процедуру или функцию (только на первичном подключении!)
+        if (VNewTileProcConn <> nil) then begin
+          // зовём процедуру или функцию
           with VOdbcFetchColsEx.Base do begin
             Close;
             WorkFlags := WorkFlags or WF_COLNAME;
@@ -1073,18 +1109,19 @@ begin
           // index_sql, object_oper, object_name, section_code
           VReplaceNumeric := IntToStr(VExecuteSQLItem.IndexSQL) + ',''C'',' +
                              DBMSStrToDB(AUnquotedTableNameWithoutPrefix) + ',' +
-                             IntToStr(VCode);
+                             IntToStr(VSectionCode);
           // доделаем запрос
-          case c_SQL_ProcedureNew_Mode[FPrimaryConnnection.GetCheckedEngineType] of
+          case c_SQL_ProcedureNew_Mode[VNewTileProcConn.GetCheckedEngineType] of
             pnm_ExecuteProcedure: begin
-              VReplaceNumeric := 'exec ' + FPrimaryConnnection.FTSS_Primary_Params.ProcedureNew + ' ' + VReplaceNumeric;
+              VReplaceNumeric := 'exec ' + FPrimaryConnnection.FTSS_Primary_Params.NewTileTable_Proc + ' ' + VReplaceNumeric;
             end;
             pnm_SelectFromFunction: begin
-              VReplaceNumeric := 'select * from ' + FPrimaryConnnection.FTSS_Primary_Params.ProcedureNew + '(' + VReplaceNumeric + ')';
+              VReplaceNumeric := 'select * from ' + FPrimaryConnnection.FTSS_Primary_Params.NewTileTable_Proc + '(' + VReplaceNumeric + ')';
             end;
           end;
-          // выполняем запрос
-          if FPrimaryConnnection.OpenDirectSQLFetchCols(VReplaceNumeric, @(VOdbcFetchColsEx.Base)) then
+
+          // выполняем процедуру на подключении для процедуры
+          if VNewTileProcConn.OpenDirectSQLFetchCols(VReplaceNumeric, @(VOdbcFetchColsEx.Base)) then
           while VOdbcFetchColsEx.Base.FetchRecord do begin
             // есть что-то интересненькое
             // вернуться должен датасет не более 5 полей
@@ -1131,11 +1168,11 @@ begin
         if (0<Length(VSQLText)) then
         try
           // выполняем напрямую
-          _GetConn.ExecuteDirectSQL(VSQLText, FALSE)
+          VCreateTableConn.ExecuteDirectSQL(VSQLText, FALSE)
         except
           on E: Exception do begin
             // тут если стандартные критичные ошибки - надо валить и сообщать юзеру
-            if StandardExceptionType(GetStatementExceptionType(_GetConn, E), TRUE, Result) then
+            if StandardExceptionType(GetStatementExceptionType(VCreateTableConn, E), TRUE, Result) then
               Exit;
             // прочее покажем в зависимости от настройки
             if (not VExecuteSQLItem.SkipErrorsOnExec) then
@@ -1150,6 +1187,7 @@ begin
   end;
 
   // проверяем что табла успешно создалась
+  // проверяем на целевом подключении
   if (ATilesConnection.TableExistsDirect(AQuotedTableNameWithPrefix)) then begin
     Result := ETS_RESULT_OK;
     Exit;
@@ -2822,6 +2860,8 @@ procedure TDBMS_Provider.DoBeginWork(
 );
 begin
   AExclusivelyLocked := AExclusively OR
+                        // TODO: надо что-то придумать с этим условием
+                        // возможно ли его оформить более корректно
                         (FGuidesConnnection=nil) OR
                         (FGuidesConnnection.FullSyncronizeSQL);
 
@@ -2871,23 +2911,26 @@ end;
 function TDBMS_Provider.FillTableNamesForTiles(
   ASQLTile: PSQLTile;
   const AAllowNewObjects: Boolean;
-  out ATilesConnection: IDBMS_Connection
+  var AResultConnection: IDBMS_Connection
 ): Boolean;
 var
   VXYMaskWidth: Byte;
-  //VNeedToQuote: Boolean; - use Result instead of
   VEngineType: TEngineType;
   VTablePosPtr: PPoint;
 begin
   VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
 
-  VTablePosPtr := ASQLTile^.HXYToTableNamePos(VXYMaskWidth);
+  // определяем здесь подключение ТОЛЬКО если работаем по табличым координатам
+  // если работаем по тайловым - оно уже должно быть определено ранее
+  if UseSectionByTableXY then begin
+    VTablePosPtr := ASQLTile^.HXYToTableNamePos(VXYMaskWidth);
 
-  if (nil=VTablePosPtr) then begin
-    // не делимся - одна таблица - используем подключение для справочников
-    ATilesConnection := GetGuidesConnection;
-  end else begin
-    ATilesConnection := ChooseConnection(ASQLTile^.Zoom, VTablePosPtr, AAllowNewObjects);
+    if (nil=VTablePosPtr) then begin
+      // не делимся - одна таблица - используем подключение для справочников
+      AResultConnection := GetGuidesConnection;
+    end else begin
+      AResultConnection := ChooseConnection(ASQLTile^.Zoom, VTablePosPtr, AAllowNewObjects);
+    end;
   end;
 
   ASQLTile^.UnquotedTileTableName := ASQLTile^.ZoomToTableNameChar(Result) +
@@ -2897,7 +2940,7 @@ begin
                                      '_' +
                                      InternalGetServiceNameByDB;
 
-  VEngineType := ATilesConnection.GetCheckedEngineType;
+  VEngineType := AResultConnection.GetCheckedEngineType;
 
   // заквотируем или нет
   Result := Result or c_SQL_QuotedIdentifierForcedForTiles[VEngineType];
@@ -3358,7 +3401,8 @@ begin
         with VSelectInRectItem^ do begin
           InitialWhereClause := '';
 
-          // получим имя таблицы и определим подключение
+          // получим имя таблицы
+          // а также определим подключение (для секционирования по табличным координатам)
           FillTableNamesForTiles(@(VSelectInRectItem^.TabSQLTile), FALSE, UsedConnection);
 
           // по X
@@ -3866,13 +3910,18 @@ function TDBMS_Provider.InternalCalcSQLTile(
   const AXYZ: PTILE_ID_XYZ;
   const ASQLTile: PSQLTile;
   const AAllowNewObjects: Boolean;
-  out ATilesConnection: IDBMS_Connection
+  out AResultConnection: IDBMS_Connection
 ): Byte;
 begin
   if (nil=ASQLTile) or (nil=AXYZ) then begin
-    ATilesConnection := GetGuidesConnection;
+    AResultConnection := GetGuidesConnection;
     Result := ETS_RESULT_OK;
     Exit;
+  end;
+
+  // если секционирование по тайловым координатам - определяем секцию
+  if UseSectionByTileXY then begin
+    AResultConnection := ChooseConnection(AXYZ^.z, @(AXYZ^.xy), AAllowNewObjects);
   end;
 
   // сохраняем зум (от 1 до 24)
@@ -3882,7 +3931,7 @@ begin
   InternalDivideXY(AXYZ^.xy, ASQLTile);
 
   // строим имя таблицы для тайлов
-  FillTableNamesForTiles(ASQLTile, AAllowNewObjects, ATilesConnection);
+  FillTableNamesForTiles(ASQLTile, AAllowNewObjects, AResultConnection);
 
   Result := ETS_RESULT_OK;
 end;
@@ -4015,8 +4064,6 @@ function TDBMS_Provider.InternalProv_Connect(
   ASQLTilePtr: PSQLTile;
   out ATilesConnection: IDBMS_Connection
 ): Byte;
-var
-  VGuidesConnection: IDBMS_Connection;
 begin
   if (not FCompleted) then begin
     Result := ETS_RESULT_INCOMPLETE;
@@ -4042,11 +4089,46 @@ begin
         Result := ETS_RESULT_CANNOT_CONNECT;
         Exit;
       end;
-      CheckGuidesConnection;
+      CheckSecondaryConnections;
     end else begin
       // request exclusive access
       Result := ETS_RESULT_NEED_EXCLUSIVE;
       Exit;
+    end;
+  end;
+
+  // если ещё не читали настройки - берём подключение для справочников и подключаемся
+  if (not FDBMS_Service_OK) then begin
+    // пробуем подключиться
+    if (not AExclusively) then begin
+      Result := ETS_RESULT_NEED_EXCLUSIVE;
+      Exit;
+    end;
+
+    // требование переподключения после разрыва соединения будем проверять внутри
+    Result := GetGuidesConnection.EnsureConnected(AExclusively, FStatusBuffer);
+
+    // при ошибке валим
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    // читаем параметры сервиса после подключения
+    Result := InternalProv_ReadServiceInfo(GetGuidesConnection, AExclusively);
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    // если сервис нашёлся - вытащим из базы его версии
+    ReadVersionsFromDB(GetGuidesConnection, AExclusively);
+    // если версий нет вообще - создадим запись для пустой версии (без версии)
+    try
+      if (0=FVersionList.Count) then begin
+        // создаём только если СУБД допускает пустую версию
+        if not c_SQL_Empty_Version_Denied[GetGuidesConnection.GetCheckedEngineType] then begin
+          MakeEmptyVersionInDB(GetGuidesConnection, 0, AExclusively);
+        end;
+        ReadVersionsFromDB(GetGuidesConnection, AExclusively);
+      end;
+    except
     end;
   end;
 
@@ -4057,57 +4139,20 @@ begin
     AAllowNewObjects,
     ATilesConnection
   );
+
   if (Result<>ETS_RESULT_OK) then
     Exit;
 
   // пробуем подключиться
   // требование переподключения после разрыва соединения будем проверять внутри
   Result := ATilesConnection.EnsureConnected(AExclusively, FStatusBuffer);
-
-  // при ошибке валим
-  if (ETS_RESULT_OK<>Result) then
-    Exit;
-
-  // читаем параметры сервиса после подключения
-  if (not FDBMS_Service_OK) then begin
-    if (not AExclusively) then begin
-      Result := ETS_RESULT_NEED_EXCLUSIVE;
-      Exit;
-    end;
-
-    // подключение для справочников
-    VGuidesConnection := GetGuidesConnection;
-
-    // подключаемся если ещё не подключены
-    Result := VGuidesConnection.EnsureConnected(AExclusively, FStatusBuffer);
-    if (ETS_RESULT_OK<>Result) then
-      Exit;
-
-    // читаем параметры сервиса
-    Result := InternalProv_ReadServiceInfo(VGuidesConnection, AExclusively);
-    if (ETS_RESULT_OK<>Result) then
-      Exit;
-
-    // если сервис нашёлся - вытащим из базы его версии
-    ReadVersionsFromDB(VGuidesConnection, AExclusively);
-    // если версий нет вообще - создадим запись для пустой версии (без версии)
-    try
-      if (0=FVersionList.Count) then begin
-        // создаём только если СУБД допускает пустую версию
-        if not c_SQL_Empty_Version_Denied[VGuidesConnection.GetCheckedEngineType] then begin
-          MakeEmptyVersionInDB(VGuidesConnection, 0, AExclusively);
-        end;
-        ReadVersionsFromDB(VGuidesConnection, AExclusively);
-      end;
-    except
-    end;
-  end;
 end;
 
 procedure TDBMS_Provider.InternalProv_Disconnect;
 begin
   // detach connection object from provider
   FGuidesConnnection := nil;
+  FUndefinedConnnection := nil;
   FreeDBMSConnection(FPrimaryConnnection);
 end;
 
@@ -4789,6 +4834,11 @@ begin
   SaveUnknownException(AException);
 end;
 
+function TDBMS_Provider.GetUndefinedConnection: IDBMS_Connection;
+begin
+  Result := FUndefinedConnnection
+end;
+
 function TDBMS_Provider.GetUnknownExceptions: String;
 begin
   FUnknownExceptionsCS.BeginWrite;
@@ -5220,6 +5270,18 @@ begin
       Result :=  ETS_RESULT_PROVIDER_EXCEPTION;
     end;
   end;
+end;
+
+function TDBMS_Provider.UseSectionByTableXY: Boolean;
+begin
+  // сейчас секционирование по табличым координатам используется
+  // тогда и только тогда, когда используются удалённые таблицы
+  Result := (tssal_Linked = FPrimaryConnnection.FTSS_Primary_Params.Algorithm)
+end;
+
+function TDBMS_Provider.UseSectionByTileXY: Boolean;
+begin
+  Result := (tssal_Linked <> FPrimaryConnnection.FTSS_Primary_Params.Algorithm)
 end;
 
 function TDBMS_Provider.VersionExistsInDBWithIdVer(

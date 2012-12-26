@@ -20,7 +20,6 @@ uses
   t_DBMS_Connect in 't_DBMS_Connect.pas',
   t_TSS in 't_TSS.pas',
   i_TSS in 'i_TSS.pas',
-  u_TSS in 'u_TSS.pas',
   u_ZoomList in 'u_ZoomList.pas',
   u_TileArea in 'u_TileArea.pas',
   t_types in 't_types.pas',

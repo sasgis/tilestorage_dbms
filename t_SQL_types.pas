@@ -57,9 +57,6 @@ type
     set_Unknown
   );
 
-  // откуда читаем справочники, инфу о сервисах и версиях
-  TGuidesLinkType = (glt_Primary, glt_Secondary);
-
   TStatementRepeatType = (srt_None, srt_Insert, srt_Update);
 
   TSecondarySQLCheckServerTypeMode = (schstm_None, schstm_SomeSybase);
