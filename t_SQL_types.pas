@@ -33,18 +33,6 @@ type
 
   TQuotedPlace = (qp_Before, qp_After);
 
-  TSqlOperation = (
-    so_Select,
-    so_Insert,
-    so_Delete,
-    so_EnumVersions,
-    so_ReloadVersions,
-    so_OutputVersions,
-    so_SelectInRect,
-    so_Sync,
-    so_Destroy
-  );
-
   TStatementExceptionType = (
     set_Success,
     set_TableNotFound,
@@ -326,6 +314,32 @@ const
   'create view DUAL as select ''FIREBIRD'' as ENGINETYPE, rdb$get_context(''SYSTEM'',''ENGINE_VERSION'') as ENGINE_VERSION from rdb$database', // Firebird
   ''
   );
+
+  // MSSQL + ASE
+  c_SQL_ENUM_SVC_Tables_MSSQL_ASE =
+    'SELECT name FROM sysobjects WHERE type=''U'' AND name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // PostgreSQL
+  c_SQL_ENUM_SVC_Tables_PG =
+    'SELECT table_name FROM information_schema.tables WHERE table_type=''BASE TABLE'' AND table_schema=''public'' AND table_name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // select to enumerate all tables with tiles for specified service
+  c_SQL_ENUM_SVC_Tables: array [TEngineType] of String = (
+  c_SQL_ENUM_SVC_Tables_MSSQL_ASE,   // MSSQL
+  c_SQL_ENUM_SVC_Tables_MSSQL_ASE,   // ASE
+  '',                                // ASA
+  '',                                // Oracle
+  '',                                // Informix
+  '',                                // DB2
+  '',                                // MySQL
+  c_SQL_ENUM_SVC_Tables_PG,          // PostgreSQL
+  '',                                // Mimer
+  '',                                // Firebird
+  ''                                 // Unknown - always EMPTY!
+  );
+
 
 {$if defined(ETS_USE_ZEOS)}
   // use PingServer for ZEOSLib

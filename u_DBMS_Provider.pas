@@ -29,7 +29,7 @@ uses
   u_DBMS_Utils;
 
 type
-  TDBMS_Provider = class(TInterfacedObject, IDBMS_Provider)
+  TDBMS_Provider = class(TInterfacedObject, IDBMS_Provider, IDBMS_Worker)
   private
     // initialization
     FStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS; // MANDATORY
@@ -79,11 +79,6 @@ type
     // для создания версии
     FLastMakeVersionSource: String;
 
-    // препарированные датасеты для вставки и обновления
-    (*
-    FInsertDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
-    FUpdateDS: array [TInsertUpdateSubType] of TDBMS_Dataset;
-    *)
   private
     // определяет подключение для справочников, сервисов и т.п. и для непопавших никуда тайлов
     procedure CheckSecondaryConnections;
@@ -94,6 +89,7 @@ type
     function UseSectionByTableXY: Boolean; inline;
     function UseSectionByTileXY: Boolean; inline;
 
+  private
     // common work
     procedure DoBeginWork(
       const AExclusively: Boolean;
@@ -101,6 +97,8 @@ type
       out AExclusivelyLocked: Boolean
     );
     procedure DoEndWork(const AExclusivelyLocked: Boolean);
+
+  private
     // work with guides
     procedure GuidesBeginWork(const AExclusively: Boolean);
     procedure GuidesEndWork(const AExclusively: Boolean);
@@ -357,12 +355,6 @@ type
       var AResultConnection: IDBMS_Connection
     ): Boolean;
 
-    function CalcBackToTilePos(
-      XInTable, YInTable: Integer;
-      const AXYUpperToTable: TPoint; //ASelectInRectItem: PSelectInRectItem;
-      AXYResult: PPoint
-    ): Boolean;
-
     function GetSQL_AddIntWhereClause(
       var AWhereClause: TDBMS_String;
       const AFieldName: TDBMS_String;
@@ -481,6 +473,12 @@ type
       const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
     ): Byte;
 
+    function DBMS_MakeTileEnum(
+      const AEnumTilesHandle: PETS_EnumTiles_Handle;
+      const AFlags: LongWord;
+      const AHostPointer: Pointer
+    ): Byte;
+
     function DBMS_ExecOption(
       const ACallbackPointer: Pointer;
       const AExecOptionIn: PETS_EXEC_OPTION_IN
@@ -502,6 +500,7 @@ uses
   u_Exif_Parser,
   u_Tile_Parser,
   u_Lang,
+  u_DBMS_TileEnum,
   u_DBMS_Template;
 
 { TDBMS_Provider }
@@ -749,31 +748,6 @@ begin
     Result := ETS_RESULT_UNKNOWN_VERSION;
     Exit;
   until FALSE;
-end;
-
-function TDBMS_Provider.CalcBackToTilePos(
-  XInTable, YInTable: Integer;
-  const AXYUpperToTable: TPoint;
-  AXYResult: PPoint
-): Boolean;
-var
-  VXYMaskWidth: Byte;
-begin
-  // рассчитываем обратным расчётом тайловые координаты
-  // исходя из параметров деления по таблицам и координат (идентификатора) внутри таблицы
-  VXYMaskWidth := FDBMS_Service_Info.XYMaskWidth;
-
-  // общая часть
-  AXYResult^.X := XInTable;
-  AXYResult^.Y := YInTable;
-
-  // если делились по таблицам - добавим "верхнюю" часть
-  if (0<VXYMaskWidth) then begin
-    AXYResult^.X := AXYResult^.X or (AXYUpperToTable.X shl VXYMaskWidth);
-    AXYResult^.Y := AXYResult^.Y or (AXYUpperToTable.Y shl VXYMaskWidth);
-  end;
-
-  Result := TRUE;
 end;
 
 procedure TDBMS_Provider.CheckSecondaryConnections;
@@ -2385,7 +2359,7 @@ begin
                 VEnumOut.TileInfo.dwOptionsOut := ETS_ROO_SAME_VERSION;
 
                 // заполняем TilePos тайловыми координатами тайла
-                CalcBackToTilePos(
+                FDBMS_Service_Info.CalcBackToTilePos(
                   VOdbcFetchColsEx.Base.GetOptionalLongInt('x'),
                   VOdbcFetchColsEx.Base.GetOptionalLongInt('y'),
                   VSelectInRectItem.TabSQLTile.XYUpperToTable,
@@ -2638,6 +2612,61 @@ begin
           end;
         end; // of case
       end; // of while
+  finally
+    DoEndWork(VExclusivelyLocked);
+  end;
+end;
+
+function TDBMS_Provider.DBMS_MakeTileEnum(
+  const AEnumTilesHandle: PETS_EnumTiles_Handle;
+  const AFlags: LongWord;
+  const AHostPointer: Pointer
+): Byte;
+var
+  VExclusivelyLocked: Boolean;
+  VUseSingleSection: Boolean;
+  VConnectionForEnum: IDBMS_Connection;
+begin
+  // проверим наличие функции обратного вызова
+  if (nil = FHostCallbacks[ETS_INFOCLASS_NextTileEnum_Callback]) then begin
+    Result := ETS_RESULT_INVALID_CALLBACK_PTR;
+    Exit;
+  end;
+
+  // создание перечислителя выполняем всегда эксклюзивно
+  DoBeginWork(TRUE, so_EnumTiles, VExclusivelyLocked);
+  try
+    // connect (if not connected)
+    Result := InternalProv_Connect(TRUE, nil, TRUE, nil, VConnectionForEnum);
+
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    // типа подключились - смотрим настройки секционирования
+    // надо ли ходить по всем секциям, или можно по одной
+    VUseSingleSection := FPrimaryConnnection.FTSS_Primary_Params.UseSingleConn(FALSE);
+
+    if (not VUseSingleSection) then begin
+      // так как надо пройти по всем секциям (подключениям) - пойдём с самого начала
+      VConnectionForEnum := FPrimaryConnnection;
+    end;
+
+    // можно создавать перечислитель, так как всё остальное он сделает внутри
+    PStub_DBMS_TileEnum(AEnumTilesHandle)^.TileEnum := TDBMS_TileEnum.Create(
+      Self,
+      @(Self.FDBMS_Service_Info),
+      Self.FVersionList,
+      Self.FContentTypeList,
+      FStatusBuffer,
+      AFlags,
+      AHostPointer,
+      FHostCallbacks[ETS_INFOCLASS_NextTileEnum_Callback],
+      VConnectionForEnum,
+      VUseSingleSection
+    );
+
+    // готово
+    Result := ETS_RESULT_OK;
   finally
     DoEndWork(VExclusivelyLocked);
   end;
@@ -4116,6 +4145,11 @@ begin
     Result := InternalProv_ReadServiceInfo(GetGuidesConnection, AExclusively);
     if (ETS_RESULT_OK<>Result) then
       Exit;
+
+    // читаем типы тайлов
+    if (0=FContentTypeList.Count) then begin
+      ReadContentTypesFromDB(GetGuidesConnection, AExclusively);
+    end;
 
     // если сервис нашёлся - вытащим из базы его версии
     ReadVersionsFromDB(GetGuidesConnection, AExclusively);

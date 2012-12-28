@@ -1252,15 +1252,27 @@ type
                Handle:SQLHANDLE;
                CompletionType:SQLSMALLINT):SQLRETURN;stdcall;external 'ODBC32.DLL';
 {$endif}
-   function SQLTables( hstmt : SQLHSTMT;
-                szTableQualifier : PSQLCHAR;
-                cbTableQualifier : SQLSMALLINT;
-                szTableOwner : PSQLCHAR;
-                cbTableOwner : SQLSMALLINT;
-                szTableName : PSQLCHAR;
-                cbTableName : SQLSMALLINT;
-                szTableType : PSQLCHAR;
-                cbTableType : SQLSMALLINT ) : SQLRETURN; stdcall; external 'ODBC32.DLL';
+
+   function SQLTablesA(hstmt: SQLHSTMT;
+                szTableQualifier: PANSICHAR;
+                cbTableQualifier: SQLSMALLINT;
+                szTableOwner: PANSICHAR;
+                cbTableOwner: SQLSMALLINT;
+                szTableName: PANSICHAR;
+                cbTableName: SQLSMALLINT;
+                szTableType: PANSICHAR;
+                cbTableType: SQLSMALLINT): SQLRETURN; stdcall; external 'ODBC32.DLL';
+
+   function SQLTablesW(hstmt: SQLHSTMT;
+                szTableQualifier: PWIDECHAR;
+                cbTableQualifier: SQLSMALLINT;
+                szTableOwner: PWIDECHAR;
+                cbTableOwner: SQLSMALLINT;
+                szTableName: PWIDECHAR;
+                cbTableName: SQLSMALLINT;
+                szTableType: PWIDECHAR;
+                cbTableType: SQLSMALLINT): SQLRETURN; stdcall; external 'ODBC32.DLL';
+
    function SQLColumns( hstmt : SQLHSTMT;
     		szTableQualifier : PSQLCHAR;
                 cbTableQualifier : SQLSMALLINT;

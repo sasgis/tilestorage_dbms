@@ -128,6 +128,13 @@ type
 
     function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
 
+    (*
+    function GetTablesWithTiles(
+      const ATileServiceName: AnsiString;
+      AListOfTables: TStrings
+    ): Boolean;
+    *)
+
     procedure CheckByteaAsLoOff(const ANeedCheck: Boolean);
 
     property UID: String read GetUID write SetUID;
@@ -445,6 +452,76 @@ function TODBCConnection.GetPWD: String;
 begin
   Result := FParams.Values['PWD'];
 end;
+
+(*
+function TODBCConnection.GetTablesWithTiles(
+  const ATileServiceName: AnsiString;
+  AListOfTables: TStrings
+): Boolean;
+const
+  c_SQL_NAME_LEN = 63; // если больше длина - таблица не наша
+var
+  VStmtHandle: SQLHSTMT;
+  VStrLen_or_Ind_TableName, VStrLen_or_Ind_TableType: SQLLEN;
+  VTableName: array [0..SQL_NAME_LEN + 1] of AnsiChar;
+  VTableType: array [0..SQL_NAME_LEN + 1] of AnsiChar;
+  VTableFilterStr: AnsiString;
+  VTableFilterPtr: PAnsiChar;
+  VFoundTable: AnsiString;
+  VUnderPos: Integer;
+begin
+  VTableFilterPtr := nil;
+  VTableFilterStr := ATileServiceName;
+
+  Result := SQL_SUCCEEDED(SQLAllocHandle(SQL_HANDLE_STMT, Fhdbc, VStmtHandle));
+  if Result then
+  try
+    if (0 < Length(VTableFilterStr)) then begin
+      // есть шаблон
+      Result := SQL_SUCCEEDED(SQLSetStmtAttr(VStmtHandle, SQL_ATTR_METADATA_ID, Pointer(SQL_FALSE), 0));
+      if Result then begin
+        VTableFilterStr := '%___' + VTableFilterStr;
+        VTableFilterPtr := @VTableFilterPtr[1];
+      end;
+    end;
+
+    if Result then
+    if SQL_SUCCEEDED(SQLTablesA(VStmtHandle, nil, 0, nil, 0, VTableFilterPtr, Length(VTableFilterStr), nil, 0)) then begin
+      // прив€жем 2 нужных пол€
+      SQLBindCol(VStmtHandle, 3, SQL_CHAR, @VTableName, c_SQL_NAME_LEN, @VStrLen_or_Ind_TableName);
+      SQLBindCol(VStmtHandle, 4, SQL_CHAR, @VTableType, c_SQL_NAME_LEN, @VStrLen_or_Ind_TableType);
+      // вытащим список
+      while SQL_SUCCEEDED(SQLFetch(VStmtHandle)) do begin
+        // "TABLE"             - надо
+        // "VIEW"              - надо
+        // "SYSTEM TABLE"      - не надо
+        // "GLOBAL TEMPORARY"  - не надо
+        // "LOCAL TEMPORARY"   - не надо
+        // "ALIAS"             - ?
+        // "SYNONYM"           - надо
+        // or a data sourceЦspecific type name:
+        // "BASE TABLE"        - надо (PostgreSQL)
+        if (VStrLen_or_Ind_TableName > Length(ATileServiceName)+2) then
+        if (VStrLen_or_Ind_TableType <= 10) then begin
+          VFoundTable := StrPas(VTableName);
+          VUnderPos := System.Pos('_', VFoundTable);
+          // есть символ подчЄркивани€, и он не ранее чем на третьей позиции
+          if (VUnderPos > 2) then
+          // начинаетс€ не с символов xyz
+          if (not (VFoundTable[1] in ['X','x','Y','y','Z','z'])) then
+          // после подчЄркивани€ идЄт суффикс
+          if (0=StrIComp(@VFoundTable[VUnderPos+1], @ATileServiceName[1])) then begin
+            // можно добавл€ть
+            AListOfTables.Add(VFoundTable);
+          end;
+        end;
+      end;
+    end;
+  finally
+    SQLFreeHandle(SQL_HANDLE_STMT, VStmtHandle);
+  end;
+end;
+*)
 
 function TODBCConnection.GetUID: String;
 begin

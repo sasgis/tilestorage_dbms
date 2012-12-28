@@ -88,6 +88,8 @@ type
     procedure ColToSmallInt(const AColNumber: Byte; out AValue: SmallInt);
     procedure ColToLongInt(const AColNumber: Byte; out AValue: LongInt);
     procedure ColToDateTime(const AColNumber: Byte; out AValue: TDateTime);
+  public
+    function GetAsLongInt(const AColNumber: Byte): LongInt; inline;
   end;
 
   TOdbcFetchCols2 = packed record
@@ -107,6 +109,13 @@ type
   TOdbcFetchCols5 = packed record
     Base: TOdbcFetchCols;
     ExtCols: array [2..5] of TOdbcColItem;
+  public
+    procedure Init;
+  end;
+
+  TOdbcFetchCols7 = packed record
+    Base: TOdbcFetchCols;
+    ExtCols: array [2..7] of TOdbcColItem;
   public
     procedure Init;
   end;
@@ -780,7 +789,7 @@ begin
   for i := 1 to ColumnCount do begin
     VItem := @(Cols[i]);
     // если NULL - пропускаем
-    if (SQL_NULL_DATA <> VItem^.Bind_StrLen_or_Ind) then
+    // if (SQL_NULL_DATA <> VItem^.Bind_StrLen_or_Ind) then
     if VItem^.DescribeColData.IsLOB then begin
       // тащим LOB
       VLOBDataType := VItem^.DescribeColData.LOBDataType;
@@ -912,6 +921,11 @@ begin
   if Result and WithLOBs then begin
     FetchLOBs;
   end;
+end;
+
+function TOdbcFetchCols.GetAsLongInt(const AColNumber: Byte): LongInt;
+begin
+  ColToLongInt(AColNumber, Result)
 end;
 
 function TOdbcFetchCols.GetLOBBuffer(const AColNumber: Byte): Pointer;
@@ -1076,6 +1090,14 @@ procedure TOdbcFetchCols2.Init;
 begin
   FillChar(Self, SizeOf(Self), 0);
   Self.Base.ColumnsAllocated := 2;
+end;
+
+{ TOdbcFetchCols7 }
+
+procedure TOdbcFetchCols7.Init;
+begin
+  FillChar(Self, SizeOf(Self), 0);
+  Self.Base.ColumnsAllocated := 7;
 end;
 
 end.

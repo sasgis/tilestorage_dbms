@@ -4,7 +4,11 @@ unit t_DBMS_service;
 
 interface
 
+uses
+  Types;
+
 type
+  PDBMS_Service_Info = ^TDBMS_Service_Info;
   TDBMS_Service_Info = packed record
     id_service: SmallInt;
     id_contenttype: SmallInt; // default contenttype
@@ -20,6 +24,11 @@ type
     new_ver_by_tile: SmallInt;   // ETS_VTM_*
   public
     function XYMaskWidth: Byte; //inline;
+    function CalcBackToTilePos(
+      XInTable, YInTable: Integer;
+      const AXYUpperToTable: TPoint;
+      AXYResult: PPoint
+    ): Boolean;
   end;
 
   (*
@@ -54,6 +63,31 @@ begin
 end;
 
 { TDBMS_Service_Info }
+
+function TDBMS_Service_Info.CalcBackToTilePos(
+  XInTable, YInTable: Integer;
+  const AXYUpperToTable: TPoint;
+  AXYResult: PPoint
+): Boolean;
+var
+  VXYMaskWidth: Byte;
+begin
+  // рассчитываем обратным расчётом тайловые координаты
+  // исходя из параметров деления по таблицам и координат (идентификатора) внутри таблицы
+  VXYMaskWidth := XYMaskWidth;
+
+  // общая часть
+  AXYResult^.X := XInTable;
+  AXYResult^.Y := YInTable;
+
+  // если делились по таблицам - добавим "верхнюю" часть
+  if (0<VXYMaskWidth) then begin
+    AXYResult^.X := AXYResult^.X or (AXYUpperToTable.X shl VXYMaskWidth);
+    AXYResult^.Y := AXYResult^.Y or (AXYUpperToTable.Y shl VXYMaskWidth);
+  end;
+
+  Result := TRUE;
+end;
 
 function TDBMS_Service_Info.XYMaskWidth: Byte;
 begin

@@ -45,6 +45,12 @@ type
       const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
     ): Byte;
 
+    function DBMS_MakeTileEnum(
+      const AEnumTilesHandle: PETS_EnumTiles_Handle;
+      const AFlags: LongWord;
+      const AHostPointer: Pointer
+    ): Byte;
+
     function DBMS_ExecOption(
       const ACallbackPointer: Pointer;
       const AExecOptionIn: PETS_EXEC_OPTION_IN
@@ -57,7 +63,43 @@ type
   end;
   PStub_DBMS_Provider = ^TStub_DBMS_Provider;
 
+  IDBMS_TileEnum = interface
+    ['{E81D8936-2015-4FBB-9493-5020553BD889}']
+    function GetNextTile(
+      const ACallbackPointer: Pointer;
+      const ANextBufferIn: PETS_GET_TILE_RECT_IN
+    ): Byte;
+  end;
+
+  TStub_DBMS_TileEnum = packed record
+    TileEnum: IDBMS_TileEnum;
+  end;
+  PStub_DBMS_TileEnum = ^TStub_DBMS_TileEnum;
+
   TDBMS_INFOCLASS_Callbacks = array [TETS_INFOCLASS_Callbacks] of Pointer;
+
+  TSqlOperation = (
+    so_Select,
+    so_Insert,
+    so_Delete,
+    so_EnumVersions,
+    so_ReloadVersions,
+    so_OutputVersions,
+    so_SelectInRect,
+    so_Sync,
+    so_EnumTiles,
+    so_Destroy
+  );
+
+  IDBMS_Worker = interface
+    ['{A1FE7963-F8ED-494B-9040-84184E254E3F}']
+    procedure DoBeginWork(
+      const AExclusively: Boolean;
+      const AOperation: TSqlOperation;
+      out AExclusivelyLocked: Boolean
+    );
+    procedure DoEndWork(const AExclusivelyLocked: Boolean);
+  end;
 
 implementation
 

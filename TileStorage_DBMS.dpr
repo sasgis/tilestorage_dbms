@@ -10,6 +10,7 @@ uses
   i_DBMS_Provider in 'i_DBMS_Provider.pas',
   u_DBMS_Provider in 'u_DBMS_Provider.pas',
   u_DBMS_Connect in 'u_DBMS_Connect.pas',
+  u_DBMS_TileEnum in 'u_DBMS_TileEnum.pas',
   t_DBMS_version in 't_DBMS_version.pas',
   t_DBMS_contenttype in 't_DBMS_contenttype.pas',
   t_DBMS_service in 't_DBMS_service.pas',
@@ -48,6 +49,9 @@ exports
   ETS_InsertTNE,
   ETS_DeleteTile,
   ETS_EnumTileVersions,
+  ETS_MakeTileEnum,
+  ETS_KillTileEnum,
+  ETS_NextTileEnum,
   ETS_ExecOption,
   ETS_FreeMem,
   ETS_GetTileRectInfo;

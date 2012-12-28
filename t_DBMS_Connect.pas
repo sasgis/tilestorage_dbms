@@ -27,8 +27,15 @@ const
   // если 4 - синхронизируются запросы типа SELECT к хранилищу снаружи DLL
   c_SYNC_SQL_MODE_Query_In_EXE = 4;
 
-  // префикс схемы для всех таблиц (длямо как он будет подставляться в SQL)
-  ETS_INTERNAL_SCHEMA_PREFIX   = ETS_INTERNAL_PARAMS_PREFIX + 'SCHEMA';
+  // префикс схемы для всех таблиц (прямо как он будет подставляться в SQL)
+  ETS_INTERNAL_SCHEMA_PREFIX   = ETS_INTERNAL_PARAMS_PREFIX + 'SCHEMA_Prefix';
+
+  // при перечислении всех тайлов в хранилище будет подставляться этот префикс схемы
+  ETS_INTERNAL_ENUM_PREFIX     = ETS_INTERNAL_PARAMS_PREFIX + 'ENUM_Prefix';
+
+  // текст SQL для запроса перечисления всех тайлов в хранилище
+  // имя возвращается первым полем, число полей не более 3
+  ETS_INTERNAL_ENUM_SELECT     = ETS_INTERNAL_PARAMS_PREFIX + 'ENUM_Select';
 
   // будет добавляться к каждому запросу при генерации структуры из скрипта
   ETS_INTERNAL_SCRIPT_APPENDER = ETS_INTERNAL_PARAMS_PREFIX + 'SCRIPT_APPENDER';

@@ -70,11 +70,12 @@ type
     FTSS_Info_Ptr: PTSS_Info; // параметры секционирования
     FTSS_Primary_Params: TTSS_Primary_Params;
 
+    FPathDiv: TETS_Path_Divided_W;
+
     procedure Init(const APathPtr: PETS_Path_Divided_W);
     procedure Uninit;
 
   private
-    FPathDiv: TETS_Path_Divided_W;
     FEngineType: TEngineType;
     FODBCDescription: AnsiString;
     // внутренние параметры из ini
@@ -166,7 +167,7 @@ type
     function AllowSavePassword: Boolean;
 
     procedure NeedReconnect;
-    
+
 {$if defined(CONNECTION_AS_CLASS)}
   public
     constructor Create(const APathPtr: PETS_Path_Divided_W);
@@ -650,6 +651,8 @@ begin
           // '08001:1001:[Relex][Linter ODBC Driver] SQLConnect: #1001 очередь ядра Linter не найдена (нет активного ядра)'
           // '08001:-30081:[IBM][CLI Driver] SQL30081N  A communication error has been detected. Communication protocol being used: "TCP/IP".  Communication API being used: "SOCKETS".  Location where the error was detected: "192.168.1.8".  Communication function detecting the error: "connect".  Protocol specific error code(s): "10061", "*", "*".  SQLSTATE=08001'#$D#$A
           // '08004:-908:[Informix][Informix ODBC Driver][Informix]Attempt to connect to database server (ol_informix1170) failed.'
+          // 'ZZZZZ:11216:[Sybase][ODBC Driver][Adaptive Server Enterprise]Internal Ct-Lib/Cs-Lib error 84083972: 'ct_connect(): network packet layer: internal net library error: Net-Lib protocol driver call to connect two endpoints failed'.'
+          // 'ZZZZZ:11206:[Sybase][ODBC Driver][Adaptive Server Enterprise]Unable to connect to server 'ASEMAIN'.'
 
           FConnectionErrorMessage := E.Message;
           FConnectionErrorCode := ETS_RESULT_NOT_CONNECTED;

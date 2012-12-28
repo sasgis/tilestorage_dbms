@@ -72,6 +72,24 @@ function ETS_GetTileRectInfo(
   const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
 ): Byte; stdcall; export;
 
+function ETS_MakeTileEnum(
+  const AProvider_Handle: PETS_Provider_Handle;  // IN
+  const AEnumTilesHandle: PETS_EnumTiles_Handle; // OUT
+  const AFlags: LongWord;  // reserved
+  const AHostPointer: Pointer // MANDATORY
+): Byte; stdcall; export;
+
+function ETS_KillTileEnum(
+  const AEnumTilesHandle: PETS_EnumTiles_Handle; // IN OUT
+  const AFlags: LongWord
+): Byte; stdcall; export;
+
+function ETS_NextTileEnum(
+  const AEnumTilesHandle: PETS_EnumTiles_Handle; // IN
+  const ACallbackPointer: Pointer; // MANDATORY
+  const ANextBufferIn: PETS_GET_TILE_RECT_IN
+): Byte; stdcall; export;
+
 function ETS_ExecOption(
   const AProvider_Handle: PETS_Provider_Handle;
   const ACallbackPointer: Pointer;
@@ -365,6 +383,91 @@ begin
     Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_GetTileRectInfo(
       ACallbackPointer,
       ATileRectInfoIn
+    );
+  except
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
+  end;
+end;
+
+function ETS_MakeTileEnum(
+  const AProvider_Handle: PETS_Provider_Handle;  // IN
+  const AEnumTilesHandle: PETS_EnumTiles_Handle; // OUT
+  const AFlags: LongWord;  // reserved
+  const AHostPointer: Pointer // MANDATORY
+): Byte; stdcall; export;
+begin
+  try
+    if (nil=AProvider_Handle) then begin
+      Result := ETS_RESULT_INVALID_PROVIDER_PTR;
+      Exit;
+    end;
+
+    if (nil=AEnumTilesHandle) then begin
+      Result := ETS_RESULT_INVALID_TILEENUM_PTR;
+      Exit;
+    end;
+
+    if (nil=AHostPointer) then begin
+      Result := ETS_RESULT_INVALID_HOST_PTR;
+      Exit;
+    end;
+
+    // создаём enumerator
+    Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_MakeTileEnum(
+      AEnumTilesHandle,
+      AFlags,
+      AHostPointer
+    );
+  except
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
+  end;
+end;
+
+function ETS_KillTileEnum(
+  const AEnumTilesHandle: PETS_EnumTiles_Handle; // IN OUT
+  const AFlags: LongWord
+): Byte; stdcall; export;
+begin
+  try
+    if (nil=AEnumTilesHandle) then begin
+      Result := ETS_RESULT_INVALID_TILEENUM_PTR;
+      Exit;
+    end;
+
+    // free
+    PStub_DBMS_TileEnum(AEnumTilesHandle)^.TileEnum := nil;
+    Result := ETS_RESULT_OK;
+  except
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
+  end;
+end;
+
+function ETS_NextTileEnum(
+  const AEnumTilesHandle: PETS_EnumTiles_Handle; // IN
+  const ACallbackPointer: Pointer; // MANDATORY
+  const ANextBufferIn: PETS_GET_TILE_RECT_IN
+): Byte; stdcall; export;
+begin
+  try
+    if (nil=AEnumTilesHandle) then begin
+      Result := ETS_RESULT_INVALID_TILEENUM_PTR;
+      Exit;
+    end;
+
+    if (nil=ACallbackPointer) then begin
+      Result := ETS_RESULT_INVALID_CALLBACK_PTR;
+      Exit;
+    end;
+
+    if (nil=ANextBufferIn) then begin
+      Result := ETS_RESULT_INVALID_INPUT_BUFFER;
+      Exit;
+    end;
+
+    // get next
+    Result := PStub_DBMS_TileEnum(AEnumTilesHandle)^.TileEnum.GetNextTile(
+      ACallbackPointer,
+      ANextBufferIn
     );
   except
     Result := ETS_RESULT_PROVIDER_EXCEPTION;
