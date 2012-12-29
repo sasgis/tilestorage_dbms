@@ -16,6 +16,7 @@ function DBMSStrToDB(const S: TDBMS_String): TDBMS_String; inline;
 
 function GetModuleFileNameWithoutExt(
   const AInSqlSubFolder: Boolean;
+  const AKeepFullPath: Boolean;
   const APrefixBefore: String;
   const ATailAfterDot: String
 ): String;
@@ -53,12 +54,17 @@ end;
 
 function GetModuleFileNameWithoutExt(
   const AInSqlSubFolder: Boolean;
+  const AKeepFullPath: Boolean;
   const APrefixBefore: String;
   const ATailAfterDot: String
 ): String;
 begin
   Result := GetModuleName(HInstance);
-  Result := ExtractFileName(Result);
+
+  if (not AKeepFullPath) then begin
+    Result := ExtractFileName(Result);
+  end;
+
   Result := ChangeFileExt(Result,'');
   if (0<Length(ATailAfterDot)) then begin
     Result := Result + '.' + ATailAfterDot;

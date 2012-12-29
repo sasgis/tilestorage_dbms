@@ -3432,6 +3432,7 @@ begin
 
           // получим имя таблицы
           // а также определим подключение (для секционирования по табличным координатам)
+          UsedConnection := VDummyConnection;
           FillTableNamesForTiles(@(VSelectInRectItem^.TabSQLTile), FALSE, UsedConnection);
 
           // по X

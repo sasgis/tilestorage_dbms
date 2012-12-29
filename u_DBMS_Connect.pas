@@ -304,8 +304,9 @@ begin
   // для визуального отличия от остальных файлов добавляем подчёркивание в начало имени
   VFilename :=
   GetModuleFileNameWithoutExt(
+    FALSE,
     TRUE,
-    c_SQL_ODBC_Prefix_Ini,
+    '',
     ''
   ) + c_SQL_Ext_Ini;
   
