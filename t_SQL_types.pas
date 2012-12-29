@@ -320,23 +320,58 @@ const
     'SELECT name FROM sysobjects WHERE type=''U'' AND name' +
      ' like ''%__$_%SVC%'' escape ''$''';
 
+  // ASA
+  c_SQL_ENUM_SVC_Tables_MSSQL_ASA =
+    'SELECT table_name FROM SYSTABLE WHERE table_type=''BASE'' AND table_name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // Oracle
+  c_SQL_ENUM_SVC_Tables_ORA =
+    'SELECT table_name FROM all_tables WHERE table_name' +
+     ' like ''%__$_%SVC%%'' escape ''$''';
+
+  // Informix
+  c_SQL_ENUM_SVC_Tables_IFX =
+    'SELECT tabname FROM systables WHERE tabtype=''T'' AND owner=user AND tabname' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // DB2
+  c_SQL_ENUM_SVC_Tables_DB2 =
+    'SELECT name FROM SYSIBM.SYSTABLES WHERE type=''T'' AND creator=user AND name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // MySQL
+  c_SQL_ENUM_SVC_Tables_MY =
+    'SELECT table_name FROM information_schema.tables WHERE table_type=''BASE TABLE'' AND table_schema=schema() AND table_name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
   // PostgreSQL
   c_SQL_ENUM_SVC_Tables_PG =
     'SELECT table_name FROM information_schema.tables WHERE table_type=''BASE TABLE'' AND table_schema=''public'' AND table_name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // Mimer
+  c_SQL_ENUM_SVC_Tables_MMR =
+    'SELECT table_name FROM information_schema.tables WHERE table_type=''BASE TABLE'' AND table_schema=user AND table_name' +
+     ' like ''%__$_%SVC%'' escape ''$''';
+
+  // Firebird
+  c_SQL_ENUM_SVC_Tables_FB =
+    'SELECT RDB$RELATION_NAME FROM RDB$RELATIONS WHERE RDB$RELATION_TYPE=0 AND RDB$OWNER_NAME=user AND trim(RDB$RELATION_NAME)' +
      ' like ''%__$_%SVC%'' escape ''$''';
 
   // select to enumerate all tables with tiles for specified service
   c_SQL_ENUM_SVC_Tables: array [TEngineType] of String = (
   c_SQL_ENUM_SVC_Tables_MSSQL_ASE,   // MSSQL
   c_SQL_ENUM_SVC_Tables_MSSQL_ASE,   // ASE
-  '',                                // ASA
-  '',                                // Oracle
-  '',                                // Informix
-  '',                                // DB2
-  '',                                // MySQL
+  c_SQL_ENUM_SVC_Tables_MSSQL_ASA,   // ASA
+  c_SQL_ENUM_SVC_Tables_ORA,         // Oracle
+  c_SQL_ENUM_SVC_Tables_IFX,         // Informix
+  c_SQL_ENUM_SVC_Tables_DB2,         // DB2
+  c_SQL_ENUM_SVC_Tables_MY,          // MySQL
   c_SQL_ENUM_SVC_Tables_PG,          // PostgreSQL
-  '',                                // Mimer
-  '',                                // Firebird
+  c_SQL_ENUM_SVC_Tables_MMR,         // Mimer
+  c_SQL_ENUM_SVC_Tables_FB,          // Firebird
   ''                                 // Unknown - always EMPTY!
   );
 
@@ -494,7 +529,7 @@ const
     TRUE,   // PostgreSQL // OK with TRUE
     FALSE,  // Mimer // OK with FALSE
     TRUE,   // Firebird
-    FALSE
+    TRUE
   );
 
   c_SQL_QuotedIdentifierValue: array [TEngineType, TQuotedPlace] of Char = (
@@ -502,7 +537,7 @@ const
     ('[',']'),  // ASE // OK with '[]'
     ('"','"'),  // ASA
     ('"','"'),  // Oracle
-    ('_','_'),  // Informix
+    ('"','"'),  // Informix
     ('"','"'),  // DB2
     ('`','`'),  // MySQL
     ('"','"'),  // PostgreSQL // OK with '"'

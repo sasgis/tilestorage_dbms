@@ -157,11 +157,11 @@ begin
   FFetchTilesCols.Base.ColToLongInt(4, FNextBufferOut.TileInfo.dwTileSize);
 
   // проверка на корректность
-  Assert(FFetchTilesCols.Base.IsNull(7) = (FNextBufferOut.TileInfo.dwTileSize=0));
+  // Assert(FFetchTilesCols.Base.IsNull(7) = (FNextBufferOut.TileInfo.dwTileSize=0));
 
   // если TNE - значит тело и тип можно не тащить
   // TODO: скорректировать при реализации реестра часто используемых тайлов
-  if (FNextBufferOut.TileInfo.dwTileSize <= 0) then begin
+  if (FNextBufferOut.TileInfo.dwTileSize <= 0) or FFetchTilesCols.Base.IsNull(7) then begin
     // TNE
     with FNextBufferOut.TileInfo do begin
       ptTileBuffer := nil;
@@ -496,6 +496,8 @@ begin
   VTablename := System.Copy(VTablename, 2, (VPos-2));
 
   // ищем разделитель координат - это символ деления по таблицам
+  // на самом деле он может быть в любом регистре
+  VTablename := UpperCase(VTablename);
   VPos := System.Pos(FDBMS_Service_Info^.id_div_mode, VTablename);
 
   if (VPos>0) then begin

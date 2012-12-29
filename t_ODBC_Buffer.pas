@@ -490,7 +490,14 @@ begin
         // не надо делить или умножать
         AValue := VInt;
       end;
-    end
+    end;
+    SQL_DOUBLE: begin
+      // SQLDOUBLE
+      // TODO: необходима корректная проверка округления
+      //if (0=VItem^.DescribeColData.DecimalDigits) then begin
+        AValue := Round(PSQLDOUBLE(InternalColData(VItem))^);
+      //end;
+    end;
     else begin
       // сюда по идее не должны попадать
       raise EODBCConvertLongintError.Create(IntToStr(AColNumber) + ':' + IntToStr(VItem^.DescribeColData.DataType));
@@ -537,7 +544,14 @@ begin
         // не надо делить или умножать
         AValue := VInt;
       end;
-    end
+    end;
+    SQL_DOUBLE: begin
+      // SQLDOUBLE
+      // TODO: необходима корректная проверка округления
+      //if (0=VItem^.DescribeColData.DecimalDigits) then begin
+        AValue := Round(PSQLDOUBLE(InternalColData(VItem))^);
+      //end;
+    end;
     else begin
       // сюда по идее не должны попадать
       raise EODBCConvertSmallintError.Create(IntToStr(AColNumber) + ':' + IntToStr(VItem^.DescribeColData.DataType));
