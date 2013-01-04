@@ -22,7 +22,7 @@ type
     DecimalDigits: SQLSMALLINT;
     Nullable: SQLSMALLINT;
   public
-    function IsLOB: Boolean;
+    function IsLOB(const AWorkFlags: Byte): Boolean;
     function LOBDataType: SQLSMALLINT;
   end;
 
@@ -68,9 +68,9 @@ type
     procedure InternalFreeColNames;
   public
     function FetchRecord: Boolean; //inline;
-    function IsActive: Boolean; //inline;
-    function WithColNames: Boolean; //inline;
-    function WithLOBs: Boolean; //inline;
+    function IsActive: Boolean; inline;
+    function WithColNames: Boolean; inline;
+    function WithLOBs: Boolean; inline;
     function IsNull(const AColNumber: Byte): Boolean;
     function Close: Boolean;
     function DescribeAndBind: Boolean;
@@ -82,6 +82,8 @@ type
   public
     procedure Init;
     procedure FetchLOBs;
+    procedure EnableCLOBChecking; inline;
+    procedure DisableCLOBChecking; inline;
     procedure ColToAnsiChar(const AColNumber: Byte; out AValue: AnsiChar); //inline;
     procedure ColToAnsiCharDef(const AColNumber: Byte; out AValue: AnsiChar; const AValIfNull: AnsiChar);
     procedure ColToAnsiString(const AColNumber: Byte; out AValue: AnsiString);
@@ -139,6 +141,7 @@ const
   WF_ACTIVE  = $01; // Statement is active - allow to fetch
   WF_STATIC  = $02; // Buffer is static - do not reallocate it!
   WF_COLNAME = $04; // надо тащить имена полей - будет доступ по имени
+  WF_CLOBCHK = $08; // varchar(255) как CLOB (если длиннее - всегда как CLOB)
   WF_HAS_LOB = $20; // Есть хотя бы одно поле LOB (устанавливается автоматически)
 
 function OdbcCloseStmt(var AStmt: SQLHANDLE): Boolean;
@@ -283,7 +286,7 @@ end;
 
 function TOdbcFetchCols.InternalColData(const AItem: POdbcColItem): Pointer;
 begin
-  if AItem^.DescribeColData.IsLOB then begin
+  if AItem^.DescribeColData.IsLOB(WorkFlags) then begin
     // свой буфер
     Result := AItem^.LOBPtr;
   end else begin
@@ -314,7 +317,7 @@ begin
   if WithLOBs then
   for i := 1 to ColumnCount do begin
     VItem := @(Cols[i]);
-    if VItem^.DescribeColData.IsLOB then begin
+    if VItem^.DescribeColData.IsLOB(WorkFlags) then begin
       OdbcFreeColBuffer(VItem^.LOBPtr, VItem^.Bind_BufferLength, 0);
     end;
   end;
@@ -624,7 +627,7 @@ begin
     end;
 
     // если не LOB - подсчитаем размер для буфера
-    if VDesc^.IsLOB then begin
+    if VDesc^.IsLOB(WorkFlags) then begin
       // LOB
       WorkFlags := WorkFlags or WF_HAS_LOB;
       // конец для LOB
@@ -760,7 +763,7 @@ begin
   // приBINDим поля (кроме LOB)
   for i := 1 to ColumnCount do begin
     VItem := @(Cols[i]);
-    if (not VItem^.DescribeColData.IsLOB) then begin
+    if (not VItem^.DescribeColData.IsLOB(WorkFlags)) then begin
       VRes := SQLBindCol(
         Stmt,
         i,
@@ -776,6 +779,16 @@ begin
   // всё успешно
   Result := TRUE;
   WorkFlags := WorkFlags or WF_ACTIVE;
+end;
+
+procedure TOdbcFetchCols.DisableCLOBChecking;
+begin
+  WorkFlags := (WorkFlags and (not WF_CLOBCHK))
+end;
+
+procedure TOdbcFetchCols.EnableCLOBChecking;
+begin
+  WorkFlags := (WorkFlags or WF_CLOBCHK)
 end;
 
 procedure TOdbcFetchCols.FetchLOBs;
@@ -804,7 +817,7 @@ begin
     VItem := @(Cols[i]);
     // если NULL - пропускаем
     // if (SQL_NULL_DATA <> VItem^.Bind_StrLen_or_Ind) then
-    if VItem^.DescribeColData.IsLOB then begin
+    if VItem^.DescribeColData.IsLOB(WorkFlags) then begin
       // тащим LOB
       VLOBDataType := VItem^.DescribeColData.LOBDataType;
 
@@ -953,7 +966,7 @@ begin
   end;
 
   VItem := @(Cols[AColNumber]);
-  if VItem^.DescribeColData.IsLOB then
+  if VItem^.DescribeColData.IsLOB(WorkFlags) then
     Result := VItem^.LOBPtr
   else with VItem^.DescribeColData do
     raise EODBCConvertLOBError.Create(IntToStr(AColNumber)+': '+IntToStr(DataType)+'['+IntToStr(ColumnSize)+']');
@@ -1016,7 +1029,7 @@ end;
 
 { TDescribeColData }
 
-function TDescribeColData.IsLOB: Boolean;
+function TDescribeColData.IsLOB(const AWorkFlags: Byte): Boolean;
 begin
   case DataType of
     SQL_BINARY,
@@ -1035,7 +1048,12 @@ begin
     SQL_LONGVARCHAR,
     SQL_WLONGVARCHAR: begin
       // если больше 255 или неизвестно - тоже утащим в отдельный буфер
-      Result := ((ColumnSize=0) or (ColumnSize>255));
+      // если 255 и признак трактовать это как CLOB (TEXT) - тоже
+      Result := (
+        (ColumnSize=0) or
+        (ColumnSize>255) or
+        ((ColumnSize=255) and ((AWorkFlags and WF_CLOBCHK)<>0))
+      );
     end;
 
     else begin

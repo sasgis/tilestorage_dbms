@@ -1021,6 +1021,7 @@ begin
   VOdbcFetchColsEx.Init;
   try
     try
+      VOdbcFetchColsEx.Base.EnableCLOBChecking;
       ATilesConnection.OpenDirectSQLFetchCols(VSQLText, @(VOdbcFetchColsEx.Base));
 
       if (not VOdbcFetchColsEx.Base.IsActive) then begin
@@ -1061,6 +1062,7 @@ begin
 
     finally
       VOdbcFetchColsEx.Base.Close;
+      VOdbcFetchColsEx.Base.DisableCLOBChecking;
     end;
 
     // а теперь если чего залетело в список - выполним
