@@ -876,26 +876,13 @@ end;
 
 function TDBMS_Provider.CreateAllBaseTablesFromScript(const ATilesConnection: IDBMS_Connection): Byte;
 var
-  VUniqueEngineType: String;
-  VSQLTemplates: TDBMS_SQLTemplates_File;
+  VSQLTemplates: TSQLScriptParser_SQL;
 begin
-  // получим уникальный код типа СУБД
-  VUniqueEngineType := c_SQL_Engine_Name[ATilesConnection.GetCheckedEngineType];
-  // если пусто - значит неизвестный типа СУБД, и ловить тут нечего
-  if (0=Length(VUniqueEngineType)) then begin
-    Result := ETS_RESULT_UNKNOWN_DBMS;
-    Exit;
-  end;
-
   // создадим объект для генерации структуры для конкретного типа БД
-  VSQLTemplates := TDBMS_SQLTemplates_File.Create(
-    VUniqueEngineType,
-    ATilesConnection.ForcedSchemaPrefix,
-    ATilesConnection.GetInternalParameter(ETS_INTERNAL_SCRIPT_APPENDER)
-  );
+  VSQLTemplates := TSQLScriptParser_SQL.Create(ATilesConnection);
   try
     // исполним всё что есть
-    Result := VSQLTemplates.ExecuteAllSQLs(ATilesConnection);
+    Result := VSQLTemplates.ExecuteAllSQLs;
   finally
     VSQLTemplates.Free;
   end;
