@@ -57,6 +57,9 @@ const
   // для подключения через ODBC
   ETS_INTERNAL_ODBC_ConnectWithParams = ETS_INTERNAL_PARAMS_PREFIX + 'ODBC_ConnectWithParams';
 
+  // запрет использовать TOP 1 или LIMIT 1 при SELECT (даже если поддерживается сервером)
+  ETS_INTERNAL_DenySelectRowCount1 = ETS_INTERNAL_PARAMS_PREFIX + 'DenySelectRowCount1';
+
   // разрешение сохранять (и читать сохранённый) пароль, а также режим работы
   ETS_INTERNAL_PWD_Save          = ETS_INTERNAL_PARAMS_PREFIX + 'PWD_Save';
   // значения - либо 0 для отключки, либо 1 для включки, либо это:

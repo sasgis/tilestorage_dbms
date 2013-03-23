@@ -377,7 +377,7 @@ type
       const AVersionIn: Pointer;
       const AOptionsIn: LongWord;
       const AInitialWhere: TDBMS_String;
-      const ASelectXY: Boolean;
+      const AGetManyTilesWithXY: Boolean;
       const AExclusively: Boolean;
       out ASQLTextResult: TDBMS_String
     ): Byte;
@@ -3664,7 +3664,7 @@ begin
     );
   end;
 
-  if AForceTNE then begin
+  if AForceTNE or (nil=AInsertBuffer^.ptTileBuffer) then begin
     // маркер TNE - нет тела тайла (поля не указываем вообще)
     // ВНИМАНИЕ! здесь если был TILE и залетает TNE - будет tile_size=0, а тело тайла останется!
     // сделано как реализация раздельного хранения тайла и маркера TNE с приоритетом TNE
@@ -3735,7 +3735,7 @@ function TDBMS_Provider.GetSQL_SelectTilesInternal(
   const AVersionIn: Pointer;
   const AOptionsIn: LongWord;
   const AInitialWhere: TDBMS_String;
-  const ASelectXY: Boolean;
+  const AGetManyTilesWithXY: Boolean;
   const AExclusively: Boolean;
   out ASQLTextResult: TDBMS_String
 ): Byte;
@@ -3746,13 +3746,13 @@ begin
   Result := ETS_RESULT_OK;
 
   // заготовки
-  VSQLParts.SelectSQL := 'SELECT v.id_ver,v.id_contenttype,v.load_date,';
+  VSQLParts.SelectSQL := 'v.id_ver,v.id_contenttype,v.load_date,';
   VSQLParts.FromSQL := ASQLTile^.QuotedTileTableName + ' v';
   VSQLParts.WhereSQL := AInitialWhere;
   VSQLParts.OrderBySQL := '';
 
-  if ASelectXY then begin
-    // может быть надо вытащить координаты
+  if AGetManyTilesWithXY then begin
+    // тащим много тайлов - надо вытащить координаты
     VSQLParts.SelectSQL := VSQLParts.SelectSQL + 'v.x,v.y,';
   end;
 
@@ -3837,9 +3837,24 @@ begin
     VSQLParts.WhereSQL := ' WHERE ' + VSQLParts.WhereSQL;
   end;
 
+  if (not AGetManyTilesWithXY) then begin
+    // тащим только один тайл - добавим TOP 1 или LIMIT 1 или ещё что (в зависимости от СУБД)
+    case ATilesConnection.GetSelectRowCount1Mode of
+      rc1m_Top1: begin
+        VSQLParts.SelectSQL := 'TOP 1 ' + VSQLParts.SelectSQL;
+      end;
+      rc1m_First1: begin
+        VSQLParts.SelectSQL := 'FIRST 1 ' + VSQLParts.SelectSQL;
+      end;
+      rc1m_Limit1: begin
+        VSQLParts.OrderBySQL := VSQLParts.OrderBySQL + ' LIMIT 1';
+      end;
+    end;
+  end;
 
   // собираем всё вместе
-  ASQLTextResult := VSQLParts.SelectSQL + ' FROM ' + VSQLParts.FromSQL +
+  ASQLTextResult := 'SELECT ' + VSQLParts.SelectSQL +
+                     ' FROM ' + VSQLParts.FromSQL +
                     VSQLParts.WhereSQL +
                     VSQLParts.OrderBySQL;
 end;

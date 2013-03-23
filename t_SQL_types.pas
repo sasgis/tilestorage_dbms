@@ -51,6 +51,8 @@ type
 
   TProcedureNewMode = (pnm_None, pnm_SelectFromFunction, pnm_ExecuteProcedure);
 
+  TRowCount1Mode = (rc1m_None, rc1m_Top1, rc1m_First1, rc1m_Limit1);
+
 const
   c_SQLCMD_FROM_SYSDUMMY1 = 'SELECT * FROM SYSIBM.SYSDUMMY1'; // DB2 only!
   //c_SQLCMD_MySQL_DUAL = 'SELECT /*!1 111 AS F, */ * FROM DUAL'; //  /*!1 */ works at version 1 and higher
@@ -268,6 +270,21 @@ const
   'SYSTEM.ONEROW', // Mimer
   'rdb$database',  // Firebird
   ''
+  );
+
+  // how to select first row only
+  c_SQL_RowCount1_Mode: array [TEngineType] of TRowCount1Mode = (
+    rc1m_Top1,     // MSSQL
+    rc1m_Top1,     // ASE    // TODO: DELETE TOP 1 FROM ... // UPDATE TOP 1 table ...
+    rc1m_Top1,     // ASA    // TODO: DELETE TOP 1 FROM ... // UPDATE TOP 1 table ... // ORDER BY clause is required
+    rc1m_None,     // Oracle
+    rc1m_First1,   // Informix // SELECT FIRST 1 a,b FROM tab
+    rc1m_None,     // DB2
+    rc1m_Limit1,   // MySQL  // SELECT * FROM tbl LIMIT 1 // DELETE // UPDATE
+    rc1m_Limit1,   // PostgreSQL
+    rc1m_None,     // Mimer
+    rc1m_None,     // Firebird
+    rc1m_None      // always NONE here
   );
 
   // how to call function or procedure to get sql for new object

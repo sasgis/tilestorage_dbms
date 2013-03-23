@@ -92,6 +92,8 @@ type
     // если FALSE - просто в реестре (в обоих случа€х он шифруетс€)
     FSavePwdAsLsaSecret: Boolean;
     FReadPrevSavedPwd: Boolean;
+    // запрет использовать TOP 1 или LIMIT 1 при SELECT (даже если поддерживаетс€ сервером)
+    FDenySelectRowCount1: Boolean;
     // признак необходимости переподключитьс€ из-за разрыва соединени€
     FReconnectPending: Boolean;
   private
@@ -156,6 +158,7 @@ type
 
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
     function GetCheckedEngineType: TEngineType;
+    function GetSelectRowCount1Mode: TRowCount1Mode;
     function GetInternalParameter(const AInternalParameterName: String): String;
     function ForcedSchemaPrefix: String;
     function FullSyncronizeSQL: Boolean;
@@ -363,6 +366,10 @@ begin
     // разрешение читать сохранЄнный пароль (и оно же - разрешение сохран€ть пароль) + режим Lsa
     FSavePwdAsLsaSecret := SameText(AParamValue, ETS_INTERNAL_PWD_Save_Lsa);
     FReadPrevSavedPwd := FSavePwdAsLsaSecret or (StrToIntDef(AParamValue, 0) <> 0);
+    Exit;
+  end else if SameText(ETS_INTERNAL_DenySelectRowCount1, AParamName) then begin
+    // запрет использовать TOP 1 или LIMIT 1 при SELECT (даже если поддерживаетс€ сервером)
+    FDenySelectRowCount1 := (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(CONNECTION_AS_RECORD)}
@@ -733,6 +740,14 @@ begin
   end;
 end;
 
+function TDBMS_Connection.GetSelectRowCount1Mode: TRowCount1Mode;
+begin
+  if FDenySelectRowCount1 then
+    Result := rc1m_None
+  else
+    Result := c_SQL_RowCount1_Mode[GetEngineType(cetm_Check)];
+end;
+
 function TDBMS_Connection.GetCheckedEngineType: TEngineType;
 begin
   Result := GetEngineType(cetm_Check);
@@ -942,6 +957,7 @@ begin
   FNextSectionConn := nil;
   FSavePwdAsLsaSecret := FALSE;
   FReadPrevSavedPwd := FALSE;
+  FDenySelectRowCount1 := FALSE;
   FReconnectPending := FALSE;
   FTSS_Primary_Params.Algorithm := tssal_None;
   FTSS_Primary_Params.Guides_Link := tsslt_Primary;
