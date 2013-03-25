@@ -51,7 +51,14 @@ type
 
   TProcedureNewMode = (pnm_None, pnm_SelectFromFunction, pnm_ExecuteProcedure);
 
-  TRowCount1Mode = (rc1m_None, rc1m_Top1, rc1m_First1, rc1m_Limit1);
+  TRowCount1Mode = (rc1m_None, rc1m_Top1, rc1m_First1, rc1m_Limit1, rc1m_Fetch1Only, rc1m_Rows1);
+
+  TUpsertMode = (
+    upsm_None,
+    upsm_Merge,
+    upsm_DualMerge,
+    upsm_InsertOnDupUpdate
+  );
 
 const
   c_SQLCMD_FROM_SYSDUMMY1 = 'SELECT * FROM SYSIBM.SYSDUMMY1'; // DB2 only!
@@ -274,17 +281,32 @@ const
 
   // how to select first row only
   c_SQL_RowCount1_Mode: array [TEngineType] of TRowCount1Mode = (
-    rc1m_Top1,     // MSSQL
-    rc1m_Top1,     // ASE    // TODO: DELETE TOP 1 FROM ... // UPDATE TOP 1 table ...
-    rc1m_Top1,     // ASA    // TODO: DELETE TOP 1 FROM ... // UPDATE TOP 1 table ... // ORDER BY clause is required
-    rc1m_None,     // Oracle
-    rc1m_First1,   // Informix // SELECT FIRST 1 a,b FROM tab
-    rc1m_None,     // DB2
-    rc1m_Limit1,   // MySQL  // SELECT * FROM tbl LIMIT 1 // DELETE // UPDATE
-    rc1m_Limit1,   // PostgreSQL
-    rc1m_None,     // Mimer
-    rc1m_None,     // Firebird
-    rc1m_None      // always NONE here
+    rc1m_Top1,           // MSSQL
+    rc1m_Top1,           // ASE    // TODO: DELETE TOP 1 FROM ... // UPDATE TOP 1 table ...
+    rc1m_Top1,           // ASA    // TODO: DELETE TOP 1 FROM ... // UPDATE TOP 1 table ... // ORDER BY clause is required
+    rc1m_None,           // Oracle // select /*+ first_rows(10) */ * from t1 order by 1 desc;
+    rc1m_First1,         // Informix // SELECT FIRST 1 a,b FROM tab
+    rc1m_Fetch1Only,     // DB2    // SELECT * FROM tbl FETCH FIRST 1 ROW ONLY
+    rc1m_Limit1,         // MySQL  // SELECT * FROM tbl LIMIT 1 // DELETE // UPDATE
+    rc1m_Limit1,         // PostgreSQL
+    rc1m_None,           // Mimer
+    rc1m_Rows1,          // Firebird (from 2.0)
+    rc1m_None            // always NONE here
+  );
+  
+  // how to insert/update in single statement
+  c_SQL_UpsertMode: array [TEngineType] of TUpsertMode = (
+    upsm_Merge,             // MSSQL (from 2008) // ok with ';'
+    upsm_Merge,             // ASE (from 15.7) // ok
+    upsm_Merge,             // ASA  // ok
+    upsm_None,              // Oracle // MERGE // upsm_DualMerge
+    upsm_None,              // Informix // MERGE
+    upsm_Merge,             // DB2 // ok
+    upsm_InsertOnDupUpdate, // MySQL (from 5.0) // ok
+    upsm_None,              // PostgreSQL  // no MERGE and others at 9.2 // with update insert or block statement
+    upsm_None,              // Mimer       // none
+    upsm_None,              // Firebird (MERGE from 2.1) // Update Or Insert
+    upsm_None               // always NONE here
   );
 
   // how to call function or procedure to get sql for new object
@@ -506,9 +528,6 @@ const
   c_RTL_Numeric = 'numeric';
   c_RTL_UNKNOWN = 'UNKNOWN';
 
-  c_RTL_Tile_Body_Paramsrc  = 'tile_body'; // OK: MIMER, PostgreSQL, ASE, MSSQL
-  c_RTL_Tile_Body_Paramname = ':' + c_RTL_Tile_Body_Paramsrc;
-
 {$if defined(ETS_USE_ZEOS)}
   // for ZEOS
   c_ZEOS_Protocol = 'Protocol';
@@ -607,6 +626,7 @@ const
   // '42S02:-204:[ODBC FIREBIRD DRIVER][FIREBIRD]DYNAMIC SQL ERROR'#$A'SQL ERROR CODE = -204'#$A'TABLE UNKNOWN'#$A'Z_SERVICE'#$A'AT LINE 1, COLUMN 25'
   // '42S02:-141:[SYBASE][ODBC DRIVER][SQL ANYWHERE]TABLE 'Z_SERVICE' NOT FOUND'
   // '42S02:-204:[IBM][CLI DRIVER][DB2/NT] SQL0204N  "DB2ADMIN.Z_SERVICE" IS AN UNDEFINED NAME.  SQLSTATE=42704'#$D#$A
+  // '42704:-204:[IBM][CLI Driver][DB2/NT] SQL0204N  "DB2ADMIN.G15I9_yanarodmap" is an undefined name.  SQLSTATE=42704'#$D#$A
   // '42S02:942:[ORACLE][ODBC][ORA]ORA-00942: TABLE OR VIEW DOES NOT EXIST'#$A
   // sqlstate for 'table not exists' error
   c_ODBC_SQLSTATE_TableNotEists_1 : array [TEngineType] of String = (
@@ -628,7 +648,7 @@ const
     '',           // Sybase ASA
     '',           // Oracle
     '',           // Informix
-    '',           // DB2
+    '42704:-204:',    // DB2
     '',           // MySQL
     '42P01:7:',   // PostgreSQL
     '',           // Mimer

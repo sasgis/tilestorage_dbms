@@ -392,7 +392,7 @@ type
     ): Byte;
 
     // формирование текста SQL для вставки (INSERT) и обновления (UPDATE) тайла или маркера TNE
-    // в тексте SQL возможны только параметр c_RTL_Tile_Body_Paramname, остальное подставляется сразу
+    // в тексте SQL возможны только параметр tile_body как ?, остальное подставляется сразу
     function GetSQL_InsertUpdateTile(
       const ATilesConnection: IDBMS_Connection;
       const ASQLTilePtr: PSQLTile;
@@ -401,6 +401,7 @@ type
       const AExclusively: Boolean;
       out AInsertSQLResult, AUpdateSQLResult: TDBMS_String;
       out AInsertUpdateSubType: TInsertUpdateSubType;
+      out AUpsert: Boolean;
       out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String
     ): Byte;
 
@@ -2416,13 +2417,14 @@ var
   VQuotedTableNameWithPrefix: TDBMS_String;
   VStatementRepeatType: TStatementRepeatType;
   VInsertUpdateSubType: TInsertUpdateSubType;
-  VCastBodyAsHexLiteral: Boolean;
+  //VCastBodyAsHexLiteral: Boolean;
+  //VBodyAsLiteralValue: TDBMS_String;
   VExecuteWithBlob: Boolean;
-  VBodyAsLiteralValue: TDBMS_String;
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
   VSQLTile: TSQLTile;
   VConnectionForInsert: IDBMS_Connection;
+  VUpsert: Boolean;
 begin
   VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -2438,6 +2440,7 @@ begin
       VStatementRepeatType := srt_None;
       
       // получим выражения INSERT и UPDATE
+      // если используется UPSERT - текст залетает в INSERT, а UPDATE пустой
       Result := GetSQL_InsertUpdateTile(
         VConnectionForInsert,
         @VSQLTile,
@@ -2447,12 +2450,14 @@ begin
         VInsertSQL,
         VUpdateSQL,
         VInsertUpdateSubType,
+        VUpsert,
         VUnquotedTableNameWithoutPrefix,
         VQuotedTableNameWithPrefix
       );
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
+      (*
       if (iust_TILE=VInsertUpdateSubType) then begin
         // тело тайла есть в запросе
 {$if defined(ETS_USE_DBX)}
@@ -2471,21 +2476,24 @@ begin
         VCastBodyAsHexLiteral := FALSE;
         VBodyAsLiteralValue := '';
       end;
+      *)
 
       // запрос с передачей BLOBа или нет
-      VExecuteWithBlob := (iust_TILE=VInsertUpdateSubType) and (not VCastBodyAsHexLiteral);
+      VExecuteWithBlob := (iust_TILE=VInsertUpdateSubType) {and (not VCastBodyAsHexLiteral)};
 
       // выполним INSERT
       VStatementExceptionType := set_Success;
       try
         // может BLOB надо писать как 16-ричный литерал
+        {
         if VCastBodyAsHexLiteral then begin
           VInsertSQL := StringReplace(VInsertSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
         end;
+        }
 
         if VExecuteWithBlob then begin
           // INSERT with BLOB
-          VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
+          VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
         end else begin
           // INSERT without BLOB
           VConnectionForInsert.ExecuteDirectSQL(VInsertSQL, FALSE);
@@ -2537,7 +2545,13 @@ begin
         end;
         set_PrimaryKeyViolation: begin
           // нарушение уникальности по первичному ключу - надо обновляться
-          VStatementRepeatType := srt_Update;
+          if VUpsert then begin
+            // при upsert такого быть не должно
+            Result := ETS_RESULT_INVALID_STRUCTURE;
+            Exit;
+          end else begin
+            VStatementRepeatType := srt_Update;
+          end;
         end;
       end;
 
@@ -2548,9 +2562,11 @@ begin
         // значит можно просто копировать текст SQL-я из UPDATE в INSERT
         // и пользоваться только одним буфером
         if (VStatementRepeatType = srt_Update) then begin
+          {
           if VCastBodyAsHexLiteral then begin
             VUpdateSQL := StringReplace(VUpdateSQL, c_RTL_Tile_Body_Paramname, VBodyAsLiteralValue, [rfReplaceAll,rfIgnoreCase]);
           end;
+          }
           VInsertSQL := VUpdateSQL;
         end;
 
@@ -2559,7 +2575,7 @@ begin
           // здесь в VInsertSQL может быть и текст для UPDATE
           if VExecuteWithBlob then begin
             // UPDATE with BLOB
-            VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, c_RTL_Tile_Body_Paramname, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
+            VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
           end else begin
             // UPDATE without BLOB
             VConnectionForInsert.ExecuteDirectSQL(VInsertSQL, FALSE);
@@ -2596,7 +2612,13 @@ begin
               Exit;
             end else begin
               // будем исполнять update
-              VStatementRepeatType := srt_Update;
+              // однако для upsert на update не ходим, а валим
+              if VUpsert then begin
+                Result := ETS_RESULT_INVALID_STRUCTURE;
+                Exit;
+              end else begin
+                VStatementRepeatType := srt_Update;
+              end;
             end;
           end;
         end; // of case
@@ -3549,16 +3571,37 @@ function TDBMS_Provider.GetSQL_InsertUpdateTile(
   const AExclusively: Boolean;
   out AInsertSQLResult, AUpdateSQLResult: TDBMS_String;
   out AInsertUpdateSubType: TInsertUpdateSubType;
+  out AUpsert: Boolean;
   out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: TDBMS_String
 ): Byte;
+const
+  c_InsertOnDupUpdate_Ins: array [TInsertUpdateSubType] of AnsiString = ('', ',tile_body',                   '');
+  c_InsertOnDupUpdate_Sel: array [TInsertUpdateSubType] of AnsiString = ('', ',?',                           '');
+  c_InsertOnDupUpdate_Upd: array [TInsertUpdateSubType] of AnsiString = ('', ',tile_body=VALUES(tile_body)', ',tile_body=null');
+  //
+  c_DualMerge_Sel: array [TInsertUpdateSubType] of AnsiString = ('NULL', 'cast (? as BLOB)',             'NULL'); // cast (? as BLOB) или просто ?
+  c_DualMerge_Ins: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body',    '');
+  c_DualMerge_Val: array [TInsertUpdateSubType] of AnsiString = ('',     ',tb',           '');
+  c_DualMerge_Upd: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body=tb', ',tile_body=null');
+  //
+  c_Merge_Sel: array [TInsertUpdateSubType] of AnsiString = ('NULL', '?',                        'NULL');
+  c_Merge_Ins: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body',               '');
+  c_Merge_Val: array [TInsertUpdateSubType] of AnsiString = ('',     ',d.tile_body',             '');
+  c_Merge_Upd: array [TInsertUpdateSubType] of AnsiString = ('',     ',g.tile_body=d.tile_body', ',g.tile_body=null');
+  //
+  c_Insert_Ins: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body',    '');
+  c_Insert_Val: array [TInsertUpdateSubType] of AnsiString = ('',     ',?',            '');
+  c_Update_Upd: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body=?',  ',tile_body=null');
+
 var
   VRequestedVersionFound, VRequestedContentTypeFound: Boolean;
   VIdContentType: SmallInt;
   VReqVersion: TVersionAA;
   VUseCommonTiles: Boolean;
   VNewTileSize: LongInt;
-  VNewTileBody: TDBMS_String;
   VVersionAutodetected: Boolean;
+  VUpsertMode: TUpsertMode;
+  VEngineType: TEngineType;
 begin
   // если нет начитанных типов тайлов - надо читать
   if (0=FContentTypeList.Count) then begin
@@ -3669,41 +3712,134 @@ begin
     // ВНИМАНИЕ! здесь если был TILE и залетает TNE - будет tile_size=0, а тело тайла останется!
     // сделано как реализация раздельного хранения тайла и маркера TNE с приоритетом TNE
     // TODO: учитывать хранимый признак (опцию)
-    AUpdateSQLResult := ''; // ', tile_body=null';
-    AInsertSQLResult := '';
-    VNewTileBody := '';
     AInsertUpdateSubType := iust_TNE;
   end else if VUseCommonTiles then begin
     // часто используемый тайл - сохраним ссылку на него
-    AUpdateSQLResult := ', tile_body=null';
-    AInsertSQLResult := ',tile_body';
-    VNewTileBody := ',null';
     AInsertUpdateSubType := iust_COMMON;
   end else begin
     // обычный тайл (не маркер TNE и не часто используемый)
-    AUpdateSQLResult := ', tile_body=' + c_RTL_Tile_Body_Paramname;
-    AInsertSQLResult := ',tile_body';
-    VNewTileBody := ',' + c_RTL_Tile_Body_Paramname;
     AInsertUpdateSubType := iust_TILE;
   end;
 
-  // соберём выражение INSERT
-  AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + AInsertSQLResult + ') VALUES (' +
-                      IntToStr(ASQLTilePtr^.XYLowerToID.X) + ',' +
-                      IntToStr(ASQLTilePtr^.XYLowerToID.Y) + ',' +
-                      IntToStr(VReqVersion.id_ver) + ',' +
-                      IntToStr(VIdContentType) + ',' +
-                      SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) + ',' +
-                      IntToStr(VNewTileSize) + VNewTileBody + ')';
+  VEngineType := ATilesConnection.GetCheckedEngineType;
 
-  // соберём выражение UPDATE
-  AUpdateSQLResult := 'UPDATE ' + AQuotedTableNameWithPrefix + ' SET id_contenttype=' + IntToStr(VIdContentType) +
-                           ', load_date=' + SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) +
-                           ', tile_size=' + IntToStr(VNewTileSize) +
-                           AUpdateSQLResult +
-                      ' WHERE x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
-                        ' and y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
-                        ' and id_ver=' + IntToStr(VReqVersion.id_ver);
+  VUpsertMode := ATilesConnection.GetUpsertMode;
+  AUpsert := (VUpsertMode<>upsm_None);
+
+  case VUpsertMode of
+    upsm_Merge: begin
+      // используем MERGE
+      // MSSQL, ASE, ASA, DB2
+      // добавляем к внутреннему SELECT-у фиктивную таблицу в секцию FROM
+      AInsertSQLResult := c_SQL_FROM[VEngineType];
+      if (0<Length(AInsertSQLResult)) then begin
+        AInsertSQLResult := ' FROM ' + AInsertSQLResult;
+      end;
+      AInsertSQLResult := c_Merge_Sel[AInsertUpdateSubType] + AInsertSQLResult;
+
+      // окончательный запрос MERGE
+      AInsertSQLResult := 'MERGE INTO ' + AQuotedTableNameWithPrefix + ' as g'+
+                         ' USING (SELECT ' + AInsertSQLResult + ') as d (tile_body)'+
+                         ' ON (g.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                         ' AND g.y='+IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                         ' AND g.id_ver=' + IntToStr(VReqVersion.id_ver) + ')'+
+                         ' WHEN NOT MATCHED THEN INSERT'+
+                         ' (x,y,id_ver,id_contenttype,load_date,tile_size' + c_Merge_Ins[AInsertUpdateSubType] + ') VALUES (' +
+                          IntToStr(ASQLTilePtr^.XYLowerToID.X) + ','+
+                          IntToStr(ASQLTilePtr^.XYLowerToID.Y) + ',' +
+                          IntToStr(VReqVersion.id_ver) + ','+
+                          IntToStr(VIdContentType) + ',' +
+                          SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) + ',' +
+                          IntToStr(VNewTileSize) +
+                          c_Merge_Val[AInsertUpdateSubType] +
+                          ')' +
+                         ' WHEN MATCHED THEN UPDATE'+
+                         ' SET g.id_contenttype=' + IntToStr(VIdContentType) +
+                            ', g.load_date=' + SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) +
+                            ', g.tile_size=' + IntToStr(VNewTileSize) + c_Merge_Upd[AInsertUpdateSubType]
+                          ;
+
+      if (VEngineType in [et_MSSQL]) then begin
+        // для MSSQL в конец добавляем ;
+        AInsertSQLResult := AInsertSQLResult + ';';
+      end;
+
+      // выражения UPDATE нет
+      AUpdateSQLResult := '';
+    end;
+
+    upsm_DualMerge: begin
+      // запрос MERGE
+      // Oracle
+      // 'HY000:1461:[Oracle][ODBC][Ora]ORA-01461: can bind a LONG value only for insert into a LONG column'
+      AInsertSQLResult := 'MERGE INTO ' + AQuotedTableNameWithPrefix + ' g'+
+                         ' USING (SELECT ' + IntToStr(ASQLTilePtr^.XYLowerToID.X) + ' di,' + c_DualMerge_Sel[AInsertUpdateSubType] + ' tb FROM ' + c_SQL_FROM[VEngineType] + ') d'+
+                         ' ON (g.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                         ' AND g.y='+IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                         ' AND g.id_ver=' + IntToStr(VReqVersion.id_ver) +
+                         ' AND g.x=di)'+
+                         ' WHEN NOT MATCHED THEN INSERT'+
+                         ' (x,y,id_ver,id_contenttype,load_date,tile_size' + c_DualMerge_Ins[AInsertUpdateSubType] + ') VALUES (' +
+                          IntToStr(ASQLTilePtr^.XYLowerToID.X) + ','+
+                          IntToStr(ASQLTilePtr^.XYLowerToID.Y) + ',' +
+                          IntToStr(VReqVersion.id_ver) + ','+
+                          IntToStr(VIdContentType) + ',' +
+                          SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) + ',' +
+                          IntToStr(VNewTileSize) +
+                          c_DualMerge_Val[AInsertUpdateSubType] +
+                          ')' +
+                         ' WHEN MATCHED THEN UPDATE'+
+                         ' SET g.id_contenttype=' + IntToStr(VIdContentType) +
+                            ', g.load_date=' + SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) +
+                            ', g.tile_size=' + IntToStr(VNewTileSize) + c_DualMerge_Upd[AInsertUpdateSubType]
+                          ;
+
+      // выражения UPDATE нет
+      AUpdateSQLResult := '';
+    end;
+
+    upsm_InsertOnDupUpdate: begin
+      // MySQL
+      AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' +
+                                           c_InsertOnDupUpdate_Ins[AInsertUpdateSubType] + ') VALUES (' +
+                          IntToStr(ASQLTilePtr^.XYLowerToID.X) + ',' +
+                          IntToStr(ASQLTilePtr^.XYLowerToID.Y) + ',' +
+                          IntToStr(VReqVersion.id_ver) + ',' +
+                          IntToStr(VIdContentType) + ',' +
+                          SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC) + ',' +
+                          IntToStr(VNewTileSize) + c_InsertOnDupUpdate_Sel[AInsertUpdateSubType] + ')' +
+                          ' ON DUPLICATE KEY UPDATE' +
+                          ' id_contenttype=' + IntToStr(VIdContentType) +
+                          ', load_date=VALUES(load_date)' +
+                          ', tile_size=' + IntToStr(VNewTileSize) + c_InsertOnDupUpdate_Upd[AInsertUpdateSubType];
+
+      // выражения UPDATE нет
+      AUpdateSQLResult := '';
+    end;
+
+    else begin
+      // одиночные INSERT и UPDATE
+      AUpdateSQLResult := SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC);
+      // соберём выражение INSERT
+      AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + c_Insert_Ins[AInsertUpdateSubType] + ') VALUES (' +
+                          IntToStr(ASQLTilePtr^.XYLowerToID.X) + ',' +
+                          IntToStr(ASQLTilePtr^.XYLowerToID.Y) + ',' +
+                          IntToStr(VReqVersion.id_ver) + ',' +
+                          IntToStr(VIdContentType) + ',' +
+                          AUpdateSQLResult + ',' +
+                          IntToStr(VNewTileSize) + c_Insert_Val[AInsertUpdateSubType] + ')';
+
+      // соберём выражение UPDATE
+      AUpdateSQLResult := 'UPDATE ' + AQuotedTableNameWithPrefix + ' SET id_contenttype=' + IntToStr(VIdContentType) +
+                               ', load_date=' + AUpdateSQLResult +
+                               ', tile_size=' + IntToStr(VNewTileSize) +
+                               c_Update_Upd[AInsertUpdateSubType] +
+                          ' WHERE x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                            ' and y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                            ' and id_ver=' + IntToStr(VReqVersion.id_ver);
+    end;
+  end;
+
   Result := ETS_RESULT_OK;
 end;
 
@@ -3848,6 +3984,12 @@ begin
       end;
       rc1m_Limit1: begin
         VSQLParts.OrderBySQL := VSQLParts.OrderBySQL + ' LIMIT 1';
+      end;
+      rc1m_Fetch1Only: begin
+        VSQLParts.OrderBySQL := VSQLParts.OrderBySQL + ' FETCH FIRST 1 ROW ONLY';
+      end;
+      rc1m_Rows1: begin
+        VSQLParts.OrderBySQL := VSQLParts.OrderBySQL + ' ROWS 1';
       end;
     end;
   end;

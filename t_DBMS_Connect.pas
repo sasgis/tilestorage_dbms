@@ -60,6 +60,9 @@ const
   // запрет использовать TOP 1 или LIMIT 1 при SELECT (даже если поддерживается сервером)
   ETS_INTERNAL_DenySelectRowCount1 = ETS_INTERNAL_PARAMS_PREFIX + 'DenySelectRowCount1';
 
+  // запрет использовать upsert (MERGE,...) при вставке тайла (даже если поддерживается сервером)
+  ETS_INTERNAL_DenyUpsert          = ETS_INTERNAL_PARAMS_PREFIX + 'DenyUpsert';
+
   // разрешение сохранять (и читать сохранённый) пароль, а также режим работы
   ETS_INTERNAL_PWD_Save          = ETS_INTERNAL_PARAMS_PREFIX + 'PWD_Save';
   // значения - либо 0 для отключки, либо 1 для включки, либо это:

@@ -94,6 +94,8 @@ type
     FReadPrevSavedPwd: Boolean;
     // запрет использовать TOP 1 или LIMIT 1 при SELECT (даже если поддерживается сервером)
     FDenySelectRowCount1: Boolean;
+    // запрет использовать upsert (MERGE,...) при вставке тайла (даже если поддерживается сервером)
+    FDenyUpsert: Boolean;
     // признак необходимости переподключиться из-за разрыва соединения
     FReconnectPending: Boolean;
   private
@@ -139,7 +141,7 @@ type
 
 {$if defined(CONNECTION_AS_RECORD)}
     function ExecuteDirectWithBlob(
-      const ASQLText, AFullParamName: AnsiString;
+      const ASQLText: AnsiString;
       const ABufferAddr: Pointer;
       const ABufferSize: LongInt;
       const ASilentOnError: Boolean
@@ -159,6 +161,7 @@ type
     function GetEngineType(const ACheckMode: TCheckEngineTypeMode = cetm_None): TEngineType;
     function GetCheckedEngineType: TEngineType;
     function GetSelectRowCount1Mode: TRowCount1Mode;
+    function GetUpsertMode: TUpsertMode;
     function GetInternalParameter(const AInternalParameterName: String): String;
     function ForcedSchemaPrefix: String;
     function FullSyncronizeSQL: Boolean;
@@ -370,6 +373,10 @@ begin
   end else if SameText(ETS_INTERNAL_DenySelectRowCount1, AParamName) then begin
     // запрет использовать TOP 1 или LIMIT 1 при SELECT (даже если поддерживается сервером)
     FDenySelectRowCount1 := (StrToIntDef(AParamValue, 0) <> 0);
+    Exit;
+  end else if SameText(ETS_INTERNAL_DenyUpsert, AParamName) then begin
+    // запрет использовать upsert при вставке тайла (даже если поддерживается сервером)
+    FDenyUpsert := (StrToIntDef(AParamValue, 0) <> 0);
     Exit;
   end else if SameText(ETS_INTERNAL_ODBC_ConnectWithParams, AParamName) then begin
 {$if defined(CONNECTION_AS_RECORD)}
@@ -696,13 +703,18 @@ begin
 end;
 
 {$if defined(CONNECTION_AS_RECORD)}
-function TDBMS_Connection.ExecuteDirectWithBlob(const ASQLText,
-  AFullParamName: AnsiString; const ABufferAddr: Pointer;
-  const ABufferSize: Integer; const ASilentOnError: Boolean): Boolean;
+function TDBMS_Connection.ExecuteDirectWithBlob(
+  const ASQLText: AnsiString;
+  const ABufferAddr: Pointer;
+  const ABufferSize: Integer;
+  const ASilentOnError: Boolean
+): Boolean;
 begin
   Result := FODBCConnectionHolder.ExecuteDirectWithBlob(
-    ASQLText,AFullParamName, ABufferAddr,
-    ABufferSize, ASilentOnError);
+    ASQLText,
+    ABufferAddr,
+    ABufferSize,
+    ASilentOnError);
 end;
 {$ifend}
 
@@ -746,6 +758,14 @@ begin
     Result := rc1m_None
   else
     Result := c_SQL_RowCount1_Mode[GetEngineType(cetm_Check)];
+end;
+
+function TDBMS_Connection.GetUpsertMode: TUpsertMode;
+begin
+  if FDenyUpsert then
+    Result := upsm_None
+  else
+    Result := c_SQL_UpsertMode[GetEngineType(cetm_Check)];
 end;
 
 function TDBMS_Connection.GetCheckedEngineType: TEngineType;
@@ -958,6 +978,7 @@ begin
   FSavePwdAsLsaSecret := FALSE;
   FReadPrevSavedPwd := FALSE;
   FDenySelectRowCount1 := FALSE;
+  FDenyUpsert := FALSE;
   FReconnectPending := FALSE;
   FTSS_Primary_Params.Algorithm := tssal_None;
   FTSS_Primary_Params.Guides_Link := tsslt_Primary;

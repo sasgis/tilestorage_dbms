@@ -113,7 +113,7 @@ type
     ): Boolean;
 
     function ExecuteDirectWithBlob(
-      const ASQLText, AFullParamName: AnsiString;
+      const ASQLText: AnsiString;
       const ABufferAddr: Pointer;
       const ABufferSize: LongInt;
       const ASilentOnError: Boolean
@@ -381,7 +381,7 @@ begin
 end;
 
 function TODBCConnection.ExecuteDirectWithBlob(
-  const ASQLText, AFullParamName: AnsiString;
+  const ASQLText: AnsiString;
   const ABufferAddr: Pointer;
   const ABufferSize: Integer;
   const ASilentOnError: Boolean
@@ -391,12 +391,9 @@ var
   VRes: SQLRETURN;
   VColumnSize: SQLULEN;
   VStrLen_or_IndPtr: SQLLEN;
-  VFullSQLText: AnsiString;
 begin
   h := SQL_NULL_HANDLE;
   try
-    VFullSQLText := StringReplace(ASQLText, AFullParamName, c_RTL_ODBC_Paramname, [rfReplaceAll,rfIgnoreCase]);
-
     // allocate statement
     CheckSQLResult(SQLAllocHandle(SQL_HANDLE_STMT, Fhdbc, h));
 
@@ -427,7 +424,11 @@ begin
     CheckStatementResult(h, VRes, EODBCDirectExecBlobError);
 
     // execute
-    VRes := SQLExecDirectA(h, PAnsiChar(VFullSQLText), Length(VFullSQLText));
+    VRes := SQLExecDirectA(
+      h,
+      PAnsiChar(ASQLText),
+      Length(ASQLText)
+    );
 
     Result := SQL_SUCCEEDED(VRes);
 
