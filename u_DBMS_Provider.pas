@@ -1239,7 +1239,7 @@ function TDBMS_Provider.DBMS_EnumTileVersions(
 ): Byte;
 var
   VExclusive, VVersionFound: Boolean;
-  VOdbcFetchCols: TOdbcFetchCols;
+  VOdbcFetchCols: TOdbcFetchCols2;
   VEnumOut: TETS_ENUM_TILE_VERSION_OUT;
   VETS_VERSION_W: TETS_VERSION_W;
   VETS_VERSION_A: TETS_VERSION_A;
@@ -1314,16 +1314,16 @@ begin
         end;
       end;
 
-      if not VOdbcFetchCols.IsActive then begin
+      if not VOdbcFetchCols.Base.IsActive then begin
         Result := ETS_RESULT_INVALID_STRUCTURE;
       end else begin
         // для работы без датасетов число записей заранее неизвестно
         VEnumOut.ResponseCount := -1; // unknown count
 
-        while (VOdbcFetchCols.FetchRecord) do begin
+        while (VOdbcFetchCols.Base.FetchRecord) do begin
           // возьмём суррогатный идентификатор версии
           // значения NULL тут быть не может
-          VOdbcFetchCols.ColToSmallInt(1, VFetchedIdVer);
+          VOdbcFetchCols.Base.ColToSmallInt(1, VFetchedIdVer);
 
           // find selected version
           VVersionFound := FVersionList.FindItemByIdVerInternal(VFetchedIdVer, @VVersionAA);
@@ -1380,7 +1380,7 @@ begin
       end;
       
     finally
-      VOdbcFetchCols.Close;
+      VOdbcFetchCols.Base.Close;
     end;
   finally
     DoEndWork(VExclusivelyLocked);
