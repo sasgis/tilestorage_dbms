@@ -3878,6 +3878,7 @@ function TDBMS_Provider.GetSQL_SelectTilesInternal(
 var
   VSQLParts: TSQLParts;
   VReqVersion: TVersionAA;
+  VShowPrevVersion: Boolean;
 begin
   Result := ETS_RESULT_OK;
 
@@ -3934,10 +3935,12 @@ begin
     Exit;
   end;
 
+  VShowPrevVersion := ((AOptionsIn and ETS_ROI_SHOW_PREV_VERSION) <> 0);
+
   // если версия была найдена (в том числе зарезервированный идентификатор для пустой версии!)
   if (VReqVersion.id_ver=FVersionList.EmptyVersionIdVer) then begin
     // запрос без версии
-    if ((FStatusBuffer^.tile_load_mode and ETS_TLM_LAST_VERSION) <> 0) then begin
+    if ((FStatusBuffer^.tile_load_mode and ETS_TLM_LAST_VERSION) <> 0) or VShowPrevVersion then begin
       // берём последнюю версию (добавляем в OrderBySQL кусок)
       AddVersionOrderBy(ATilesConnection, @VSQLParts, @VReqVersion, FALSE);
     end else begin
@@ -3946,7 +3949,7 @@ begin
     end;
   end else begin
     // запрос с непустой версией
-    if ((FStatusBuffer^.tile_load_mode and ETS_TLM_PREV_VERSION) <> 0) then begin
+    if ((FStatusBuffer^.tile_load_mode and ETS_TLM_PREV_VERSION) <> 0) or VShowPrevVersion then begin
       // разрешена предыдущая версия
       AddVersionOrderBy(ATilesConnection, @VSQLParts, @VReqVersion, TRUE);
       if ((FStatusBuffer^.tile_load_mode and ETS_TLM_WITHOUT_VERSION) = 0) then begin
