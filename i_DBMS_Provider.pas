@@ -101,7 +101,7 @@ type
     );
     procedure DoEndWork(const AExclusivelyLocked: Boolean);
     // check if uninitialized
-    function IsUnitialized: Boolean;
+    function IsUninitialized: Boolean;
   end;
 
 implementation

@@ -63,6 +63,10 @@ const
   // запрет использовать upsert (MERGE,...) при вставке тайла (даже если поддерживается сервером)
   ETS_INTERNAL_DenyUpsert          = ETS_INTERNAL_PARAMS_PREFIX + 'DenyUpsert';
 
+  // ограничение на число записей в одной таблице при сканировании менеджером кэша
+  // для быстрого пошагового вычитывания таблиц, которые сильно больше чем размер доступной памяти
+  ETS_INTERNAL_SCAN_MaxRows        = ETS_INTERNAL_PARAMS_PREFIX + 'SCAN_MaxRows';
+
   // разрешение сохранять (и читать сохранённый) пароль, а также режим работы
   ETS_INTERNAL_PWD_Save          = ETS_INTERNAL_PARAMS_PREFIX + 'PWD_Save';
   // значения - либо 0 для отключки, либо 1 для включки, либо это:

@@ -44,7 +44,7 @@ type
     // flag
     FCompleted: Boolean;
     // if unitialized
-    FUnitialized: Boolean;
+    FUninitialized: Boolean;
 
     // callbacks
     FHostCallbacks: TDBMS_INFOCLASS_Callbacks;
@@ -101,7 +101,7 @@ type
     );
     procedure DoEndWork(const AExclusivelyLocked: Boolean);
     // check if uninitialized
-    function IsUnitialized: Boolean;
+    function IsUninitialized: Boolean;
   private
     // work with guides
     procedure GuidesBeginWork(const AExclusively: Boolean);
@@ -852,7 +852,7 @@ begin
   FFormatSettings.TimeSeparator    := c_Time_Separator;
 
   FCompleted := FALSE;
-  FUnitialized := False;
+  FUninitialized := False;
   
   // initialization
   FStatusBuffer := AStatusBuffer;
@@ -4526,9 +4526,9 @@ begin
   end;
 end;
 
-function TDBMS_Provider.IsUnitialized: Boolean;
+function TDBMS_Provider.IsUninitialized: Boolean;
 begin
-  Result := FUnitialized;
+  Result := FUninitialized;
 end;
 
 function TDBMS_Provider.MakeEmptyVersionInDB(
@@ -5334,7 +5334,7 @@ end;
 
 function TDBMS_Provider.Uninitialize: Byte;
 begin
-  FUnitialized := True;
+  FUninitialized := True;
   Result := 0;
 end;
 

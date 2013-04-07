@@ -36,6 +36,7 @@ type
     FCallbackProc: Pointer;
     FConnectionForEnum: IDBMS_Connection;
     FUseSingleSection: Boolean;
+    FScanMaxRows: AnsiString;
   private
     FState: TTileEnumState;
     FLastError: Byte;
@@ -291,6 +292,11 @@ begin
   FState := tes_Start;
   FLastError := ETS_RESULT_OK;
   FListOfTables := nil;
+  if TryStrToInt(FConnectionForEnum.GetInternalParameter(ETS_INTERNAL_SCAN_MaxRows), FNextTableIndex) then begin
+    FScanMaxRows := IntToStr(FNextTableIndex);
+  end else begin
+    FScanMaxRows := '';
+  end;
   FNextTableIndex := 0;
   // для хоста
   FillChar(FNextBufferOut, SizeOf(FNextBufferOut), 0);
@@ -315,9 +321,15 @@ function TDBMS_TileEnum.GetNextTile(
   const ANextBufferIn: PETS_GET_TILE_RECT_IN
 ): Byte;
 begin
-  if (tes_Error = FState) or FDBMS_Worker.IsUnitialized then begin
+  if (tes_Error = FState) then begin
     // ошибка или всё кончилось
     Result := FLastError;
+    Exit;
+  end;
+
+  if FDBMS_Worker.IsUninitialized then begin
+    Result := ETS_RESULT_OK;
+    FLastError := ETS_RESULT_OK;
     Exit;
   end;
 
@@ -330,17 +342,21 @@ begin
 
   repeat
     // закрыли
-    if FDBMS_Worker.IsUnitialized then begin
-      Result := FLastError;
+    if FDBMS_Worker.IsUninitialized then begin
+      Result := ETS_RESULT_OK;
+      FLastError := ETS_RESULT_OK;
       Exit;
     end;
 
     // режим запуска новой секции (подключения)
     while (tes_Start = FState) do begin
-      if FDBMS_Worker.IsUnitialized then begin
-        Result := FLastError;
+      // проверяемся
+      if FDBMS_Worker.IsUninitialized then begin
+        Result := ETS_RESULT_OK;
+        FLastError := ETS_RESULT_OK;
         Exit;
       end;
+
       // подключаем подключение (если ешё не подключено)
       Result := FConnectionForEnum.EnsureConnected(TRUE, FStatusBuffer);
       if (ETS_RESULT_OK <> Result) then begin
@@ -545,7 +561,7 @@ end;
 
 function TDBMS_TileEnum.OpenNextTableAndFetch(const ANextBufferIn: PETS_GET_TILE_RECT_IN): Boolean;
 var
-  VSQLText: String;
+  VSQLText: AnsiString;
   VEngineType: TEngineType;
 begin
   Result := FALSE;
@@ -559,7 +575,7 @@ begin
     VEngineType := FConnectionForEnum.GetCheckedEngineType;
 
     // пробуем открыть таблицу с этим номером
-    VSQLText := 'SELECT v.x,v.y,v.id_ver,v.tile_size,v.id_contenttype,v.load_date,v.tile_body' +
+    VSQLText := 'v.x,v.y,v.id_ver,v.tile_size,v.id_contenttype,v.load_date,v.tile_body' +
                  ' FROM ' + FENUM_Prefix +
                  c_SQL_QuotedIdentifierValue[VEngineType, qp_Before] +
                  FListOfTables[FNextTableIndex] +
@@ -571,6 +587,30 @@ begin
       // тащим только реально существующие тайлы
       VSQLText := VSQLText + ' WHERE v.tile_size>0';
     end;
+
+    // возможно надо ограничить аппетиты
+    // добавим TOP N или LIMIT N или ещё что (в зависимости от СУБД)
+    if (0<Length(FScanMaxRows)) then
+    // тащим только один тайл -
+    case c_SQL_RowCount1_Mode[VEngineType] of
+      rc1m_Top1: begin
+        VSQLText := 'TOP '+FScanMaxRows+' ' + VSQLText;
+      end;
+      rc1m_First1: begin
+        VSQLText := 'FIRST '+FScanMaxRows+' ' + VSQLText;
+      end;
+      rc1m_Limit1: begin
+        VSQLText := VSQLText + ' LIMIT '+FScanMaxRows;
+      end;
+      rc1m_Fetch1Only: begin
+        VSQLText := VSQLText + ' FETCH FIRST '+FScanMaxRows+' ROW ONLY';
+      end;
+      rc1m_Rows1: begin
+        VSQLText := VSQLText + ' ROWS '+FScanMaxRows;
+      end;
+    end;
+
+    VSQLText := 'SELECT ' + VSQLText;
 
     try
       InternalClose;

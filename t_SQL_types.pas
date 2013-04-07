@@ -568,7 +568,7 @@ const
     TRUE
   );
 
-  c_SQL_QuotedIdentifierValue: array [TEngineType, TQuotedPlace] of Char = (
+  c_SQL_QuotedIdentifierValue: array [TEngineType, TQuotedPlace] of AnsiChar = (
     ('[',']'),  // MSSQL
     ('[',']'),  // ASE // OK with '[]'
     ('"','"'),  // ASA
