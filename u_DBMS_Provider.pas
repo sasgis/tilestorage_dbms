@@ -43,6 +43,8 @@ type
 
     // flag
     FCompleted: Boolean;
+    // if unitialized
+    FUnitialized: Boolean;
 
     // callbacks
     FHostCallbacks: TDBMS_INFOCLASS_Callbacks;
@@ -90,6 +92,7 @@ type
     function UseSectionByTileXY: Boolean; inline;
 
   private
+    { IDBMS_Worker }
     // common work
     procedure DoBeginWork(
       const AExclusively: Boolean;
@@ -97,7 +100,8 @@ type
       out AExclusivelyLocked: Boolean
     );
     procedure DoEndWork(const AExclusivelyLocked: Boolean);
-
+    // check if uninitialized
+    function IsUnitialized: Boolean;
   private
     // work with guides
     procedure GuidesBeginWork(const AExclusively: Boolean);
@@ -441,6 +445,7 @@ type
       const AAllowNewObjects: Boolean
     ): IDBMS_Connection;
   private
+    { IDBMS_Provider }
     function DBMS_Complete(const AFlags: LongWord): Byte;
 
     function DBMS_SetInformation(
@@ -485,6 +490,7 @@ type
       const AExecOptionIn: PETS_EXEC_OPTION_IN
     ): Byte;
 
+    function Uninitialize: Byte;
   public
     constructor Create(
       const AStatusBuffer: PETS_SERVICE_STORAGE_OPTIONS; // MANDATORY
@@ -846,6 +852,7 @@ begin
   FFormatSettings.TimeSeparator    := c_Time_Separator;
 
   FCompleted := FALSE;
+  FUnitialized := False;
   
   // initialization
   FStatusBuffer := AStatusBuffer;
@@ -4519,6 +4526,11 @@ begin
   end;
 end;
 
+function TDBMS_Provider.IsUnitialized: Boolean;
+begin
+  Result := FUnitialized;
+end;
+
 function TDBMS_Provider.MakeEmptyVersionInDB(
   const AGuideConnection: IDBMS_Connection;
   const AIdVersion: SmallInt;
@@ -5318,6 +5330,12 @@ begin
   end;
 
 
+end;
+
+function TDBMS_Provider.Uninitialize: Byte;
+begin
+  FUnitialized := True;
+  Result := 0;
 end;
 
 function TDBMS_Provider.UpdateServiceVerComp(

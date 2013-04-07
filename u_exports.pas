@@ -154,6 +154,7 @@ begin
     end;
 
     // free
+    PStub_DBMS_Provider(AProvider_Handle)^.Prov.Uninitialize;
     PStub_DBMS_Provider(AProvider_Handle)^.Prov := nil;
     Result := ETS_RESULT_OK;
   except

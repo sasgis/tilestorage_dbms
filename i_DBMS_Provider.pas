@@ -56,6 +56,7 @@ type
       const AExecOptionIn: PETS_EXEC_OPTION_IN
     ): Byte;
 
+    function Uninitialize: Byte;
   end;
 
   TStub_DBMS_Provider = packed record
@@ -99,6 +100,8 @@ type
       out AExclusivelyLocked: Boolean
     );
     procedure DoEndWork(const AExclusivelyLocked: Boolean);
+    // check if uninitialized
+    function IsUnitialized: Boolean;
   end;
 
 implementation

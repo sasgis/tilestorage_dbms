@@ -315,7 +315,7 @@ function TDBMS_TileEnum.GetNextTile(
   const ANextBufferIn: PETS_GET_TILE_RECT_IN
 ): Byte;
 begin
-  if (tes_Error = FState) then begin
+  if (tes_Error = FState) or FDBMS_Worker.IsUnitialized then begin
     // ошибка или всё кончилось
     Result := FLastError;
     Exit;
@@ -329,8 +329,18 @@ begin
   end;
 
   repeat
+    // закрыли
+    if FDBMS_Worker.IsUnitialized then begin
+      Result := FLastError;
+      Exit;
+    end;
+
     // режим запуска новой секции (подключения)
     while (tes_Start = FState) do begin
+      if FDBMS_Worker.IsUnitialized then begin
+        Result := FLastError;
+        Exit;
+      end;
       // подключаем подключение (если ешё не подключено)
       Result := FConnectionForEnum.EnsureConnected(TRUE, FStatusBuffer);
       if (ETS_RESULT_OK <> Result) then begin
@@ -559,7 +569,7 @@ begin
     // возможно надо пропустить TNE
     if ((ANextBufferIn^.dwOptionsIn and ETS_ROI_SELECT_TILE_BODY) <> 0) then begin
       // тащим только реально существующие тайлы
-      VSQLText := VSQLText + ' WHERE v.tile_size>=0';
+      VSQLText := VSQLText + ' WHERE v.tile_size>0';
     end;
 
     try

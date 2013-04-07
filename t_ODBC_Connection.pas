@@ -566,6 +566,7 @@ var
   VRes: SQLRETURN;
 begin
   Assert(ABufPtr<>nil);
+  Assert(SQL_NULL_HANDLE=ABufPtr^.Stmt);
 
   CheckSQLResult(SQLAllocHandle(SQL_HANDLE_STMT, Fhdbc, ABufPtr^.Stmt));
 
