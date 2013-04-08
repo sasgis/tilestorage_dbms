@@ -93,7 +93,7 @@ const
     'Integrated Security', // PostgreSQL
     'Integrated Security', // Mimer
     '',                    // Firebird
-    ''
+    ''                     // always empty here
   );
   *)
 
@@ -110,7 +110,7 @@ const
     '', // PostgreSQL via ODBC only?
     '', // Mimer via ODBC only
     '', // Firebird via ODBC only?
-    ''
+    ''  // always empty here
   );
 {$ifend}
 
@@ -126,7 +126,7 @@ const
   'CURRENT_TIMESTAMP', // PostgreSQL
   'LOCALTIMESTAMP',    // Mimer
   'CURRENT_TIMESTAMP', // Firebird
-  ''
+  ''                   // always empty here
   );
 
   // type to store both date and time
@@ -141,7 +141,7 @@ const
   'TIMESTAMP', // PostgreSQL
   'TIMESTAMP', // Mimer
   'TIMESTAMP', // Firebird
-  ''
+  ''           // always empty here
   );
 
   // prefix before literal datetime
@@ -156,7 +156,7 @@ const
   '',          // PostgreSQL
   'TIMESTAMP', // Mimer
   '',          // Firebird
-  ''
+  ''           // always empty here
   );
 
   // do not add empty version (because '' treats by server as NULL)
@@ -186,7 +186,7 @@ const
   'BIGINT', // PostgreSQL
   'BIGINT', // Mimer
   'BIGINT', // Firebird - Dialect 3 only!
-  ''
+  ''        // always empty here
   );
 
   // type to store LongInt (4 bytes with sign) from -2147483648 to 2147483647
@@ -201,7 +201,7 @@ const
   'INT',    // PostgreSQL
   'INT',    // Mimer
   'INT',    // Firebird
-  ''
+  ''        // always empty here
   );
 
   // type to store MediumInt (3 bytes with sign) from -8388608 to 8388607
@@ -216,7 +216,7 @@ const
   '',          // PostgreSQL
   '',          // Mimer
   '',          // Firebird
-  ''
+  ''           // always empty here
   );
 
   // type to store SmallInt (2 bytes with sign) from -32768 to 32767
@@ -231,7 +231,7 @@ const
   'SMALLINT', // PostgreSQL
   'SMALLINT', // Mimer
   'SMALLINT', // Firebird
-  ''
+  ''          // always empty here
   );
 
   // type to store TinyInt (1 byte with sign)
@@ -246,7 +246,7 @@ const
   '',         // PostgreSQL
   '',         // Mimer
   '',         // Firebird
-  ''
+  ''          // always empty here
   );
 
   // use int fields with size in brackets
@@ -261,7 +261,7 @@ const
   FALSE,   // PostgreSQL
   FALSE,   // Mimer
   FALSE,   // Firebird
-  FALSE
+  FALSE    // always false here
   );
 
   // Forced tablename if FROM clause is mandatory
@@ -276,7 +276,7 @@ const
   '',              // PostgreSQL
   'SYSTEM.ONEROW', // Mimer
   'rdb$database',  // Firebird
-  ''
+  ''               // always empty here
   );
 
   // how to select first row only

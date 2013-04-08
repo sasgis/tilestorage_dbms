@@ -3688,7 +3688,6 @@ var
   VVersionAutodetected: Boolean;
   VUpsertMode: TUpsertMode;
   VEngineType: TEngineType;
-  //VSQLPrevVersion: TDBMS_String;
 begin
   // если нет начитанных типов тайлов - надо читать
   if (0=FContentTypeList.Count) then begin
@@ -3811,6 +3810,12 @@ begin
   VEngineType := ATilesConnection.GetCheckedEngineType;
 
   VUpsertMode := ATilesConnection.GetUpsertMode;
+
+  if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_DONT_SAVE_SAME_PREV) <> 0) then begin
+    // отключаем UPSERT
+    VUpsertMode := upsm_None;
+  end;
+
   AUpsert := (VUpsertMode<>upsm_None);
 
   case VUpsertMode of
@@ -3823,15 +3828,6 @@ begin
         AInsertSQLResult := ' FROM ' + AInsertSQLResult;
       end;
       AInsertSQLResult := c_Merge_Sel[AInsertUpdateSubType] + AInsertSQLResult;
-
-      {
-      if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_DONT_SAVE_SAME_PREV) <> 0) then begin
-        // проверяем предыдущую версию
-        VSQLPrevVersion := ' AND'
-      end else begin
-        VSQLPrevVersion := '';
-      end;
-      }
 
       // окончательный запрос MERGE
       AInsertSQLResult := 'MERGE INTO ' + AQuotedTableNameWithPrefix + ' as g'+
@@ -3917,22 +3913,47 @@ begin
       // одиночные INSERT и UPDATE
       AUpdateSQLResult := SQLDateTimeToDBValue(ATilesConnection, AInsertBuffer^.dtLoadedUTC);
       // соберём выражение INSERT
-      AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix + ' (x,y,id_ver,id_contenttype,load_date,tile_size' + c_Insert_Ins[AInsertUpdateSubType] + ') VALUES (' +
-                          IntToStr(ASQLTilePtr^.XYLowerToID.X) + ',' +
+      // список значений
+      AInsertSQLResult := IntToStr(ASQLTilePtr^.XYLowerToID.X) + ',' +
                           IntToStr(ASQLTilePtr^.XYLowerToID.Y) + ',' +
                           IntToStr(VReqVersion.id_ver) + ',' +
                           IntToStr(VIdContentType) + ',' +
                           AUpdateSQLResult + ',' +
-                          IntToStr(VNewTileSize) + c_Insert_Val[AInsertUpdateSubType] + ')';
+                          IntToStr(VNewTileSize) + c_Insert_Val[AInsertUpdateSubType];
+
+      if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_DONT_SAVE_SAME_PREV) <> 0) then begin
+        // вставка только тайл если отличается от предыдущей версии
+        AInsertSQLResult := 'SELECT ' + AInsertSQLResult;
+        if (0<Length(c_SQL_FROM[VEngineType])) then begin
+          AInsertSQLResult := AInsertSQLResult + ' FROM ' + c_SQL_FROM[VEngineType];
+        end;
+        AInsertSQLResult := AInsertSQLResult +
+                      ' WHERE NOT (' + IntToStr(VNewTileSize) + ' in (' + GetSQL_CheckPrevVersion(ATilesConnection, ASQLTilePtr, @VReqVersion) + '))';
+      end else begin
+        // безусловная вставка VALUES
+        AInsertSQLResult := 'VALUES (' + AInsertSQLResult + ')';
+      end;
+
+      // окончательный INSERT
+      AInsertSQLResult := 'INSERT INTO ' + AQuotedTableNameWithPrefix +
+                                ' (x,y,id_ver,id_contenttype,load_date,tile_size' + c_Insert_Ins[AInsertUpdateSubType] +') ' +
+                                AInsertSQLResult;
 
       // соберём выражение UPDATE
-      AUpdateSQLResult := 'UPDATE ' + AQuotedTableNameWithPrefix + ' SET id_contenttype=' + IntToStr(VIdContentType) +
+      AUpdateSQLResult := 'UPDATE ' + AQuotedTableNameWithPrefix +
+                            ' SET id_contenttype=' + IntToStr(VIdContentType) +
                                ', load_date=' + AUpdateSQLResult +
                                ', tile_size=' + IntToStr(VNewTileSize) +
                                c_Update_Upd[AInsertUpdateSubType] +
                           ' WHERE x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
-                            ' and y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
-                            ' and id_ver=' + IntToStr(VReqVersion.id_ver);
+                            ' AND y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                            ' AND id_ver=' + IntToStr(VReqVersion.id_ver);
+
+      if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_DONT_SAVE_SAME_PREV) <> 0) then begin
+        // добавка к UPDATE
+        AUpdateSQLResult := AUpdateSQLResult +
+                      ' AND NOT (' + IntToStr(VNewTileSize) + ' in (' + GetSQL_CheckPrevVersion(ATilesConnection, ASQLTilePtr, @VReqVersion) + '))';
+      end;
     end;
   end;
 
