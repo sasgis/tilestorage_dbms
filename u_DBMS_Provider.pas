@@ -366,6 +366,12 @@ type
       const AMinBoundValue, AMaxBoundValue: Integer
     ): Boolean;
 
+    function GetSQL_CheckPrevVersion(
+      const ATilesConnection: IDBMS_Connection;
+      ASQLTilePtr: PSQLTile;
+      const AVerInfoPtr: PVersionAA
+    ): TDBMS_String;
+
   private
     procedure AddVersionOrderBy(
       const ATilesConnection: IDBMS_Connection;
@@ -559,14 +565,14 @@ begin
         _AddWithoutFieldValue('ver_value');
     end;
     TILE_VERSION_COMPARE_DATE: begin
-      // order by ver_value
+      // order by ver_date
       if (AVerInfoPtr<>nil) then
         _AddWithFieldValue('ver_date', SQLDateTimeToDBValue(ATilesConnection, AVerInfoPtr^.ver_date))
       else
         _AddWithoutFieldValue('ver_date');
     end;
     TILE_VERSION_COMPARE_NUMBER: begin
-      // order by ver_value
+      // order by ver_number
       if (AVerInfoPtr<>nil) then
         _AddWithFieldValue('ver_number', IntToStr(AVerInfoPtr^.ver_number))
       else
@@ -3326,6 +3332,70 @@ begin
   end;
 end;
 
+function TDBMS_Provider.GetSQL_CheckPrevVersion(
+  const ATilesConnection: IDBMS_Connection;
+  ASQLTilePtr: PSQLTile;
+  const AVerInfoPtr: PVersionAA
+): TDBMS_String;
+var
+  VSQLVerField: TDBMS_String;
+  VSQLVerValue: TDBMS_String;
+begin
+  Result := '';
+
+  if (TILE_VERSION_COMPARE_ID = FStatusBuffer^.id_ver_comp) then begin
+    // without additional table
+    Result := 'SELECT v.tile_size' +
+               ' FROM ' + ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName + ' v' +
+              ' WHERE v.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                ' AND v.y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                ' AND v.id_ver<' + IntToStr(AVerInfoPtr^.id_ver) +
+                ' AND not exists(SELECT 1'+
+                                 ' FROM ' + ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName + ' b'+
+                                ' WHERE b.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                                  ' AND b.y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                                  ' AND b.id_ver<' + IntToStr(AVerInfoPtr^.id_ver) +
+                                  ' AND b.id_ver>v.id_ver)';
+  end else begin
+    // with additional table
+    VSQLVerField := '';
+    VSQLVerValue := '';
+    case FStatusBuffer^.id_ver_comp of
+      TILE_VERSION_COMPARE_VALUE: begin
+        // order by ver_value
+        VSQLVerField := 'ver_value';
+        VSQLVerValue := DBMSStrToDB(AVerInfoPtr^.ver_value);
+      end;
+      TILE_VERSION_COMPARE_DATE: begin
+        // order by ver_date
+        VSQLVerField := 'ver_date';
+        VSQLVerValue := SQLDateTimeToDBValue(ATilesConnection, AVerInfoPtr^.ver_date);
+      end;
+      TILE_VERSION_COMPARE_NUMBER: begin
+        // order by ver_number
+        VSQLVerField := 'ver_number';
+        VSQLVerValue := IntToStr(AVerInfoPtr^.ver_number);
+      end;
+      else begin
+        Exit;
+      end;
+    end;
+    Result := 'SELECT v.tile_size' +
+               ' FROM ' + ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName + ' v,' + c_Prefix_Versions + InternalGetServiceNameByDB + ' w' +
+              ' WHERE v.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                ' AND v.y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                ' AND v.id_ver=w.id_ver' +
+                ' AND w.' + VSQLVerField + '<' + VSQLVerValue +
+                ' AND not exists(SELECT 1'+
+                                 ' FROM ' + ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName + ' b,' + c_Prefix_Versions + InternalGetServiceNameByDB + ' e' +
+                                ' WHERE b.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                                  ' AND b.y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                                  ' AND b.id_ver=e.id_ver' +
+                                  ' AND e.' + VSQLVerField + '<' + VSQLVerValue +
+                                  ' AND e.' + VSQLVerField + '>w.' + VSQLVerField + ')';
+  end;
+end;
+
 function TDBMS_Provider.GetSQL_DeleteTile(
   const ATilesConnection: IDBMS_Connection;
   const ADeleteBuffer: PETS_DELETE_TILE_IN;
@@ -3363,6 +3433,15 @@ begin
                       ' where x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
                         ' and y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
                         ' and id_ver=' + IntToStr(VReqVersion.id_ver);
+
+  // дополнительное условие совпадения с предыдущей версией
+  // только если указано поле для сравнения версий
+  if (FStatusBuffer^.id_ver_comp<>TILE_VERSION_COMPARE_NONE) then
+  if ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_DONT_SAVE_SAME_PREV) <> 0) then begin
+    ADeleteSQLResult := ADeleteSQLResult +
+               ' AND tile_size in (' + GetSQL_CheckPrevVersion(ATilesConnection, ASQLTilePtr, @VReqVersion) + ')';
+  end;
+
   Result := ETS_RESULT_OK;
 end;
 
@@ -3375,7 +3454,7 @@ var
   VSQLParts: TSQLParts;
 begin
   // забацаем SELECT
-  VSQLParts.SelectSQL := 'select v.id_ver';
+  VSQLParts.SelectSQL := 'SELECT v.id_ver';
   VSQLParts.FromSQL := ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName + ' v';
   VSQLParts.WhereSQL := '';
   VSQLParts.OrderBySQL := '';
@@ -3385,9 +3464,9 @@ begin
 
   // соберём всё вместе
   ASQLTextResult := VSQLParts.SelectSQL +
-                  ' from ' + VSQLParts.FromSQL +
-                 ' where v.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
-                   ' and v.y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                  ' FROM ' + VSQLParts.FromSQL +
+                 ' WHERE v.x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                   ' AND v.y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
                     VSQLParts.WhereSQL +
                     VSQLParts.OrderBySQL;
   Result := ETS_RESULT_OK;
@@ -3609,6 +3688,7 @@ var
   VVersionAutodetected: Boolean;
   VUpsertMode: TUpsertMode;
   VEngineType: TEngineType;
+  //VSQLPrevVersion: TDBMS_String;
 begin
   // если нет начитанных типов тайлов - надо читать
   if (0=FContentTypeList.Count) then begin
@@ -3743,6 +3823,15 @@ begin
         AInsertSQLResult := ' FROM ' + AInsertSQLResult;
       end;
       AInsertSQLResult := c_Merge_Sel[AInsertUpdateSubType] + AInsertSQLResult;
+
+      {
+      if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_DONT_SAVE_SAME_PREV) <> 0) then begin
+        // проверяем предыдущую версию
+        VSQLPrevVersion := ' AND'
+      end else begin
+        VSQLPrevVersion := '';
+      end;
+      }
 
       // окончательный запрос MERGE
       AInsertSQLResult := 'MERGE INTO ' + AQuotedTableNameWithPrefix + ' as g'+
