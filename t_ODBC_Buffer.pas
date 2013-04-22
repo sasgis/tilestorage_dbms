@@ -8,6 +8,7 @@ uses
   Windows,
   SysUtils,
   odbcsql,
+  i_StatementHandleCache,
   t_ODBC_Exception;
 
 type
@@ -60,6 +61,8 @@ type
     ColBufPtr: TOdbcColBuffer;
     // статический буфер дл€ LOB-ов (всегда фиксированной длины - длину можно задать параметром)
     LOBStatic: TOdbcColBuffer;
+    // кэш дл€ statement handle
+    StatementHandleCache: IStatementHandleCache;
     // пол€ - нумераци€ с 1 (как прин€то в ODBC)
     Cols: array [1..1] of TOdbcColItem;
   private
@@ -72,7 +75,7 @@ type
     function WithColNames: Boolean; inline;
     function WithLOBs: Boolean; inline;
     function IsNull(const AColNumber: Byte): Boolean;
-    function Close: Boolean;
+    procedure Close;
     function DescribeAndBind: Boolean;
     function ColIndex(const AExpectedColName: AnsiString): SmallInt;
     function GetLOBBuffer(const AColNumber: Byte): Pointer;
@@ -144,7 +147,6 @@ const
   WF_CLOBCHK = $08; // varchar(255) как CLOB (если длиннее - всегда как CLOB)
   WF_HAS_LOB = $20; // ≈сть хот€ бы одно поле LOB (устанавливаетс€ автоматически)
 
-function OdbcCloseStmt(var AStmt: SQLHANDLE): Boolean;
 function OdbcFetchStmt(const AStmt: SQLHANDLE; var AWorkFlags: Byte): Boolean;
   
 implementation
@@ -181,16 +183,6 @@ begin
   end;
   AColBufPtr := nil;
   AColBufLen := 0;
-end;
-
-function OdbcCloseStmt(var AStmt: SQLHANDLE): Boolean;
-begin
-  if (AStmt <> SQL_NULL_HANDLE) then begin
-    Result := SQL_SUCCEEDED(SQLFreeHandle(SQL_HANDLE_STMT, AStmt));
-    AStmt := SQL_NULL_HANDLE;
-  end else begin
-    Result := FALSE;
-  end;
 end;
 
 function OdbcFetchStmt(const AStmt: SQLHANDLE; var AWorkFlags: Byte): Boolean;
@@ -269,9 +261,16 @@ end;
 
 { TOdbcFetchCols }
 
-function TOdbcFetchCols.Close: Boolean;
+procedure TOdbcFetchCols.Close;
 begin
-  Result := OdbcCloseStmt(Stmt);
+  // free statement handle
+  if (Stmt <> SQL_NULL_HANDLE) then begin
+    Assert(StatementHandleCache<>nil);
+    StatementHandleCache.FreeStatement(Stmt);
+    Stmt := SQL_NULL_HANDLE;
+  end;
+  StatementHandleCache := nil;
+  // free buffers
   OdbcFreeColBuffer(ColBufPtr, ColBufLen, WorkFlags);
   OdbcFreeBuffer(LOBStatic);
   InternalFreeLOBs;
