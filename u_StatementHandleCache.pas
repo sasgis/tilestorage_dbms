@@ -29,6 +29,7 @@ type
     procedure FreeStatement(const AStatementHandle: SQLHANDLE); virtual;
     function GetStatementHandle(var AStatementHandle: SQLHANDLE): SQLRETURN; virtual;
     procedure SyncStatements; virtual;
+    procedure GetStatistics(out AUsedCount, AUnusedCount: Integer); virtual;
   public
     constructor Create(
       const ADBCHandlePtr: PSQLHandle
@@ -49,6 +50,7 @@ type
     procedure FreeStatement(const AStatementHandle: SQLHANDLE); override;
     function GetStatementHandle(var AStatementHandle: SQLHANDLE): SQLRETURN; override;
     procedure SyncStatements; override;
+    procedure GetStatistics(out AUsedCount, AUnusedCount: Integer); override;
   public
     constructor Create(
       const ADBCHandlePtr: PSQLHandle
@@ -152,6 +154,18 @@ begin
   end;
 end;
 
+procedure TStatementHandleCache.GetStatistics(out AUsedCount, AUnusedCount: Integer);
+begin
+  //inherited;
+  FSync.BeginRead;
+  try
+    AUsedCount := FUsedList.Count;
+    AUnusedCount := FUnusedList.Count;
+  finally
+    FSync.EndRead;
+  end;
+end;
+
 procedure TStatementHandleCache.SyncStatements;
 begin
   //inherited;
@@ -203,6 +217,12 @@ function TStatementHandleNonCached.GetStatementHandle(var AStatementHandle: SQLH
 begin
   // allocate handle
   Result := SQLAllocHandle(SQL_HANDLE_STMT, FDBCHandlePtr^, AStatementHandle);
+end;
+
+procedure TStatementHandleNonCached.GetStatistics(out AUsedCount, AUnusedCount: Integer);
+begin
+  AUsedCount := 0;
+  AUnusedCount := 0;
 end;
 
 procedure TStatementHandleNonCached.SyncStatements;

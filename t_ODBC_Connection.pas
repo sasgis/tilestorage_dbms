@@ -66,8 +66,7 @@ type
     FBlobDataType: SQLSMALLINT; // SQL_LONGVARBINARY или SQL_VARBINARY
     Fhdbc: SQLHDBC;
     FParams: TStrings;
-    FStatementCacheFetch: IStatementHandleCache;
-    FStatementCacheQuery: IStatementHandleCache;
+    FStatementCache: IStatementHandleCache;
   private
     function GetDSN: String;
     function GetPWD: String;
@@ -144,6 +143,8 @@ type
     property DSN: String read GetDSN write SetDSN;
 
     property Params: TStrings read FParams;
+
+    property StatementCache: IStatementHandleCache read FStatementCache;
   end;
 
 function Load_DSN_Params_from_ODBC(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
@@ -175,7 +176,7 @@ begin
     VSQLText := 'select null::bytea';
     // только тут от греха всё ловим и при ошибке включаем признак
     try
-      CheckSQLResult(FStatementCacheQuery.GetStatementHandle(h));
+      CheckSQLResult(FStatementCache.GetStatementHandle(h));
       try
         VRes := SQLExecDirectA(h, PAnsiChar(VSQLText), Length(VSQLText));
         CheckStatementResult(h, VRes, EODBCDirectExecError);
@@ -198,7 +199,7 @@ begin
         // итоговое значение
         FBlobDataType := VDescribeColData.DataType;
       finally
-        FStatementCacheQuery.FreeStatement(h);
+        FStatementCache.FreeStatement(h);
       end;
     except
       FBlobDataType := SQL_VARBINARY;
@@ -250,8 +251,7 @@ begin
   // TStatementHandleNonCached
   // TStatementHandleCache
   // TStatementFetchableCache
-  FStatementCacheQuery := TStatementHandleNonCached.Create(@Fhdbc);
-  FStatementCacheFetch := TStatementHandleNonCached.Create(@Fhdbc);
+  FStatementCache := TStatementFetchableCache.Create(@Fhdbc);
 
   ConnectWithInfoMessages := '';
   //VConnectResult := SQL_NO_DATA;
@@ -366,8 +366,7 @@ end;
 procedure TODBCConnection.DisConnect;
 begin
   if Connected then begin
-    FStatementCacheQuery := nil;
-    FStatementCacheFetch := nil;
+    FStatementCache := nil;
     SQLDisConnect(Fhdbc);
     SQLFreeHandle(SQL_HANDLE_DBC, Fhdbc);
     Fhdbc := SQL_NULL_HANDLE;
@@ -382,14 +381,14 @@ var
   h: SQLHANDLE;
   VRes: SQLRETURN;
 begin
-  CheckSQLResult(FStatementCacheQuery.GetStatementHandle(h));
+  CheckSQLResult(FStatementCache.GetStatementHandle(h));
   try
     VRes := SQLExecDirectA(h, PAnsiChar(ASQLText), Length(ASQLText));
     Result := SQL_SUCCEEDED(VRes);
     if (not Result) and (not ASilentOnError) then
       CheckStatementResult(h, VRes, EODBCDirectExecError);
   finally
-    FStatementCacheQuery.FreeStatement(h);
+    FStatementCache.FreeStatement(h);
   end;
 end;
 
@@ -402,20 +401,23 @@ function TODBCConnection.ExecuteDirectWithBlob(
 var
   h: SQLHANDLE;
   VRes: SQLRETURN;
+  VBufferAddr: Pointer;
   VColumnSize: SQLULEN;
   VStrLen_or_IndPtr: SQLLEN;
 begin
   h := SQL_NULL_HANDLE;
   try
     // allocate statement
-    CheckSQLResult(FStatementCacheQuery.GetStatementHandle(h));
+    CheckSQLResult(FStatementCache.GetStatementHandle(h));
 
     if (ABufferAddr<>nil) and (ABufferSize>0) then begin
       // has data
+      VBufferAddr := ABufferAddr;
       VStrLen_or_IndPtr := ABufferSize;
       VColumnSize := ABufferSize;
     end else begin
       // is null
+      VBufferAddr := nil;
       VStrLen_or_IndPtr := SQL_NULL_DATA;
       VColumnSize := 0;
     end;
@@ -429,7 +431,7 @@ begin
       FBlobDataType,
       VColumnSize,
       0,
-      ABufferAddr,
+      VBufferAddr,
       VStrLen_or_IndPtr,
       @VStrLen_or_IndPtr
     );
@@ -448,7 +450,7 @@ begin
     if (not Result) and (not ASilentOnError) then
       CheckStatementResult(h, VRes, EODBCDirectExecBlobError);
   finally
-    FStatementCacheQuery.FreeStatement(h);
+    FStatementCache.FreeStatement(h);
   end;
 end;
 
@@ -546,8 +548,7 @@ procedure TODBCConnection.Init;
 begin
   gEnv.Load;
   Fhdbc := SQL_NULL_HANDLE;
-  FStatementCacheQuery := nil;
-  FStatementCacheFetch := nil;
+  FStatementCache := nil;
   FBlobDataType := c_BlobDataType_Default;
   ConnectWithParams := FALSE;
   FParams := TStringList.Create;
@@ -583,8 +584,8 @@ begin
   Assert(ABufPtr<>nil);
   Assert(SQL_NULL_HANDLE=ABufPtr^.Stmt);
 
-  ABufPtr^.StatementHandleCache := FStatementCacheFetch;
-  CheckSQLResult(FStatementCacheFetch.GetStatementHandle(ABufPtr^.Stmt));
+  ABufPtr^.StatementHandleCache := FStatementCache;
+  CheckSQLResult(FStatementCache.GetStatementHandle(ABufPtr^.Stmt));
 
   VRes := SQLExecDirectA(ABufPtr^.Stmt, PAnsiChar(ASQLText), Length(ASQLText));
   CheckStatementResult(ABufPtr^.Stmt, VRes, EODBCOpenFetchError);

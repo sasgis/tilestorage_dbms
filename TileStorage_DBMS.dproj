@@ -27,12 +27,14 @@
     <DCC_ObjPath>..\vsasas\TileStorage\DBMS\ExtTileStorages;..\vsasas\Includes</DCC_ObjPath>
     <DCC_IncludePath>..\vsasas\TileStorage\DBMS\ExtTileStorages;..\vsasas\Includes</DCC_IncludePath>
     <DCC_WriteableConstants>True</DCC_WriteableConstants>
+    <DCC_GenerateStackFrames>True</DCC_GenerateStackFrames>
+    <DCC_MapFile>3</DCC_MapFile>
   </PropertyGroup>
   <ProjectExtensions>
     <Borland.Personality>Delphi.Personality</Borland.Personality>
     <Borland.ProjectType />
     <BorlandProject>
-<BorlandProject><Delphi.Personality><Parameters><Parameters Name="UseLauncher">False</Parameters><Parameters Name="LoadAllSymbols">True</Parameters><Parameters Name="LoadUnspecifiedSymbols">False</Parameters></Parameters><VersionInfo><VersionInfo Name="IncludeVerInfo">True</VersionInfo><VersionInfo Name="AutoIncBuild">False</VersionInfo><VersionInfo Name="MajorVer">1</VersionInfo><VersionInfo Name="MinorVer">0</VersionInfo><VersionInfo Name="Release">1</VersionInfo><VersionInfo Name="Build">4</VersionInfo><VersionInfo Name="Debug">False</VersionInfo><VersionInfo Name="PreRelease">False</VersionInfo><VersionInfo Name="Special">True</VersionInfo><VersionInfo Name="Private">False</VersionInfo><VersionInfo Name="DLL">True</VersionInfo><VersionInfo Name="Locale">1049</VersionInfo><VersionInfo Name="CodePage">1251</VersionInfo></VersionInfo><VersionInfoKeys><VersionInfoKeys Name="CompanyName">vasketsov</VersionInfoKeys><VersionInfoKeys Name="FileDescription">sas dbms connector (odbc)</VersionInfoKeys><VersionInfoKeys Name="FileVersion">1.0.1.4</VersionInfoKeys><VersionInfoKeys Name="InternalName"></VersionInfoKeys><VersionInfoKeys Name="LegalCopyright"></VersionInfoKeys><VersionInfoKeys Name="LegalTrademarks"></VersionInfoKeys><VersionInfoKeys Name="OriginalFilename"></VersionInfoKeys><VersionInfoKeys Name="ProductName"></VersionInfoKeys><VersionInfoKeys Name="ProductVersion">1.0.0.0</VersionInfoKeys><VersionInfoKeys Name="Comments"></VersionInfoKeys><VersionInfoKeys Name="SpecialBuild"></VersionInfoKeys></VersionInfoKeys><Source><Source Name="MainSource">TileStorage_DBMS.dpr</Source></Source><Excluded_Packages>
+<BorlandProject><Delphi.Personality><Parameters><Parameters Name="UseLauncher">False</Parameters><Parameters Name="LoadAllSymbols">True</Parameters><Parameters Name="LoadUnspecifiedSymbols">False</Parameters></Parameters><VersionInfo><VersionInfo Name="IncludeVerInfo">True</VersionInfo><VersionInfo Name="AutoIncBuild">False</VersionInfo><VersionInfo Name="MajorVer">1</VersionInfo><VersionInfo Name="MinorVer">0</VersionInfo><VersionInfo Name="Release">1</VersionInfo><VersionInfo Name="Build">5</VersionInfo><VersionInfo Name="Debug">False</VersionInfo><VersionInfo Name="PreRelease">False</VersionInfo><VersionInfo Name="Special">True</VersionInfo><VersionInfo Name="Private">False</VersionInfo><VersionInfo Name="DLL">True</VersionInfo><VersionInfo Name="Locale">1049</VersionInfo><VersionInfo Name="CodePage">1251</VersionInfo></VersionInfo><VersionInfoKeys><VersionInfoKeys Name="CompanyName">vasketsov</VersionInfoKeys><VersionInfoKeys Name="FileDescription">sas dbms connector (odbc)</VersionInfoKeys><VersionInfoKeys Name="FileVersion">1.0.1.5</VersionInfoKeys><VersionInfoKeys Name="InternalName"></VersionInfoKeys><VersionInfoKeys Name="LegalCopyright"></VersionInfoKeys><VersionInfoKeys Name="LegalTrademarks"></VersionInfoKeys><VersionInfoKeys Name="OriginalFilename"></VersionInfoKeys><VersionInfoKeys Name="ProductName"></VersionInfoKeys><VersionInfoKeys Name="ProductVersion">1.0.0.0</VersionInfoKeys><VersionInfoKeys Name="Comments"></VersionInfoKeys><VersionInfoKeys Name="SpecialBuild"></VersionInfoKeys></VersionInfoKeys><Source><Source Name="MainSource">TileStorage_DBMS.dpr</Source></Source><Excluded_Packages>
       <Excluded_Packages Name="$(BDS)\bin\bcboffice2k100.bpl">CodeGear C++Builder Office 2000 Servers Package</Excluded_Packages>
       <Excluded_Packages Name="$(BDS)\bin\bcbofficexp100.bpl">CodeGear C++Builder Office XP Servers Package</Excluded_Packages>
       <Excluded_Packages Name="$(BDS)\bin\dcloffice2k100.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
@@ -45,6 +47,7 @@
       <MainSource>MainSource</MainSource>
     </DelphiCompile>
     <DCCReference Include="i_DBMS_Provider.pas" />
+    <DCCReference Include="i_StatementHandleCache.pas" />
     <DCCReference Include="i_TSS.pas" />
     <DCCReference Include="ODBCSQL.PAS" />
     <DCCReference Include="t_DBMS_Connect.pas" />
@@ -69,6 +72,7 @@
     <DCCReference Include="u_exports.pas" />
     <DCCReference Include="u_LsaTools.pas" />
     <DCCReference Include="u_PStoreTools.pas" />
+    <DCCReference Include="u_StatementHandleCache.pas" />
     <DCCReference Include="u_TileArea.pas" />
     <DCCReference Include="u_Tile_Parser.pas" />
   </ItemGroup>

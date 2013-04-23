@@ -11,6 +11,7 @@ type
     procedure FreeStatement(const AStatementHandle: SQLHANDLE);
     function GetStatementHandle(var AStatementHandle: SQLHANDLE): SQLRETURN;
     procedure SyncStatements;
+    procedure GetStatistics(out AUsedCount, AUnusedCount: Integer);
   end;
 
 implementation

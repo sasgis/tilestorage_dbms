@@ -1525,6 +1525,8 @@ var
   end;
 
   function _AddPreamble(var AResponseText: String): Boolean;
+  var
+    VUsedCount, VUnusedCount: Integer;
   begin
     AResponseText := AResponseText +
                  '<br>' +
@@ -1533,7 +1535,15 @@ var
                  'Database server defined as ' + c_SQL_Engine_Name[VConnectionForOptions.GetCheckedEngineType] + '<br>';
 
     Result := (nil<>VConnectionForOptions) and (ETS_RESULT_OK=VConnectionForOptions.EnsureConnected(FALSE, nil));
-    if (not Result) then begin
+    if (Result) then begin
+      // connected
+      VConnectionForOptions.FODBCConnectionHolder.StatementCache.GetStatistics(VUsedCount, VUnusedCount);
+      if (VUsedCount<>0) or (VUnusedCount<>0) then begin
+        AResponseText := AResponseText +
+        'Statement used: ' + IntToStr(VUsedCount) + ', cached: ' + IntToStr(VUnusedCount) + '<br>';
+      end;
+    end else begin
+      // not connected
       AResponseText := AResponseText +
                    '<br>' +
                    '<h1>Not connected</h1>' +
@@ -1544,8 +1554,6 @@ var
                    'Click <a href="' + VFullPrefix + '/' + c_EO_SetAuthOpt + '">HERE</a> to set or change Authentication options' +
                    '<br>' +
                    'Click <a href="' + VFullPrefix + '/' + c_EO_ResetConnError + '">HERE</a> to reset connection information if you want another try';
-
-
     end;
   end;
 

@@ -19,6 +19,8 @@ uses
   u_DBMS_Template in 'u_DBMS_Template.pas',
   t_SQL_types in 't_SQL_types.pas',
   t_DBMS_Connect in 't_DBMS_Connect.pas',
+  i_StatementHandleCache in 'i_StatementHandleCache.pas',
+  u_StatementHandleCache in 'u_StatementHandleCache.pas',
   t_TSS in 't_TSS.pas',
   i_TSS in 'i_TSS.pas',
   u_TileArea in 'u_TileArea.pas',
