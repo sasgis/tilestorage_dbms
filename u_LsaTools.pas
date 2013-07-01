@@ -4,6 +4,7 @@ interface
 
 uses
   Windows,
+  NativeNTAPI,
   NTRegistry;
 
 type

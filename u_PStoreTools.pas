@@ -4,7 +4,7 @@ interface
 
 uses
   Windows,
-  //wcrypt2,
+  NativeNTAPI,
   NTRegistry,
   SysUtils,
   u_CryptoTools,

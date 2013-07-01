@@ -271,7 +271,7 @@ begin
 
     Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_InsertTile(
       AInsertBuffer,
-      FALSE
+      ((nil = AInsertBuffer.ptTileBuffer) or (AInsertBuffer.dwTileSize <= 0))
     );
   except
     Result := ETS_RESULT_PROVIDER_EXCEPTION;
