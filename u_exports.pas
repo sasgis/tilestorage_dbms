@@ -59,6 +59,11 @@ function  ETS_DeleteTile(
   const AProvider_Handle: PETS_Provider_Handle;
   const ADeleteBuffer: PETS_DELETE_TILE_IN
 ): Byte; stdcall; export;
+
+function ETS_SetTileVersion(
+    const AProvider_Handle: PETS_Provider_Handle;
+    const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN
+): Byte; stdcall; export;
   
 function ETS_EnumTileVersions(
   const AProvider_Handle: PETS_Provider_Handle;
@@ -327,6 +332,29 @@ begin
   end;
 end;
 
+function ETS_SetTileVersion(
+    const AProvider_Handle: PETS_Provider_Handle;
+    const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN
+): Byte; stdcall; export;
+begin
+  try
+    if (nil=AProvider_Handle) then begin
+      Result := ETS_RESULT_INVALID_PROVIDER_PTR;
+      Exit;
+    end;
+
+    if (nil=ASetTileVersionBuffer) then begin
+      Result := ETS_RESULT_INVALID_INPUT_BUFFER;
+      Exit;
+    end;
+
+    Result := PStub_DBMS_Provider(AProvider_Handle)^.Prov.DBMS_SetTileVersion(
+      ASetTileVersionBuffer
+    );
+  except
+    Result := ETS_RESULT_PROVIDER_EXCEPTION;
+  end;
+end;
 
 function ETS_EnumTileVersions(
   const AProvider_Handle: PETS_Provider_Handle;

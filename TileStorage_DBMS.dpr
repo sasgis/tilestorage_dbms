@@ -49,6 +49,7 @@ exports
   ETS_InsertTile,
   ETS_InsertTNE,
   ETS_DeleteTile,
+  ETS_SetTileVersion,
   ETS_EnumTileVersions,
   ETS_MakeTileEnum,
   ETS_KillTileEnum,

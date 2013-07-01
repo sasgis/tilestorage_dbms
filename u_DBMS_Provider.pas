@@ -419,8 +419,17 @@ type
     function GetSQL_DeleteTile(
       const ATilesConnection: IDBMS_Connection;
       const ADeleteBuffer: PETS_DELETE_TILE_IN;
-      ASQLTilePtr: PSQLTile;
+      const ASQLTilePtr: PSQLTile;
       out ADeleteSQLResult: TDBMS_String
+    ): Byte;
+
+    // формирование текста SQL для замены версии тайла или маркера TNE
+    function GetSQL_SetTileVersion(
+      const ATilesConnection: IDBMS_Connection;
+      const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN;
+      const ASQLTilePtr: PSQLTile;
+      const AExclusively: Boolean;
+      out ASetTileVersionSQLResult, ADeleteOldSQLResult: TDBMS_String
     ): Byte;
 
     // формирование текста SQL для получения (SELECT) списка существующих версий тайла (XYZ)
@@ -434,7 +443,7 @@ type
     function GetSQL_GetTileRectInfo(
       const ATileRectInfoIn: PETS_GET_TILE_RECT_IN;
       const AExclusively: Boolean;
-      ASelectInRectList: TSelectInRectList
+      const ASelectInRectList: TSelectInRectList
     ): Byte;
 
     function GetSQL_InsertIntoService(
@@ -473,6 +482,10 @@ type
 
     function DBMS_DeleteTile(
       const ADeleteBuffer: PETS_DELETE_TILE_IN
+    ): Byte;
+
+    function DBMS_SetTileVersion(
+      const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN
     ): Byte;
 
     function DBMS_EnumTileVersions(
@@ -1191,19 +1204,19 @@ function TDBMS_Provider.DBMS_DeleteTile(
   const ADeleteBuffer: PETS_DELETE_TILE_IN
 ): Byte;
 var
-  VExclusive: Boolean;
+  VReqExclusive: Boolean;
   VDeleteSQL: TDBMS_String;
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
   VSQLTile: TSQLTile;
   VConnectionToDeleteTile: IDBMS_Connection;
 begin
-  VExclusive := ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+  VReqExclusive := ((ADeleteBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive, so_Delete, VExclusivelyLocked);
+  DoBeginWork(VReqExclusive, so_Delete, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive, ADeleteBuffer^.XYZ, FALSE, @VSQLTile, VConnectionToDeleteTile);
+    Result := InternalProv_Connect(VExclusivelyLocked, ADeleteBuffer^.XYZ, FALSE, @VSQLTile, VConnectionToDeleteTile);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
@@ -1251,7 +1264,7 @@ function TDBMS_Provider.DBMS_EnumTileVersions(
   const ASelectBufferIn: PETS_SELECT_TILE_IN
 ): Byte;
 var
-  VExclusive, VVersionFound: Boolean;
+  VReqExclusive, VVersionFound: Boolean;
   VOdbcFetchCols: TOdbcFetchCols2;
   VEnumOut: TETS_ENUM_TILE_VERSION_OUT;
   VETS_VERSION_W: TETS_VERSION_W;
@@ -1265,12 +1278,12 @@ var
   VSQLTile: TSQLTile;
   VConnectionToEnumVersions: IDBMS_Connection;
 begin
-  VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+  VReqExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive, so_EnumVersions, VExclusivelyLocked);
+  DoBeginWork(VReqExclusive, so_EnumVersions, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive, ASelectBufferIn.XYZ, FALSE, @VSQLTile, VConnectionToEnumVersions);
+    Result := InternalProv_Connect(VExclusivelyLocked, ASelectBufferIn.XYZ, FALSE, @VSQLTile, VConnectionToEnumVersions);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
@@ -1344,11 +1357,11 @@ begin
           if (not VVersionFound) then begin
             // необходимо обновление версии, так как вытащили из БД неизвестную ранее версию
             // очевидно она залетела в другом коннекте
-            if (not VExclusive) then begin
+            if (not VExclusivelyLocked) then begin
               Result := ETS_RESULT_NEED_EXCLUSIVE;
               Exit;
             end;
-            ReadVersionsFromDB(GetGuidesConnection, VExclusive);
+            ReadVersionsFromDB(GetGuidesConnection, VExclusivelyLocked);
             VVersionFound := FVersionList.FindItemByIdVerInternal(VFetchedIdVer, @VVersionAA);
           end;
 
@@ -2298,7 +2311,7 @@ function TDBMS_Provider.DBMS_GetTileRectInfo(
   const ATileRectInfoIn: PETS_GET_TILE_RECT_IN
 ): Byte;
 var
-  VExclusive: Boolean;
+  VReqExclusive: Boolean;
   VOdbcFetchColsEx: TOdbcFetchCols12;
   VColIndex: SmallInt;
   VEnumOut: TETS_GET_TILE_RECT_OUT;
@@ -2309,14 +2322,14 @@ var
   // здесь подключение фиктивно, так как могут вернуться данных из некольких секций
   VConnectionDummy: IDBMS_Connection;
 begin
-  VExclusive := ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+  VReqExclusive := ((ATileRectInfoIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive, so_SelectInRect, VExclusivelyLocked);
+  DoBeginWork(VReqExclusive, so_SelectInRect, VExclusivelyLocked);
   try
     // connect (if not connected)
     // здесь нельзя заранее выбрать одно подключение, так как граница области может пересечь несколько секций
     // так что вернётся первичное
-    Result := InternalProv_Connect(VExclusive, nil, FALSE, nil, VConnectionDummy);
+    Result := InternalProv_Connect(VExclusivelyLocked, nil, FALSE, nil, VConnectionDummy);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
@@ -2328,7 +2341,7 @@ begin
     VSelectInRectList := TSelectInRectList.Create;
     try
       // генеримся
-      Result := GetSQL_GetTileRectInfo(ATileRectInfoIn, VExclusive, VSelectInRectList);
+      Result := GetSQL_GetTileRectInfo(ATileRectInfoIn, VExclusivelyLocked, VSelectInRectList);
       if (ETS_RESULT_OK<>Result) then
         Exit;
 
@@ -2432,7 +2445,7 @@ function TDBMS_Provider.DBMS_InsertTile(
   const AForceTNE: Boolean
 ): Byte;
 var
-  VExclusive: Boolean;
+  VReqExclusive: Boolean;
   VInsertSQL, VUpdateSQL: TDBMS_String;
   VUnquotedTableNameWithoutPrefix: TDBMS_String;
   VQuotedTableNameWithPrefix: TDBMS_String;
@@ -2447,12 +2460,12 @@ var
   VConnectionForInsert: IDBMS_Connection;
   VUpsert: Boolean;
 begin
-  VExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+  VReqExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive, so_Insert, VExclusivelyLocked);
+  DoBeginWork(VReqExclusive, so_Insert, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive, AInsertBuffer^.XYZ, TRUE, @VSQLTile, VConnectionForInsert);
+    Result := InternalProv_Connect(VExclusivelyLocked, AInsertBuffer^.XYZ, TRUE, @VSQLTile, VConnectionForInsert);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
@@ -2467,7 +2480,7 @@ begin
         @VSQLTile,
         AInsertBuffer,
         AForceTNE,
-        VExclusive,
+        VExclusivelyLocked,
         VInsertSQL,
         VUpdateSQL,
         VInsertUpdateSubType,
@@ -2538,7 +2551,7 @@ begin
         end;
         set_TableNotFound: begin
           // нет таблицы в БД
-          if (not VExclusive) then begin
+          if (not VExclusivelyLocked) then begin
             // таблицы создаём только в эксклюзивном режиме
             Result := ETS_RESULT_NEED_EXCLUSIVE;
             Exit;
@@ -2565,7 +2578,13 @@ begin
           VStatementRepeatType := srt_Insert;
         end;
         set_PrimaryKeyViolation: begin
-          // нарушение уникальности по первичному ключу - надо обновляться
+          // нарушение уникальности по первичному ключу
+          if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_KEEP_EXISTING) <> 0) then begin
+            // надо оставить существующий тайл
+            Result := ETS_RESULT_SKIP_EXISTING;
+            Exit;
+          end;
+          // надо обновляться
           if VUpsert then begin
             // при upsert такого быть не должно
             Result := ETS_RESULT_INVALID_STRUCTURE;
@@ -2709,7 +2728,7 @@ function TDBMS_Provider.DBMS_SelectTile(
   const ASelectBufferIn: PETS_SELECT_TILE_IN
 ): Byte;
 var
-  VExclusive: Boolean;
+  VReqExclusive: Boolean;
   VOdbcFetchColsEx: TOdbcFetchCols10;
   VColIndex: SmallInt;
   VOut: TETS_SELECT_TILE_OUT;
@@ -2721,18 +2740,18 @@ var
   VSQLTile: TSQLTile;
   VConnectionForSelect: IDBMS_Connection;
 begin
-  VExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+  VReqExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
-  DoBeginWork(VExclusive, so_Select, VExclusivelyLocked);
+  DoBeginWork(VReqExclusive, so_Select, VExclusivelyLocked);
   try
     // connect (if not connected)
-    Result := InternalProv_Connect(VExclusive, ASelectBufferIn^.XYZ, FALSE, @VSQLTile, VConnectionForSelect);
+    Result := InternalProv_Connect(VExclusivelyLocked, ASelectBufferIn^.XYZ, FALSE, @VSQLTile, VConnectionForSelect);
 
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
     // забацаем полный текст SELECT
-    Result := GetSQL_SelectTile(VConnectionForSelect, @VSQLTile, ASelectBufferIn, VExclusive, VSQLText);
+    Result := GetSQL_SelectTile(VConnectionForSelect, @VSQLTile, ASelectBufferIn, VExclusivelyLocked, VSQLText);
     if (ETS_RESULT_OK<>Result) then
       Exit;
 
@@ -2808,10 +2827,10 @@ begin
 
       if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_VERSION_OUT) <> 0) then begin
         // as AnsiString
-        VOut.szVersionOut := GetVersionAnsiPointer(GetGuidesConnection, Vid_ver, VExclusive);
+        VOut.szVersionOut := GetVersionAnsiPointer(GetGuidesConnection, Vid_ver, VExclusivelyLocked);
       end else begin
         // as WideString
-        VVersionW := GetVersionWideString(GetGuidesConnection, Vid_ver, VExclusive);
+        VVersionW := GetVersionWideString(GetGuidesConnection, Vid_ver, VExclusivelyLocked);
         VOut.szVersionOut := PWideChar(VVersionW);
       end;
 
@@ -2821,10 +2840,10 @@ begin
 
       if ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_ANSI_CONTENTTYPE_OUT) <> 0) then begin
           // as AnsiString
-          VOut.szContentTypeOut := GetContentTypeAnsiPointer(GetGuidesConnection, Vid_contenttype, VExclusive);
+          VOut.szContentTypeOut := GetContentTypeAnsiPointer(GetGuidesConnection, Vid_contenttype, VExclusivelyLocked);
       end else begin
           // as WideString
-          VContentTypeW := GetContentTypeWideString(GetGuidesConnection, Vid_contenttype, VExclusive);
+          VContentTypeW := GetContentTypeWideString(GetGuidesConnection, Vid_contenttype, VExclusivelyLocked);
           VOut.szContentTypeOut := PWideChar(VContentTypeW);
       end;
 
@@ -2882,6 +2901,97 @@ begin
 
   // unknown value
   Result := ETS_RESULT_UNKNOWN_INFOCLASS;
+end;
+
+function TDBMS_Provider.DBMS_SetTileVersion(
+  const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN
+): Byte;
+var
+  VReqExclusive: Boolean;
+  VSetTileVersionSQL: TDBMS_String;
+  VDeleteOldTileSQL: TDBMS_String;
+  VExclusivelyLocked: Boolean;
+  VStatementExceptionType: TStatementExceptionType;
+  VSQLTile: TSQLTile;
+  VConnectionToSetTileVersion: IDBMS_Connection;
+begin
+  VReqExclusive := ((ASetTileVersionBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
+
+  DoBeginWork(VReqExclusive, so_SetTileVersion, VExclusivelyLocked);
+  try
+    // connect (if not connected)
+    Result := InternalProv_Connect(VExclusivelyLocked, ASetTileVersionBuffer^.XYZ, FALSE, @VSQLTile, VConnectionToSetTileVersion);
+
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    // make SQL statements
+    Result := GetSQL_SetTileVersion(
+      VConnectionToSetTileVersion,
+      ASetTileVersionBuffer,
+      @VSQLTile,
+      VExclusivelyLocked,
+      VSetTileVersionSQL,
+      VDeleteOldTileSQL
+    );
+      
+    if (ETS_RESULT_OK<>Result) then
+      Exit;
+
+    VStatementExceptionType := set_Success;
+    try
+      // execute SQL statement
+      VConnectionToSetTileVersion.ExecuteDirectSQL(VSetTileVersionSQL, False);
+      // done (successfully executed)
+      // Result := ETS_RESULT_OK;
+    except on E: Exception do
+      VStatementExceptionType := GetStatementExceptionType(VConnectionToSetTileVersion, E);
+    end;
+
+    // что случилось
+    if not StandardExceptionType(VStatementExceptionType, FALSE, Result) then
+    case VStatementExceptionType of
+      set_Success: begin
+        // версия обновилась
+        Result := ETS_RESULT_OK;
+      end;
+      set_TableNotFound: begin
+        // нет таблицы - нет тайла
+        Result := ETS_RESULT_TILE_TABLE_NOT_FOUND;
+      end;
+      set_PrimaryKeyViolation: begin
+        // тайл с новой версией уже был
+        if ((ASetTileVersionBuffer^.dwOptionsIn and ETS_ROI_KEEP_EXISTING) <> 0) then begin
+          // надо его сохранить
+          Result := ETS_RESULT_SKIP_EXISTING;
+          Exit;
+        end;
+
+        // удаляем тайл с новой версией
+        VConnectionToSetTileVersion.ExecuteDirectSQL(VDeleteOldTileSQL, True);
+        
+        // повторяем запрос изменения версии
+        VStatementExceptionType := set_Success;
+        try
+          VConnectionToSetTileVersion.ExecuteDirectSQL(VSetTileVersionSQL, False);
+        except on E: Exception do
+          VStatementExceptionType := GetStatementExceptionType(VConnectionToSetTileVersion, E);
+        end;
+        // проверка
+        if not StandardExceptionType(VStatementExceptionType, FALSE, Result) then
+        case VStatementExceptionType of
+          set_Success: begin
+            Result := ETS_RESULT_OK;
+          end;
+          else begin
+            Result := ETS_RESULT_INVALID_STRUCTURE;
+          end;
+        end;
+      end;
+    end;
+  finally
+    DoEndWork(VExclusivelyLocked);
+  end;
 end;
 
 destructor TDBMS_Provider.Destroy;
@@ -3407,7 +3517,7 @@ end;
 function TDBMS_Provider.GetSQL_DeleteTile(
   const ATilesConnection: IDBMS_Connection;
   const ADeleteBuffer: PETS_DELETE_TILE_IN;
-  ASQLTilePtr: PSQLTile;
+  const ASQLTilePtr: PSQLTile;
   out ADeleteSQLResult: TDBMS_String
 ): Byte;
 var
@@ -3483,7 +3593,7 @@ end;
 function TDBMS_Provider.GetSQL_GetTileRectInfo(
   const ATileRectInfoIn: PETS_GET_TILE_RECT_IN;
   const AExclusively: Boolean;
-  ASelectInRectList: TSelectInRectList
+  const ASelectInRectList: TSelectInRectList
 ): Byte;
 var
   VTileXYZMin, VTileXYZMax: TTILE_ID_XYZ;
@@ -4127,6 +4237,105 @@ begin
                      ' FROM ' + VSQLParts.FromSQL +
                     VSQLParts.WhereSQL +
                     VSQLParts.OrderBySQL;
+end;
+
+function TDBMS_Provider.GetSQL_SetTileVersion(
+  const ATilesConnection: IDBMS_Connection;
+  const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN;
+  const ASQLTilePtr: PSQLTile;
+  const AExclusively: Boolean;
+  out ASetTileVersionSQLResult, ADeleteOldSQLResult: TDBMS_String
+): Byte;
+var
+  VInsertVerBuf: TETS_INSERT_TILE_IN;
+  VRequestedVersionFound: Boolean;
+  VOldVersion, VNewVersion: TVersionAA;
+begin
+  // определяем исходную версию
+  if ((ASetTileVersionBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
+    VRequestedVersionFound := FVersionList.FindItemByAnsiValue(
+      PAnsiChar(ASetTileVersionBuffer^.szOldVersion),
+      @VOldVersion
+    );
+  end else begin
+    // как Wide
+    VRequestedVersionFound := FVersionList.FindItemByWideValue(
+      PWideChar(ASetTileVersionBuffer^.szOldVersion),
+      @VOldVersion
+    );
+  end;
+
+  // если не смогли определить версию - вернём ошибку
+  if (not VRequestedVersionFound) then begin
+    Result := ETS_RESULT_UNKNOWN_VERSION;
+    Exit;
+  end;
+
+  // целевая версия может быть вообще новая
+  if ((ASetTileVersionBuffer^.dwOptionsIn and ETS_ROI_ANSI_VERSION_IN) <> 0) then begin
+    // как Ansi
+    VRequestedVersionFound := FVersionList.FindItemByAnsiValue(
+      PAnsiChar(ASetTileVersionBuffer^.szNewVersion),
+      @VNewVersion
+    );
+  end else begin
+    // как Wide
+    VRequestedVersionFound := FVersionList.FindItemByWideValue(
+      PWideChar(ASetTileVersionBuffer^.szNewVersion),
+      @VNewVersion
+    );
+  end;
+
+  if (not VRequestedVersionFound) then begin
+    // если такой версии нет - пробуем создать её автоматически
+    FillChar(VInsertVerBuf, SizeOf(VInsertVerBuf), 0);
+    VInsertVerBuf.szVersionIn := ASetTileVersionBuffer^.szNewVersion;
+    VInsertVerBuf.dwOptionsIn := ASetTileVersionBuffer^.dwOptionsIn;
+    Result := AutoCreateServiceVersion(
+      GetGuidesConnection,
+      AExclusively,
+      False,
+      @VInsertVerBuf,
+      @VNewVersion,
+      VRequestedVersionFound);
+    // проверяем результат создания новой версии
+    if (Result<>ETS_RESULT_OK) then
+      Exit;
+  end;
+
+  if (not VRequestedVersionFound) then begin
+    Result := ETS_RESULT_UNKNOWN_VERSION;
+    Exit;
+  end;
+
+  // сравним версии
+  if (VNewVersion.id_ver = VOldVersion.id_ver) then begin
+    // одинаковые не обновляем
+    Result := ETS_RESULT_SKIP_EXISTING;
+    Exit;
+  end;
+  
+  // забацаем SQL для замены версии тайла или TNE
+  ASetTileVersionSQLResult := 'update ' + ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName +
+                                ' set id_ver=' + IntToStr(VNewVersion.id_ver) +
+                              ' where x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                                ' and y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                                ' and id_ver=' + IntToStr(VOldVersion.id_ver);
+
+  // а это на случай необходимости удаления существующего тайла
+  if ((ASetTileVersionBuffer^.dwOptionsIn and ETS_ROI_KEEP_EXISTING) <> 0) then begin
+    // будем сохранять существующий тайл, если налетим на ошибку
+    ADeleteOldSQLResult := '';
+  end else begin
+    // команда SQL для удаления старого тайла
+    ADeleteOldSQLResult := 'delete from ' + ATilesConnection.ForcedSchemaPrefix + ASQLTilePtr^.QuotedTileTableName +
+                           ' where x=' + IntToStr(ASQLTilePtr^.XYLowerToID.X) +
+                             ' and y=' + IntToStr(ASQLTilePtr^.XYLowerToID.Y) +
+                             ' and id_ver=' + IntToStr(VNewVersion.id_ver);
+  end;
+
+  Result := ETS_RESULT_OK;
 end;
 
 function TDBMS_Provider.GetVersionAnsiPointer(

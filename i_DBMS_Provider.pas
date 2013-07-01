@@ -35,6 +35,10 @@ type
       const ADeleteBuffer: PETS_DELETE_TILE_IN
     ): Byte;
 
+    function DBMS_SetTileVersion(
+      const ASetTileVersionBuffer: PETS_SET_TILE_VERSION_IN
+    ): Byte;
+
     function DBMS_EnumTileVersions(
       const ACallbackPointer: Pointer;
       const ASelectBufferIn: PETS_SELECT_TILE_IN
@@ -83,6 +87,7 @@ type
     so_Select,
     so_Insert,
     so_Delete,
+    so_SetTileVersion,
     so_EnumVersions,
     so_ReloadVersions,
     so_OutputVersions,
