@@ -3934,6 +3934,12 @@ begin
     VUpsertMode := upsm_None;
   end;
 
+  if (VUpsertMode<>upsm_None) then
+  if ((AInsertBuffer^.dwOptionsIn and ETS_ROI_KEEP_EXISTING) <> 0) then begin
+    // отключаем UPSERT, так как в принципе возможен только INSERT
+    VUpsertMode := upsm_None;
+  end;
+
   AUpsert := (VUpsertMode<>upsm_None);
 
   case VUpsertMode of
