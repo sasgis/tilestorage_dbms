@@ -62,7 +62,7 @@ type
     // guides
     FVersionList: TVersionList;
     FContentTypeList: TContentTypeList;
-    // primary ContentTpye from Host (from Map params)
+    // primary ContentType from Host (from Map params)
     FPrimaryContentType: AnsiString;
 
     // признак что для сервиса прочитаны параметры из БД
@@ -81,6 +81,8 @@ type
     // для создания версии
     FLastMakeVersionSource: String;
 
+    // применять zlib для паковки и распаковки тайлов
+    FAllowGZipTiles: Boolean;
   private
     // определяет подключение для справочников, сервисов и т.п. и для непопавших никуда тайлов
     procedure CheckSecondaryConnections;
@@ -522,6 +524,7 @@ type
 implementation
 
 uses
+  ZLib,
   u_Synchronizer,
   u_Exif_Parser,
   u_Tile_Parser,
@@ -877,7 +880,8 @@ begin
   FStatusBuffer := AStatusBuffer;
   FInitFlags := AFlags;
   FHostPointer := AHostPointer;
-
+  FAllowGZipTiles := False;
+  
   FPrimaryContentType := '';
   FLastMakeVersionSource := '';
 
@@ -2459,7 +2463,13 @@ var
   VSQLTile: TSQLTile;
   VConnectionForInsert: IDBMS_Connection;
   VUpsert: Boolean;
+  // blobs
+  VBlobAddr: Pointer;
+  VBlobSize: Integer;
+  VZippedBuffer: Pointer;
+  VZippedLength: Integer;
 begin
+  VZippedBuffer := nil;
   VReqExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VReqExclusive, so_Insert, VExclusivelyLocked);
@@ -2512,6 +2522,30 @@ begin
       end;
       *)
 
+      // сожмём тайл, если необходимо
+      VBlobAddr := AInsertBuffer^.ptTileBuffer;
+      VBlobSize := AInsertBuffer^.dwTileSize;
+      if FAllowGZipTiles and (VBlobAddr <> nil) and (VBlobSize > 0) then begin
+        VZippedLength := 0;
+        try
+          // сжимаем тайл
+          CompressBuf(
+            VBlobAddr,
+            VBlobSize,
+            VZippedBuffer,
+            VZippedLength
+          );
+          // сжалось - сохраняем сжатый тайл только если размер меньше или равен оригинальному
+          if (VZippedLength <= VBlobSize) then begin
+            VBlobAddr := VZippedBuffer;
+            VBlobSize := VZippedLength;
+          end;
+        except
+          // ошибка при сжатии - сохраняем оригинал
+          VZippedBuffer := nil;
+        end;
+      end;
+
       // запрос с передачей BLOBа или нет
       VExecuteWithBlob := (iust_TILE=VInsertUpdateSubType) {and (not VCastBodyAsHexLiteral)};
 
@@ -2527,7 +2561,12 @@ begin
 
         if VExecuteWithBlob then begin
           // INSERT with BLOB
-          VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
+          VConnectionForInsert.ExecuteDirectWithBlob(
+            VInsertSQL,
+            VBlobAddr,
+            VBlobSize,
+            FALSE
+          );
         end else begin
           // INSERT without BLOB
           VConnectionForInsert.ExecuteDirectSQL(VInsertSQL, FALSE);
@@ -2615,7 +2654,12 @@ begin
           // здесь в VInsertSQL может быть и текст для UPDATE
           if VExecuteWithBlob then begin
             // UPDATE with BLOB
-            VConnectionForInsert.ExecuteDirectWithBlob(VInsertSQL, AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize, FALSE);
+            VConnectionForInsert.ExecuteDirectWithBlob(
+              VInsertSQL,
+              VBlobAddr,
+              VBlobSize,
+              FALSE
+            );
           end else begin
             // UPDATE without BLOB
             VConnectionForInsert.ExecuteDirectSQL(VInsertSQL, FALSE);
@@ -2665,6 +2709,9 @@ begin
       end; // of while
   finally
     DoEndWork(VExclusivelyLocked);
+    if (VZippedBuffer <> nil) then begin
+      zlibFreeMem(nil, VZippedBuffer);
+    end;
   end;
 end;
 
@@ -2739,6 +2786,8 @@ var
   VStatementExceptionType: TStatementExceptionType;
   VSQLTile: TSQLTile;
   VConnectionForSelect: IDBMS_Connection;
+  VUnZippedBuffer: Pointer;
+  VUnZippedLength: Integer;
 begin
   VReqExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -2757,6 +2806,7 @@ begin
 
     FillChar(VOut, SizeOf(VOut), 0);
 
+    VUnZippedBuffer := nil;
     VOdbcFetchColsEx.Init;
     try
       // open sql
@@ -2800,9 +2850,9 @@ begin
       end;
 
       // берём только одну запись (из-за 'order by' другие не нужны)
-      // TODO: пропихнуть признак в запрос и подставлять TOP 1 или аналог
       VColIndex := VOdbcFetchColsEx.Base.ColIndex('load_date');
       VOdbcFetchColsEx.Base.ColToDateTime(VColIndex, VOut.dtLoadedUTC);
+      // оригинальный размер тайла (если тайл сжат - размер несжатого)
       VColIndex := VOdbcFetchColsEx.Base.ColIndex('tile_size');
       VOdbcFetchColsEx.Base.ColToLongInt(VColIndex, VOut.dwTileSize);
 
@@ -2819,6 +2869,32 @@ begin
           VOut.ptTileBuffer := nil
         else
           VOut.ptTileBuffer := VOdbcFetchColsEx.Base.GetLOBBuffer(VColIndex);
+        // возможно надо его разархивировать
+        if FAllowGZipTiles then
+        if (VOut.ptTileBuffer <> nil) then
+        try
+          // разархивируем
+          VUnZippedLength := 0;
+          DecompressBuf(
+            VOut.ptTileBuffer,
+            VOdbcFetchColsEx.Base.Cols[VColIndex].Bind_StrLen_or_Ind,
+            0,
+            VUnZippedBuffer,
+            VUnZippedLength
+          );
+          // успешно разархивировалось
+          if (VUnZippedLength = VOut.dwTileSize) then begin
+            // размер соответствует оригинальному
+            VOut.ptTileBuffer := VUnZippedBuffer;
+          end else begin
+            // почему-то разархивировалось в другой размер
+            Result := ETS_RESULT_GZIP_ERROR;
+            Exit;
+          end;
+        except
+          // ошибка при разархивировании
+          VUnZippedBuffer := nil;
+        end;
       end;
 
       // версия
@@ -2856,6 +2932,9 @@ begin
       );
     finally
       VOdbcFetchColsEx.Base.Close;
+      if (VUnZippedBuffer <> nil) then begin
+        zlibFreeMem(nil, VUnZippedBuffer);
+      end;
     end;
   finally
     DoEndWork(VExclusivelyLocked);
@@ -2869,38 +2948,41 @@ function TDBMS_Provider.DBMS_SetInformation(
   const AInfoResult: PLongWord
 ): Byte;
 begin
-  if (ETS_INFOCLASS_SetStorageIdentifier=AInfoClass) then begin
-    // set GlobalStorageIdentifier and ServiceName from PETS_SET_IDENTIFIER_INFO
-    Result := InternalProv_SetStorageIdentifier(AInfoSize, PETS_SET_IDENTIFIER_INFO(AInfoData), AInfoResult);
-    Exit;
-  end;
-
-  if (ETS_INFOCLASS_SetPrimaryContentType=AInfoClass) then begin
-    // set primary ContentType
-    if (AInfoSize=SizeOf(AnsiChar)) then begin
-      // treat as PAnsiChar
-      FPrimaryContentType := AnsiString(PAnsiChar(AInfoData));
-      Result := ETS_RESULT_OK;
-    end else if (AInfoSize=SizeOf(WideChar)) then begin
-      // treat as PWideChar
-      FPrimaryContentType := WideString(PWideChar(AInfoData));
-      Result := ETS_RESULT_OK;
-    end else begin
-      // unknown
-      Result := ETS_RESULT_INVALID_BUFFER_SIZE;
+  case AInfoClass of
+    ETS_INFOCLASS_SetStorageIdentifier: begin
+      // set GlobalStorageIdentifier and ServiceName from PETS_SET_IDENTIFIER_INFO
+      Result := InternalProv_SetStorageIdentifier(AInfoSize, PETS_SET_IDENTIFIER_INFO(AInfoData), AInfoResult);
     end;
-    Exit;
+    ETS_INFOCLASS_SetPrimaryContentType: begin
+      // set primary ContentType
+      if (AInfoSize=SizeOf(AnsiChar)) then begin
+        // treat as PAnsiChar
+        FPrimaryContentType := AnsiString(PAnsiChar(AInfoData));
+        Result := ETS_RESULT_OK;
+      end else if (AInfoSize=SizeOf(WideChar)) then begin
+        // treat as PWideChar
+        FPrimaryContentType := WideString(PWideChar(AInfoData));
+        Result := ETS_RESULT_OK;
+      end else begin
+        // unknown
+        Result := ETS_RESULT_INVALID_BUFFER_SIZE;
+      end;
+    end;
+    ETS_INFOCLASS_SetZLibCompression: begin
+      // set zlib compression
+      FAllowGZipTiles := (AInfoData <> nil);
+      Result := ETS_RESULT_OK;
+    end;
+    Ord(Low(TETS_INFOCLASS_Callbacks))..Ord(High(TETS_INFOCLASS_Callbacks)): begin
+      // callbacks
+      FHostCallbacks[TETS_INFOCLASS_Callbacks(AInfoClass)] := AInfoData;
+      Result := ETS_RESULT_OK;
+    end;
+    else begin
+      // unknown value
+      Result := ETS_RESULT_UNKNOWN_INFOCLASS;
+    end;
   end;
-
-  if (TETS_INFOCLASS_Callbacks(AInfoClass)>=Low(TETS_INFOCLASS_Callbacks)) and (TETS_INFOCLASS_Callbacks(AInfoClass)<=High(TETS_INFOCLASS_Callbacks)) then begin
-    // callbacks
-    FHostCallbacks[TETS_INFOCLASS_Callbacks(AInfoClass)] := AInfoData;
-    Result := ETS_RESULT_OK;
-    Exit;
-  end;
-
-  // unknown value
-  Result := ETS_RESULT_UNKNOWN_INFOCLASS;
 end;
 
 function TDBMS_Provider.DBMS_SetTileVersion(
