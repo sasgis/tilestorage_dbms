@@ -81,8 +81,8 @@ type
     // для создания версии
     FLastMakeVersionSource: String;
 
-    // применять zlib для паковки и распаковки тайлов
-    FAllowGZipTiles: Boolean;
+    // применять zlib или gzip для паковки и распаковки тайлов
+    FGZipTilesMode: Byte;
   private
     // определяет подключение для справочников, сервисов и т.п. и для непопавших никуда тайлов
     procedure CheckSecondaryConnections;
@@ -525,6 +525,7 @@ implementation
 
 uses
   ZLib,
+  ALZLibExGZ,
   u_Synchronizer,
   u_Exif_Parser,
   u_Tile_Parser,
@@ -880,7 +881,7 @@ begin
   FStatusBuffer := AStatusBuffer;
   FInitFlags := AFlags;
   FHostPointer := AHostPointer;
-  FAllowGZipTiles := False;
+  FGZipTilesMode := 0;
   
   FPrimaryContentType := '';
   FLastMakeVersionSource := '';
@@ -2466,10 +2467,12 @@ var
   // blobs
   VBlobAddr: Pointer;
   VBlobSize: Integer;
-  VZippedBuffer: Pointer;
-  VZippedLength: Integer;
+  VZLibBuffer: Pointer;
+  VZLibLength: Integer;
+  VGZippedStream: TMemoryStream;
 begin
-  VZippedBuffer := nil;
+  VZLibBuffer := nil;
+  VGZippedStream := nil;
   VReqExclusive := ((AInsertBuffer^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
   DoBeginWork(VReqExclusive, so_Insert, VExclusivelyLocked);
@@ -2525,24 +2528,42 @@ begin
       // сожмём тайл, если необходимо
       VBlobAddr := AInsertBuffer^.ptTileBuffer;
       VBlobSize := AInsertBuffer^.dwTileSize;
-      if FAllowGZipTiles and (VBlobAddr <> nil) and (VBlobSize > 0) then begin
-        VZippedLength := 0;
+      if (FGZipTilesMode <> 0) and (VBlobAddr <> nil) and (VBlobSize > 0) then begin
         try
-          // сжимаем тайл
-          CompressBuf(
-            VBlobAddr,
-            VBlobSize,
-            VZippedBuffer,
-            VZippedLength
-          );
-          // сжалось - сохраняем сжатый тайл только если размер меньше или равен оригинальному
-          if (VZippedLength <= VBlobSize) then begin
-            VBlobAddr := VZippedBuffer;
-            VBlobSize := VZippedLength;
+          case FGZipTilesMode of
+            1: begin
+              // сжимаем тайл через zlib
+              VZLibLength := 0;
+              CompressBuf(
+                VBlobAddr,
+                VBlobSize,
+                VZLibBuffer,
+                VZLibLength
+              );
+              // сжалось - сохраняем сжатый тайл только если размер меньше оригинального
+              if (VZLibLength < VBlobSize) then begin
+                VBlobAddr := VZLibBuffer;
+                VBlobSize := VZLibLength;
+              end;
+            end;
+            2: begin
+              // сжимаем через ALZLibExGZ
+              _CompressGZ(
+                VBlobAddr,
+                VBlobSize,
+                VGZippedStream
+              );
+              // сжалось - сохраняем сжатый тайл только если размер меньше оригинального
+              if (VGZippedStream <> nil) then
+              if (VGZippedStream.Size < VBlobSize) then begin
+                VBlobAddr := VGZippedStream.Memory;
+                VBlobSize := VGZippedStream.Size;
+              end;
+            end;
           end;
         except
           // ошибка при сжатии - сохраняем оригинал
-          VZippedBuffer := nil;
+          VZLibBuffer := nil;
         end;
       end;
 
@@ -2709,8 +2730,9 @@ begin
       end; // of while
   finally
     DoEndWork(VExclusivelyLocked);
-    if (VZippedBuffer <> nil) then begin
-      zlibFreeMem(nil, VZippedBuffer);
+    FreeAndNil(VGZippedStream);
+    if (VZLibBuffer <> nil) then begin
+      zlibFreeMem(nil, VZLibBuffer);
     end;
   end;
 end;
@@ -2786,8 +2808,10 @@ var
   VStatementExceptionType: TStatementExceptionType;
   VSQLTile: TSQLTile;
   VConnectionForSelect: IDBMS_Connection;
-  VUnZippedBuffer: Pointer;
-  VUnZippedLength: Integer;
+  VBlobSize: Integer;
+  VUnZLibBuffer: Pointer;
+  VUnZLibLength: Integer;
+  VUnGZippedStream: TMemoryStream;
 begin
   VReqExclusive := ((ASelectBufferIn^.dwOptionsIn and ETS_ROI_EXCLUSIVELY) <> 0);
 
@@ -2806,7 +2830,8 @@ begin
 
     FillChar(VOut, SizeOf(VOut), 0);
 
-    VUnZippedBuffer := nil;
+    VUnZLibBuffer := nil;
+    VUnGZippedStream := nil;
     VOdbcFetchColsEx.Init;
     try
       // open sql
@@ -2869,31 +2894,59 @@ begin
           VOut.ptTileBuffer := nil
         else
           VOut.ptTileBuffer := VOdbcFetchColsEx.Base.GetLOBBuffer(VColIndex);
+
         // возможно надо его разархивировать
-        if FAllowGZipTiles then
-        if (VOut.ptTileBuffer <> nil) then
-        try
-          // разархивируем
-          VUnZippedLength := 0;
-          DecompressBuf(
-            VOut.ptTileBuffer,
-            VOdbcFetchColsEx.Base.Cols[VColIndex].Bind_StrLen_or_Ind,
-            0,
-            VUnZippedBuffer,
-            VUnZippedLength
-          );
-          // успешно разархивировалось
-          if (VUnZippedLength = VOut.dwTileSize) then begin
-            // размер соответствует оригинальному
-            VOut.ptTileBuffer := VUnZippedBuffer;
-          end else begin
-            // почему-то разархивировалось в другой размер
-            Result := ETS_RESULT_GZIP_ERROR;
-            Exit;
+        if (FGZipTilesMode <> 0) then
+        if (VOut.ptTileBuffer <> nil) then begin
+          // так как архивировали только с уменьшением размера - при равенстве размеров не будем разархивировать
+          VBlobSize := VOdbcFetchColsEx.Base.Cols[VColIndex].Bind_StrLen_or_Ind;
+          if (VBlobSize < VOut.dwTileSize) then begin
+            try
+              // пробуем через ALZLibExGZ - проверка по заголовку
+              if (VBlobSize >= SizeOf(TGZHeader)) then
+              with PGZHeader(VOut.ptTileBuffer)^ do
+              if (Id1 = $1F) and (Id2 = $8B) and (Method = Z_DEFLATED) then
+              try
+                _DecompressGZ(
+                  VOut.ptTileBuffer,
+                  VBlobSize,
+                  VUnGZippedStream
+                );
+                if (VUnGZippedStream <> nil) then begin
+                  // успешно распаковалось
+                  VBlobSize := 0; // признак успешной распаковки
+                  VOut.dwTileSize := VUnGZippedStream.Size;
+                  VOut.ptTileBuffer := VUnGZippedStream.Memory;
+                end;
+              except
+                FreeAndNil(VUnGZippedStream);
+              end;
+
+              if (VBlobSize > 0) then begin
+                // разархивируем через zlib
+                VUnZLibLength := 0;
+                DecompressBuf(
+                  VOut.ptTileBuffer,
+                  VBlobSize,
+                  0,
+                  VUnZLibBuffer,
+                  VUnZLibLength
+                );
+                // успешно разархивировалось
+                if (VUnZLibLength = VOut.dwTileSize) then begin
+                  // размер соответствует оригинальному
+                  VOut.ptTileBuffer := VUnZLibBuffer;
+                end else begin
+                  // почему-то разархивировалось в другой размер
+                  Result := ETS_RESULT_GZIP_ERROR;
+                  Exit;
+                end;
+              end;
+            except
+              // ошибка при разархивировании
+              VUnZLibBuffer := nil;
+            end;
           end;
-        except
-          // ошибка при разархивировании
-          VUnZippedBuffer := nil;
         end;
       end;
 
@@ -2932,8 +2985,9 @@ begin
       );
     finally
       VOdbcFetchColsEx.Base.Close;
-      if (VUnZippedBuffer <> nil) then begin
-        zlibFreeMem(nil, VUnZippedBuffer);
+      FreeAndNil(VUnGZippedStream);
+      if (VUnZLibBuffer <> nil) then begin
+        zlibFreeMem(nil, VUnZLibBuffer);
       end;
     end;
   finally
@@ -2970,7 +3024,18 @@ begin
     end;
     ETS_INFOCLASS_SetZLibCompression: begin
       // set zlib compression
-      FAllowGZipTiles := (AInfoData <> nil);
+      if (Integer(AInfoData) <= 255) then begin
+        // treat as byte
+        FGZipTilesMode := LoByte(Integer(AInfoData));
+      end else begin
+        try
+          FGZipTilesMode := PByte(AInfoData)^;
+        except
+          FGZipTilesMode := 0;
+        end;
+      end;
+      if (FGZipTilesMode > 2) then
+        FGZipTilesMode := 0;
       Result := ETS_RESULT_OK;
     end;
     Ord(Low(TETS_INFOCLASS_Callbacks))..Ord(High(TETS_INFOCLASS_Callbacks)): begin

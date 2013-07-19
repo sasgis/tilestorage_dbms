@@ -7,6 +7,10 @@ uses
   SysUtils,
   Classes;
 
+type
+  TPointedMemoryStream = class(TMemoryStream)
+  end;
+  
 function FindExifInJpeg(const AJpegBuffer: Pointer;
                         const AJpegSize: Cardinal;
                         const AForGE: Boolean;
@@ -14,7 +18,22 @@ function FindExifInJpeg(const AJpegBuffer: Pointer;
                         out AOffset: PByte;
                         out ASize: DWORD): Boolean; stdcall;
 
+procedure _CompressGZ(
+  const ASrcBuf: Pointer;
+  const ASrcLen: Integer;
+  out AOutStream: TMemoryStream
+);
+
+procedure _DecompressGZ(
+  const ASrcBuf: Pointer;
+  const ASrcLen: Integer;
+  out AOutStream: TMemoryStream
+);
+
 implementation
+
+uses
+  ALZLibExGZ;
 
 type
   // 4.6.2 IFD Structure
@@ -36,9 +55,6 @@ type
     offset_to_next: DWORD;
   end;
   PIFD_NN = ^TIFD_NN;
-
-  TPointedMemoryStream = class(TMemoryStream)
-  end;
 
 function FindExifInJpeg(const AJpegBuffer: Pointer;
                         const AJpegSize: Cardinal;
@@ -313,6 +329,44 @@ begin
     Exit;
 
   Inc(Result);
+end;
+
+procedure _CompressGZ(
+  const ASrcBuf: Pointer;
+  const ASrcLen: Integer;
+  out AOutStream: TMemoryStream
+);
+var
+  VSrcStream: TPointedMemoryStream;
+begin
+  VSrcStream := TPointedMemoryStream.Create;
+  try
+    VSrcStream.SetPointer(ASrcBuf, ASrcLen);
+    Assert(nil = AOutStream);
+    AOutStream := TMemoryStream.Create;
+    GZCompressStream(VSrcStream, AOutStream);
+  finally
+    VSrcStream.Free;
+  end;
+end;
+
+procedure _DecompressGZ(
+  const ASrcBuf: Pointer;
+  const ASrcLen: Integer;
+  out AOutStream: TMemoryStream
+);
+var
+  VSrcStream: TPointedMemoryStream;
+begin
+  VSrcStream := TPointedMemoryStream.Create;
+  try
+    VSrcStream.SetPointer(ASrcBuf, ASrcLen);
+    Assert(nil = AOutStream);
+    AOutStream := TMemoryStream.Create;
+    GZDecompressStream(VSrcStream, AOutStream);
+  finally
+    VSrcStream.Free;
+  end;
 end;
 
 end.
