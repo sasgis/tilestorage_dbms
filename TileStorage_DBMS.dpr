@@ -35,7 +35,12 @@ uses
   t_ODBC_Buffer in 't_ODBC_Buffer.pas',
   t_ODBC_Connection in 't_ODBC_Connection.pas',
   t_ODBC_Exception in 't_ODBC_Exception.pas',
-  u_ExecuteSQLArray in 'u_ExecuteSQLArray.pas';
+  u_ExecuteSQLArray in 'u_ExecuteSQLArray.pas',
+  c_CompressBinaryData in '..\vsasas\c_CompressBinaryData.pas',
+  u_CompressBinaryData in '..\vsasas\u_CompressBinaryData.pas',
+  i_BinaryData in '..\vsasas\i_BinaryData.pas',
+  u_BinaryData in '..\vsasas\u_BinaryData.pas',
+  u_BinaryDataByMemStream in '..\vsasas\u_BinaryDataByMemStream.pas';
 
 {$R *.res}
 
