@@ -2538,10 +2538,18 @@ begin
           // zlib
           VBlobAddr := FZLibBuf;
           VBlobSize := FZLibLen;
+        end else if (FGzipStream <> nil) then begin
+          // gzip
+          VBlobAddr := FGzipStream.Memory;
+          VBlobSize := FGzipStream.Size;
+        end else if (F7zBinData <> nil) then begin
+          // 7z
+          VBlobAddr := F7zBinData.Buffer;
+          VBlobSize := F7zBinData.Size;
         end else begin
-          // any other to stream
-          VBlobAddr := FStream.Memory;
-          VBlobSize := FStream.Size;
+          // записываем в базу оригинальный 
+          VBlobAddr := AInsertBuffer^.ptTileBuffer;
+          VBlobSize := AInsertBuffer^.dwTileSize;
         end;
       end else begin
         // записываем в базу оригинальный
@@ -2890,15 +2898,28 @@ begin
                 end;
                 VOut.dwTileSize := FZLibLen;
                 VOut.ptTileBuffer := FZLibBuf;
-              end else begin
-                // any other to stream
-                if (FStream.Size <> VOut.dwTileSize) then begin
+              end else if (FGzipStream <> nil) then begin
+                // gzip
+                if (FGzipStream.Size <> VOut.dwTileSize) then begin
                   // распаковалось в другой размер
                   Result := ETS_RESULT_DECOMPRESS_SIZE;
                   Exit;
                 end;
-                VOut.dwTileSize := FStream.Size;
-                VOut.ptTileBuffer := FStream.Memory;
+                VOut.dwTileSize := FGzipStream.Size;
+                VOut.ptTileBuffer := FGzipStream.Memory;
+              end else if (F7zBinData <> nil) then begin
+                // 7z
+                if (F7zBinData.Size <> VOut.dwTileSize) then begin
+                  // распаковалось в другой размер
+                  Result := ETS_RESULT_DECOMPRESS_SIZE;
+                  Exit;
+                end;
+                VOut.dwTileSize := F7zBinData.Size;
+                VOut.ptTileBuffer := F7zBinData.Buffer;
+              end else begin
+                // распаковалось хз во что, везде пусто
+                Result := ETS_RESULT_DECOMPRESS_EMPTY;
+                Exit;
               end;
             end else begin
               // не распаковалось, а размер разный
