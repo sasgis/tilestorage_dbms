@@ -49,7 +49,7 @@ create index IF NOT EXISTS g_link2m_mark_fk on g_link (id_mark)
 create table IF NOT EXISTS v_link (
    id_user    INTEGER NOT NULL CONSTRAINT v_link2g_user REFERENCES g_user (id_user) ON DELETE CASCADE,
    id_link    INTEGER NOT NULL CONSTRAINT v_link2g_link REFERENCES g_link (id_link) ON DELETE CASCADE,
-   l_status   INT NOT NULL DEFAULT 0,
+   s_status   INT NOT NULL DEFAULT 0,
    s_visible  TINYINT,
    constraint PK_V_LINK primary key (id_user, id_link)
 )
