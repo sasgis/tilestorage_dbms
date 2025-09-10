@@ -144,8 +144,14 @@ function GetPStoreIface: IPStore;
 
 implementation
 
-uses
-  u_PStoreConst;
+const
+  c_ContainerName = '{28F1C4D4-2BBE-4EEA-B739-47532E764A48}';
+  c_BaseHashInfo  = '{198C639F-E6CB-40B8-AD98-EE2C61620CFB}';
+
+  c_Default_HashAlgId = $8004; // CALG_SHA - SHA hashing algorithm
+  c_Default_CryptAlgId = $6801; // CALG_RC4 - RC4 stream encryption algorithm
+
+  c_Lsa_Prefix = 'VSADBMS_';
 
 const
   c_Reg_Prefix = 'Software\VSA\DBMS'; // HKEY_CURRENT_USER
