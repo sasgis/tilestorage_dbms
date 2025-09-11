@@ -825,7 +825,7 @@ function GetEngineTypeByODBCDescription(
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
 
-function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: AnsiString; var AResult: TEngineType): Boolean;
+function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: String; var AResult: TEngineType): Boolean;
 
 function GetEngineTypeUsingSelectVersionException(const AException: Exception): TEngineType;
 function GetEngineTypeUsingSelectFromDualException(const AException: Exception): TEngineType;
@@ -980,7 +980,7 @@ begin
 end;
 {$ifend}
 
-function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: AnsiString; var AResult: TEngineType): Boolean;
+function GetEngineTypeUsingSQL_Version_Upper(const AUppercasedText: String; var AResult: TEngineType): Boolean;
 begin
   if (System.Pos('ADAPTIVE SERVER ENTERPRISE', AUppercasedText)>0) then begin
     // Sybase ASE
@@ -1087,7 +1087,7 @@ begin
   if (0=Length(AStarter)) then
     Result := FALSE
   else
-    Result := (StrLIComp(@AText[1], @AStarter[1], Length(AStarter)) = 0);
+    Result := (StrLIComp(PChar(AText), PChar(AStarter), Length(AStarter)) = 0);
 end;
 
 function StandardExceptionType(

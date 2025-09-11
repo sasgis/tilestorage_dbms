@@ -433,7 +433,7 @@ begin
       0,
       VBufferAddr,
       VStrLen_or_IndPtr,
-      @VStrLen_or_IndPtr
+      VStrLen_or_IndPtr
     );
 
     CheckStatementResult(h, VRes, EODBCDirectExecBlobError);
@@ -658,10 +658,10 @@ begin
       VDirection,
       VServerName,
       SQL_MAX_DSN_LENGTH,
-      @VSize1,
+      VSize1,
       VDescription,
       SQL_MAX_OPTION_STRING_LENGTH,
-      @VSize2
+      VSize2
     );
 
     if SQL_SUCCEEDED(VResult) then begin

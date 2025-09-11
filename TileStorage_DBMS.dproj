@@ -52,7 +52,6 @@
     <DCCReference Include="i_DBMS_Provider.pas" />
     <DCCReference Include="i_StatementHandleCache.pas" />
     <DCCReference Include="i_TSS.pas" />
-    <DCCReference Include="ODBCSQL.PAS" />
     <DCCReference Include="t_DBMS_Connect.pas" />
     <DCCReference Include="t_DBMS_contenttype.pas" />
     <DCCReference Include="t_DBMS_service.pas" />

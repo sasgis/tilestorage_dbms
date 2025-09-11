@@ -8,11 +8,11 @@ uses
   SysUtils,
   Windows,
   Classes,
+  odbcsql,
   t_types,
   t_SQL_types,
   t_DBMS_Template,
   t_DBMS_Connect,
-  odbcsql,
   t_ODBC_Connection,
   t_ODBC_Buffer,
   t_TSS,
@@ -628,7 +628,7 @@ begin
       if (AStatusBuffer<>nil) then
       with (AStatusBuffer^) do begin
         if wSize>=SizeOf(AStatusBuffer^) then
-          exclusive_mode := calc_exclusive_mode;
+          AStatusBuffer.exclusive_mode := calc_exclusive_mode;
       end;
 
       // try to connect
@@ -646,7 +646,7 @@ begin
         if (AStatusBuffer<>nil) then
         with (AStatusBuffer^) do begin
           if wSize>=SizeOf(AStatusBuffer^) then
-            malfunction_mode := ETS_PMM_ESTABLISHED;
+            AStatusBuffer.malfunction_mode := ETS_PMM_ESTABLISHED;
         end;
       except
         on E: Exception do begin
@@ -677,7 +677,7 @@ begin
           if (AStatusBuffer<>nil) then
           with (AStatusBuffer^) do begin
             if wSize>=SizeOf(AStatusBuffer^) then
-              malfunction_mode := ETS_PMM_FAILED_CONNECT;
+              AStatusBuffer.malfunction_mode := ETS_PMM_FAILED_CONNECT;
           end;
 
           Exit;

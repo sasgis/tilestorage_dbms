@@ -11,15 +11,21 @@ uses
   i_StatementHandleCache,
   t_ODBC_Exception;
 
+{$IF CompilerVersion < 19}
 type
-  SIZE_T = LongWord;
+  NativeInt = Integer;
+  NativeUInt = Cardinal;
+{$IFEND}
+
+type
+  SIZE_T = NativeUInt;
   TOdbcColBuffer = PAnsiChar;
 
   PDescribeColData = ^TDescribeColData;
   TDescribeColData = packed record
     NameLen: SQLSMALLINT;
     DataType: SQLSMALLINT;
-    ColumnSize: SQLUINTEGER; // size (in characters)
+    ColumnSize: SQLULEN; // size (in characters)
     DecimalDigits: SQLSMALLINT;
     Nullable: SQLSMALLINT;
   public
@@ -35,7 +41,7 @@ type
 
     // фактический размер пол€ дл€ текущей записи (в описании может быть 0 дл€ фиксированных полей)
     // так как LOB-ы не приBINDиваютс€ - здесь лежит фактически выделенный размер
-    Bind_BufferLength: SQLUINTEGER;
+    Bind_BufferLength: SQLLEN;
     Bind_StrLen_or_Ind: SQLLEN;
 
     case Boolean of
@@ -55,9 +61,9 @@ type
     // число полей - выделено пам€ти (по плану, больше чем 255 у нас нет)
     ColumnsAllocated: Byte;
     // число полей - фактически по данным ODBC
-    ColumnCount: SQLUSMALLINT;
+    ColumnCount: SQLSMALLINT;
     // общий буфер дл€ регул€рных полей (у каждого large objects свой)
-    ColBufLen: SQLULEN;
+    ColBufLen: SQLLEN;
     ColBufPtr: TOdbcColBuffer;
     // статический буфер дл€ LOB-ов (всегда фиксированной длины - длину можно задать параметром)
     LOBStatic: TOdbcColBuffer;
@@ -172,7 +178,7 @@ begin
   end;
 end;
 
-procedure OdbcFreeColBuffer(var AColBufPtr: TOdbcColBuffer; var AColBufLen: SQLULEN; const AWorkFlags: Byte);
+procedure OdbcFreeColBuffer(var AColBufPtr: TOdbcColBuffer; var AColBufLen: SQLLEN; const AWorkFlags: Byte);
 begin
   // статический буфер не освобождаем
   if ((AWorkFlags and WF_STATIC) <> 0) then
@@ -574,7 +580,7 @@ begin
   Result := FALSE;
   
   // определим фактическое число полей
-  VRes := SQLNumResultCols(Stmt, @ColumnCount);
+  VRes := SQLNumResultCols(Stmt, ColumnCount);
   CheckStatementResult(Stmt, VRes, EODBCNumResultColsError);
 
   // вообще нет полей
@@ -864,16 +870,16 @@ SQL_NULL_DATA
           // драйвер вернул размер пол€ - провер€ем надо ли писать второй раз
           if (VItem^.Bind_StrLen_or_Ind <= c_LOB_Static_Size) then begin
             // уложились в один вызов
-            if (VItem^.Bind_BufferLength < SQLUINTEGER(VItem^.Bind_StrLen_or_Ind)) then begin
+            if (VItem^.Bind_BufferLength < VItem^.Bind_StrLen_or_Ind) then begin
               VItem^.LOBPtr := OdbcRealloc(VItem^.LOBPtr, SQLUINTEGER(VItem^.Bind_StrLen_or_Ind));
-              VItem^.Bind_BufferLength := SQLUINTEGER(VItem^.Bind_StrLen_or_Ind);
+              VItem^.Bind_BufferLength := VItem^.Bind_StrLen_or_Ind;
             end;
             CopyMemory(VItem^.LOBPtr, LOBStatic, VItem^.Bind_StrLen_or_Ind);
           end else begin
             // не уложились в один вызов
-            if (VItem^.Bind_BufferLength < SQLUINTEGER(VItem^.Bind_StrLen_or_Ind)) then begin
+            if (VItem^.Bind_BufferLength < VItem^.Bind_StrLen_or_Ind) then begin
               VItem^.LOBPtr := OdbcRealloc(VItem^.LOBPtr, SQLUINTEGER(VItem^.Bind_StrLen_or_Ind));
-              VItem^.Bind_BufferLength := SQLUINTEGER(VItem^.Bind_StrLen_or_Ind);
+              VItem^.Bind_BufferLength := VItem^.Bind_StrLen_or_Ind;
             end;
             CopyMemory(VItem^.LOBPtr, LOBStatic, c_LOB_Static_Size);
             VSecondPtr := VItem^.LOBPtr + c_LOB_Static_Size;

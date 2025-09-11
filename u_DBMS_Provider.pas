@@ -301,7 +301,7 @@ type
 
     // функция для разбора строкового значения версии в целое число для нецелочисленных версий
     function ParseVerValueToVerNumber(
-      const AGivenVersionValue: String;
+      const AGivenVersionValue: AnsiString;
       out ADoneVerNumber: Boolean;
       out ADateTimeIsDefined: Boolean;
       out ADateTimeValue: TDateTime
@@ -929,9 +929,10 @@ function TDBMS_Provider.CreateTableByTemplate(
 var
   VOdbcFetchColsEx: TOdbcFetchCols5;
   VExecuteSQLArray: TExecuteSQLArray;
-  VSQLText, VExecuteAfterALL: TDBMS_String;
+  VSQLText: AnsiString;
+  VExecuteAfterALL: TDBMS_String;
   Vignore_errors: AnsiChar;
-  VReplaceNumeric: String;
+  VReplaceNumeric: AnsiString;
   VIndexSQL: SmallInt;
   i: Integer;
   VExecuteSQLItem: TExecuteSQLItem;
@@ -953,7 +954,7 @@ var
     end else
       Result := FALSE;
   end;
- 
+
 begin
   // а вдруг нет базовой таблицы с шаблонами
   if (not ATilesConnection.TableExistsDirect(ATilesConnection.ForcedSchemaPrefix+Z_ALL_SQL)) then begin
@@ -1201,7 +1202,7 @@ begin
   if (FStatusBuffer<>nil) then
   with (FStatusBuffer^) do begin
     if wSize>=SizeOf(FStatusBuffer^) then
-      malfunction_mode := ETS_PMM_HAS_COMPLETED;
+      FStatusBuffer.malfunction_mode := ETS_PMM_HAS_COMPLETED;
   end;
 end;
 
@@ -1516,14 +1517,14 @@ var
     Result := '<tr><td>' + ACaption + '</td><td>' + Result + '</td></tr>';
   end;
 
-  procedure _TrimLeftDelims(var AFromSource: String);
+  procedure _TrimLeftDelims(var AFromSource: AnsiString);
   begin
     while (Length(AFromSource)>0) and (AFromSource[1]='/') do begin
       System.Delete(AFromSource,1,1);
     end;
   end;
 
-  function _ExtractPart(var AFromSource: String): String;
+  function _ExtractPart(var AFromSource: AnsiString): AnsiString;
   var p: Integer;
   begin
     if (0=Length(AFromSource)) then begin
@@ -1913,7 +1914,7 @@ var
 
 var
   VValueW: WideString;
-  VRequest: String;
+  VRequest: AnsiString;
   VResponse: String;
   VSetTLMValue: String;
   VSetTLMIndex: Integer;
@@ -3181,7 +3182,7 @@ begin
   if (FStatusBuffer<>nil) then
   with (FStatusBuffer^) do begin
     if wSize>=SizeOf(FStatusBuffer^) then
-      malfunction_mode := ETS_PMM_CONNECT_DEAD;
+      FStatusBuffer.malfunction_mode := ETS_PMM_CONNECT_DEAD;
   end;
 end;
 
@@ -3197,7 +3198,7 @@ begin
   if (FStatusBuffer<>nil) then
   with (FStatusBuffer^) do begin
     if wSize>=SizeOf(FStatusBuffer^) then
-      malfunction_mode := ETS_PMM_HAS_COMPLETED;
+      FStatusBuffer.malfunction_mode := ETS_PMM_HAS_COMPLETED;
   end;
 end;
 
@@ -4713,7 +4714,7 @@ begin
     if (FStatusBuffer<>nil) then
     with (FStatusBuffer^) do begin
       if wSize>=SizeOf(FStatusBuffer^) then
-        malfunction_mode := ETS_PMM_NOT_COMPLETED;
+        FStatusBuffer.malfunction_mode := ETS_PMM_NOT_COMPLETED;
     end;
     
     Exit;
@@ -4913,16 +4914,15 @@ begin
     end;
 
     // копируем параметры в опции хранилища
-    if (FStatusBuffer<>nil) then
-    with (FStatusBuffer^) do begin
-      id_div_mode      := FDBMS_Service_Info.id_div_mode;
-      id_ver_comp      := FDBMS_Service_Info.id_ver_comp;
-      work_mode        := FDBMS_Service_Info.work_mode;
-      use_common_tiles := FDBMS_Service_Info.use_common_tiles;
+    if (FStatusBuffer<>nil) then begin
+      FStatusBuffer.id_div_mode      := FDBMS_Service_Info.id_div_mode;
+      FStatusBuffer.id_ver_comp      := FDBMS_Service_Info.id_ver_comp;
+      FStatusBuffer.work_mode        := FDBMS_Service_Info.work_mode;
+      FStatusBuffer.use_common_tiles := FDBMS_Service_Info.use_common_tiles;
       // вторая версия полей
-      tile_load_mode   := LoByte(FDBMS_Service_Info.tile_load_mode);
-      tile_save_mode   := LoByte(FDBMS_Service_Info.tile_save_mode);
-      new_ver_by_tile  := FDBMS_Service_Info.new_ver_by_tile;
+      FStatusBuffer.tile_load_mode   := LoByte(FDBMS_Service_Info.tile_load_mode);
+      FStatusBuffer.tile_save_mode   := LoByte(FDBMS_Service_Info.tile_save_mode);
+      FStatusBuffer.new_ver_by_tile  := FDBMS_Service_Info.new_ver_by_tile;
     end;
 
     Result := ETS_RESULT_OK;
@@ -5308,7 +5308,7 @@ ver_comment заполняем остальными значениями через запятую (кроме тэгов и УРЛов)
 end;
 
 function TDBMS_Provider.ParseVerValueToVerNumber(
-  const AGivenVersionValue: String;
+  const AGivenVersionValue: AnsiString;
   out ADoneVerNumber: Boolean;
   out ADateTimeIsDefined: Boolean;
   out ADateTimeValue: TDateTime

@@ -8,3 +8,7 @@ __history/*
 *.bak
 *.groupproj.local
 model/*.pdb
+/.bin/*
+*.drc
+*.ico
+*.res

@@ -1,0 +1,218 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{dd6d86c1-52a4-4d91-8b29-fd1a3a16b8f3}</ProjectGuid>
+        <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+        <DCC_DCCCompiler>DCC32</DCC_DCCCompiler>
+        <MainSource>TileStorage_DBMS.dpr</MainSource>
+        <DCC_DependencyCheckOutputName>.bin\TileStorage_DBMS.dll</DCC_DependencyCheckOutputName>
+        <FrameworkType>None</FrameworkType>
+        <ProjectVersion>20.3</ProjectVersion>
+        <Base>True</Base>
+        <Config Condition="'$(Config)'==''">Release</Config>
+        <Platform Condition="'$(Platform)'==''">Win64</Platform>
+        <ProjectName Condition="'$(ProjectName)'==''">TileStorage_DBMS.x64</ProjectName>
+        <TargetedPlatforms>3</TargetedPlatforms>
+        <AppType>Library</AppType>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+        <Base_Win32>true</Base_Win32>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
+        <Base_Win64>true</Base_Win64>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win32)'!=''">
+        <Cfg_1_Win32>true</Cfg_1_Win32>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win64)'!=''">
+        <Cfg_1_Win64>true</Cfg_1_Win64>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base)'!=''">
+        <GenDll>true</GenDll>
+        <SanitizedProjectName>TileStorage_DBMS_x64</SanitizedProjectName>
+        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
+        <VerInfo_Release>2</VerInfo_Release>
+        <VerInfo_DLL>true</VerInfo_DLL>
+        <VerInfo_Locale>1049</VerInfo_Locale>
+        <VerInfo_Keys>CompanyName=vasketsov;FileDescription=sas dbms connector (odbc);FileVersion=1.0.2.0;InternalName=TileStorage_DBMS;LegalCopyright=vasketsov;LegalTrademarks=;OriginalFilename=;ProductName=sas;ProductVersion=1.0.0.0;Comments=;SpecialBuild=</VerInfo_Keys>
+        <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Winapi;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_ExeOutput>.bin\$(Platform)</DCC_ExeOutput>
+        <DCC_DcuOutput>.dcu\$(Platform)\$(Config)</DCC_DcuOutput>
+        <DCC_PEOSVersion>5.0</DCC_PEOSVersion>
+        <DCC_PESubSysVersion>5.0</DCC_PESubSysVersion>
+        <DCC_Define>FORCE_NO_SYNC_7Z_HOLDER;$(DCC_Define)</DCC_Define>
+        <DCC_UnitSearchPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win32)'!=''">
+        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <VerInfo_Release>0</VerInfo_Release>
+        <Manifest_File>(None)</Manifest_File>
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
+        <BT_BuildType>Debug</BT_BuildType>
+        <VerInfo_Keys>CompanyName=;FileDescription=$(MSBuildProjectName);FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=$(MSBuildProjectName);ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Locale>1033</VerInfo_Locale>
+        <VerInfo_Release>0</VerInfo_Release>
+        <Manifest_File>(None)</Manifest_File>
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <Version>7.0</Version>
+        <DCC_DebugInformation>0</DCC_DebugInformation>
+        <DCC_LocalDebugSymbols>False</DCC_LocalDebugSymbols>
+        <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+        <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
+        <DCC_AssertionsAtRuntime>false</DCC_AssertionsAtRuntime>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <Version>7.0</Version>
+        <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+        <DCC_ObjOutput>.\.dcu</DCC_ObjOutput>
+        <DCC_HppOutput>.\.dcu</DCC_HppOutput>
+        <DCC_ResourcePath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_ResourcePath)</DCC_ResourcePath>
+        <DCC_ObjPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_ObjPath)</DCC_ObjPath>
+        <DCC_IncludePath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_IncludePath)</DCC_IncludePath>
+        <DCC_WriteableConstants>True</DCC_WriteableConstants>
+        <DCC_GenerateStackFrames>True</DCC_GenerateStackFrames>
+        <DCC_MapFile>3</DCC_MapFile>
+    </PropertyGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Delphi.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Delphi.Personality>
+                <Parameters>
+                    <Parameters Name="UseLauncher">False</Parameters>
+                    <Parameters Name="LoadAllSymbols">True</Parameters>
+                    <Parameters Name="LoadUnspecifiedSymbols">False</Parameters>
+                </Parameters>
+                <VersionInfo>
+                    <VersionInfo Name="IncludeVerInfo">True</VersionInfo>
+                    <VersionInfo Name="AutoIncBuild">False</VersionInfo>
+                    <VersionInfo Name="MajorVer">1</VersionInfo>
+                    <VersionInfo Name="MinorVer">0</VersionInfo>
+                    <VersionInfo Name="Release">2</VersionInfo>
+                    <VersionInfo Name="Build">0</VersionInfo>
+                    <VersionInfo Name="Debug">False</VersionInfo>
+                    <VersionInfo Name="PreRelease">False</VersionInfo>
+                    <VersionInfo Name="Special">False</VersionInfo>
+                    <VersionInfo Name="Private">False</VersionInfo>
+                    <VersionInfo Name="DLL">True</VersionInfo>
+                    <VersionInfo Name="Locale">1049</VersionInfo>
+                    <VersionInfo Name="CodePage">1251</VersionInfo>
+                </VersionInfo>
+                <VersionInfoKeys>
+                    <VersionInfoKeys Name="CompanyName">vasketsov</VersionInfoKeys>
+                    <VersionInfoKeys Name="FileDescription">sas dbms connector (odbc)</VersionInfoKeys>
+                    <VersionInfoKeys Name="FileVersion">1.0.2.0</VersionInfoKeys>
+                    <VersionInfoKeys Name="InternalName">TileStorage_DBMS</VersionInfoKeys>
+                    <VersionInfoKeys Name="LegalCopyright">vasketsov</VersionInfoKeys>
+                    <VersionInfoKeys Name="LegalTrademarks"/>
+                    <VersionInfoKeys Name="OriginalFilename"/>
+                    <VersionInfoKeys Name="ProductName">sas</VersionInfoKeys>
+                    <VersionInfoKeys Name="ProductVersion">1.0.0.0</VersionInfoKeys>
+                    <VersionInfoKeys Name="Comments"/>
+                    <VersionInfoKeys Name="SpecialBuild"/>
+                </VersionInfoKeys>
+                <Source>
+                    <Source Name="MainSource">TileStorage_DBMS.dpr</Source>
+                </Source>
+                <Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\Skia.Package.FMX.Designtime290.bpl">Skia4Delphi FMX Designtime package</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k290.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp290.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                </Excluded_Packages>
+            </Delphi.Personality>
+            <Platforms>
+                <Platform value="Win32">True</Platform>
+                <Platform value="Win64">True</Platform>
+            </Platforms>
+        </BorlandProject>
+        <ProjectFileVersion>12</ProjectFileVersion>
+    </ProjectExtensions>
+    <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets"/>
+    <ItemGroup>
+        <DelphiCompile Include="$(MainSource)">
+            <MainSource>MainSource</MainSource>
+        </DelphiCompile>
+        <DCCReference Include="i_DBMS_Provider.pas"/>
+        <DCCReference Include="u_DBMS_Provider.pas"/>
+        <DCCReference Include="u_DBMS_Connect.pas"/>
+        <DCCReference Include="u_DBMS_TileEnum.pas"/>
+        <DCCReference Include="t_DBMS_version.pas"/>
+        <DCCReference Include="t_DBMS_contenttype.pas"/>
+        <DCCReference Include="t_DBMS_service.pas"/>
+        <DCCReference Include="u_DBMS_Utils.pas"/>
+        <DCCReference Include="t_DBMS_Template.pas"/>
+        <DCCReference Include="u_DBMS_Template.pas"/>
+        <DCCReference Include="t_SQL_types.pas"/>
+        <DCCReference Include="t_DBMS_Connect.pas"/>
+        <DCCReference Include="i_StatementHandleCache.pas"/>
+        <DCCReference Include="u_StatementHandleCache.pas"/>
+        <DCCReference Include="t_TSS.pas"/>
+        <DCCReference Include="i_TSS.pas"/>
+        <DCCReference Include="u_TileArea.pas"/>
+        <DCCReference Include="t_types.pas"/>
+        <DCCReference Include="u_exports.pas"/>
+        <DCCReference Include="u_LsaTools.pas"/>
+        <DCCReference Include="u_CryptoTools.pas"/>
+        <DCCReference Include="u_PStoreTools.pas"/>
+        <DCCReference Include="u_Exif_Parser.pas"/>
+        <DCCReference Include="u_Tile_Parser.pas"/>
+        <DCCReference Include="t_ODBC_Buffer.pas"/>
+        <DCCReference Include="t_ODBC_Connection.pas"/>
+        <DCCReference Include="t_ODBC_Exception.pas"/>
+        <DCCReference Include="u_ExecuteSQLArray.pas"/>
+        <DCCReference Include="include\vsasas\c_CompressBinaryData.pas"/>
+        <DCCReference Include="include\vsasas\u_CompressBinaryData.pas"/>
+        <DCCReference Include="include\vsasas\i_BinaryData.pas"/>
+        <DCCReference Include="include\vsasas\u_BinaryData.pas"/>
+        <DCCReference Include="include\vsasas\u_BinaryDataByMemStream.pas"/>
+        <BuildConfiguration Include="Base">
+            <Key>Base</Key>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+            <Key>Cfg_1</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Debug">
+            <Key>Cfg_2</Key>
+            <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+    </ItemGroup>
+    <Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+    <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
+    <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
+</Project>

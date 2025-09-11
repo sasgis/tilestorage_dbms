@@ -31,7 +31,6 @@ uses
   u_PStoreTools in 'u_PStoreTools.pas',
   u_Exif_Parser in 'u_Exif_Parser.pas',
   u_Tile_Parser in 'u_Tile_Parser.pas',
-  ODBCSQL in 'ODBCSQL.PAS',
   t_ODBC_Buffer in 't_ODBC_Buffer.pas',
   t_ODBC_Connection in 't_ODBC_Connection.pas',
   t_ODBC_Exception in 't_ODBC_Exception.pas',

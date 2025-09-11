@@ -292,6 +292,20 @@ begin
   end;
 end;
 
+{$IF CompilerVersion >= 19}
+procedure CompressBuf(const InBuf: Pointer; InBytes: Integer;
+  out OutBuf: Pointer; out OutBytes: Integer); inline;
+begin
+  ZCompress(InBuf, InBytes, OutBuf, OutBytes);
+end;
+
+procedure DecompressBuf(const InBuf: Pointer; InBytes: Integer;
+  OutEstimate: Integer; out OutBuf: Pointer; out OutBytes: Integer); inline;
+begin
+  ZDecompress(InBuf, InBytes, OutBuf, OutBytes, OutEstimate);
+end;
+{$IFEND}
+
 // raw routines
 
 function RawCompress2BinaryData(

@@ -3,6 +3,7 @@ unit u_StatementHandleCache;
 interface
 
 uses
+  Types,
   Windows,
   SysUtils,
   Classes,
@@ -184,7 +185,7 @@ function TStatementList.ExtractLast(var APtr: Pointer): Boolean;
 begin
   Result := (Count>0);
   if Result then begin
-    APtr := List^[(Count-1)];
+    APtr := List[(Count-1)];
     List[(Count-1)] := nil;
     Delete(Count-1);
     Notify(APtr, lnExtracted);

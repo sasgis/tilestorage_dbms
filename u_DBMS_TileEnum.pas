@@ -9,6 +9,7 @@ uses
   SysUtils,
   Classes,
   t_ETS_Tiles,
+  t_ETS_Path,
   t_ETS_Provider,
   t_ODBC_Buffer,
   t_DBMS_version,

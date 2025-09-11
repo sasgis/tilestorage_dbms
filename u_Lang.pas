@@ -690,7 +690,7 @@ begin
                  if (Cp^ <> #0) and (Sp^ <> #0) then
                  begin
                    S := '$' + Cp^ + Sp^;
-                   Rp^ := Chr(StrToInt(S));
+                   Rp^ := AnsiChar(Chr(StrToInt(S)));
                  end
                  else
                    raise Exception.CreateFmt(sErrorDecodingURLText, [Cp - PAnsiChar(AStr)]);
