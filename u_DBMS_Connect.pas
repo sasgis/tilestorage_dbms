@@ -315,31 +315,35 @@ begin
     '',
     ''
   ) + c_SQL_Ext_Ini;
-  
-  if FileExists(VFilename) then begin
-    VIni:=TIniFile.Create(VFilename);
-    try
-      if VIni.SectionExists(VSectionName) then begin
-        // секция найдена - читаем её целиком
-        VParams := TStringList.Create;
-        try
-          VIni.ReadSectionValues(VSectionName, VParams);
-          // применяем параметры секции
-          Result := ApplyParamsFromINI(VParams);
-        finally
-          VParams.Free;
-        end;
-      end else begin
-        // секция не найдена
-        Result := ETS_RESULT_INI_SECTION_NOT_FOUND;
-      end;
-    finally
-      VIni.Free;
+
+  if not FileExists(VFilename) then begin
+    VFilename := ChangeFileExt(VFilename, '.Default' + c_SQL_Ext_Ini);
+    if not FileExists(VFilename) then begin
+      // файл ini не найден
+      // для ODBC попробуем воспользоваться одноимённым System DSN
+      Result := ApplySystemDSNtoConnection;
+      Exit;
     end;
-  end else begin
-    // файл ini не найден
-    // для ODBC попробуем воспользоваться одноимённым System DSN
-    Result := ApplySystemDSNtoConnection;
+  end;
+
+  VIni:=TIniFile.Create(VFilename);
+  try
+    if VIni.SectionExists(VSectionName) then begin
+      // секция найдена - читаем её целиком
+      VParams := TStringList.Create;
+      try
+        VIni.ReadSectionValues(VSectionName, VParams);
+        // применяем параметры секции
+        Result := ApplyParamsFromINI(VParams);
+      finally
+        VParams.Free;
+      end;
+    end else begin
+      // секция не найдена
+      Result := ETS_RESULT_INI_SECTION_NOT_FOUND;
+    end;
+  finally
+    VIni.Free;
   end;
 end;
 
