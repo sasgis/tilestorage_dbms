@@ -12,3 +12,5 @@ model/*.pdb
 *.drc
 *.ico
 *.res
+**/.idea/
+/model/*.txt

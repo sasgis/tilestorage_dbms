@@ -81,6 +81,19 @@ begin
 end
 go
 
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=9)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (9, 'image/bmp')
+end
+go
+
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=10)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (10, 'image/webp')
+end
+go
 
 if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=65)
 begin
@@ -110,6 +123,40 @@ begin
 end
 go
 
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=69)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (69, 'application/json')
+end
+go
+
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=70)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (70, 'application/geo+json')
+end
+go
+
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=71)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (71, 'application/vnd.sas.wikimapia.kml+xml')
+end
+go
+
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=72)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (72, 'application/vnd.sas.wikimapia.kmz')
+end
+go
+
+if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=73)
+begin
+  insert into Z_CONTENTTYPE (id_contenttype, contenttype_text)
+  values (73, 'application/vnd.sas.wikimapia.txt')
+end
+go
 
 if not exists(select 1 from Z_CONTENTTYPE where id_contenttype=91)
 begin

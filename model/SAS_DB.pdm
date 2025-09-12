@@ -11869,6 +11869,19 @@ begin
 end
 go
 
+if not exists(select 1 from %TABLE% where id_contenttype=9)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (9, &#39;image/bmp&#39;)
+end
+go
+
+if not exists(select 1 from %TABLE% where id_contenttype=10)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (10, &#39;image/webp&#39;)
+end
+go
 
 if not exists(select 1 from %TABLE% where id_contenttype=65)
 begin
@@ -11898,6 +11911,40 @@ begin
 end
 go
 
+if not exists(select 1 from %TABLE% where id_contenttype=69)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (69, &#39;application/json&#39;)
+end
+go
+
+if not exists(select 1 from %TABLE% where id_contenttype=70)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (70, &#39;application/geo+json&#39;)
+end
+go
+
+if not exists(select 1 from %TABLE% where id_contenttype=71)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (71, &#39;application/vnd.sas.wikimapia.kml+xml&#39;)
+end
+go
+
+if not exists(select 1 from %TABLE% where id_contenttype=72)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (72, &#39;application/vnd.sas.wikimapia.kmz&#39;)
+end
+go
+
+if not exists(select 1 from %TABLE% where id_contenttype=73)
+begin
+  insert into %TABLE% (id_contenttype, contenttype_text)
+  values (73, &#39;application/vnd.sas.wikimapia.txt&#39;)
+end
+go
 
 if not exists(select 1 from %TABLE% where id_contenttype=91)
 begin

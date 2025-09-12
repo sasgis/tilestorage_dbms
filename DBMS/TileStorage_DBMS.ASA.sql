@@ -54,6 +54,14 @@ INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VA
 ;
 
 INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(9, 'image/bmp')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(10, 'image/webp')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
 (65, 'application/vnd.google-earth.kml+xml')
 ;
 
@@ -67,6 +75,26 @@ INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VA
 
 INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
 (68, 'application/xml')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(69, 'application/json')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(70, 'application/geo+json')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(71, 'application/vnd.sas.wikimapia.kml+xml')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(72, 'application/vnd.sas.wikimapia.kmz')
+;
+
+INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES
+(73, 'application/vnd.sas.wikimapia.txt')
 ;
 
 INSERT INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) ON EXISTING SKIP VALUES

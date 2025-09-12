@@ -26,10 +26,17 @@ INSERT IGNORE INTO Z_CONTENTTYPE (id_contenttype, contenttype_text) VALUES
 (6, 'image/svg+xml'),
 (7, 'image/vnd.microsoft.icon'),
 (8, 'image/jp2'),
+(9, 'image/bmp'),
+(10, 'image/webp'),
 (65, 'application/vnd.google-earth.kml+xml'),
 (66, 'application/gpx+xml'),
 (67, 'application/vnd.google-earth.kmz'),
 (68, 'application/xml'),
+(69, 'application/json'),
+(70, 'application/geo+json'),
+(71, 'application/vnd.sas.wikimapia.kml+xml'),
+(72, 'application/vnd.sas.wikimapia.kmz'),
+(73, 'application/vnd.sas.wikimapia.txt'),
 (91, 'text/html'),
 (92, 'text/plain')
 ;

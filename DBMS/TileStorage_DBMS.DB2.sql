@@ -38,6 +38,10 @@ select 7 as id, 'image/vnd.microsoft.icon' as name from dual
 union all
 select 8 as id, 'image/jp2' as name from dual
 union all
+select 9 as id, 'image/bmp' as name from dual
+union all
+select 10 as id, 'image/webp' as name from dual
+union all
 select 65 as id, 'application/vnd.google-earth.kml+xml' as name from dual
 union all
 select 66 as id, 'application/gpx+xml' as name from dual
@@ -45,6 +49,16 @@ union all
 select 67 as id, 'application/vnd.google-earth.kmz' as name from dual
 union all
 select 68 as id, 'application/xml' as name from dual
+union all
+select 69 as id, 'application/json' as name from dual
+union all
+select 70 as id, 'application/geo+json' as name from dual
+union all
+select 71 as id, 'application/vnd.sas.wikimapia.kml+xml' as name from dual
+union all
+select 72 as id, 'application/vnd.sas.wikimapia.kmz' as name from dual
+union all
+select 73 as id, 'application/vnd.sas.wikimapia.txt' as name from dual
 union all
 select 91 as id, 'text/html' as name from dual
 union all
