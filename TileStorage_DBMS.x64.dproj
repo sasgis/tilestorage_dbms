@@ -63,7 +63,7 @@
         <DCC_PEOSVersion>5.0</DCC_PEOSVersion>
         <DCC_PESubSysVersion>5.0</DCC_PESubSysVersion>
         <DCC_Define>FORCE_NO_SYNC_7Z_HOLDER;$(DCC_Define)</DCC_Define>
-        <DCC_UnitSearchPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>include;include\FastMM5;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
@@ -167,6 +167,7 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="u_MemoryManager.pas"/>
         <DCCReference Include="i_DBMS_Provider.pas"/>
         <DCCReference Include="u_DBMS_Provider.pas"/>
         <DCCReference Include="u_DBMS_Connect.pas"/>

@@ -3,6 +3,7 @@ library TileStorage_DBMS;
 {$include i_DBMS.inc}
 
 uses
+  u_MemoryManager in 'u_MemoryManager.pas',
   SysUtils,
   Classes,
   t_ETS_Tiles,
