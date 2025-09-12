@@ -1,9 +1,13 @@
 library TileStorage_DBMS;
 
+{$SETPEOPTFLAGS $0100} // IMAGE_DLLCHARACTERISTICS_NX_COMPAT - enables DEP
+{$SETPEOPTFLAGS $0040} // IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE - enables ASLR
+
 {$include i_DBMS.inc}
 
 uses
   u_MemoryManager in 'u_MemoryManager.pas',
+  Windows,
   SysUtils,
   Classes,
   t_ETS_Tiles,
@@ -65,4 +69,5 @@ exports
 
 begin
   IsMultiThread := TRUE;
+  DisableThreadLibraryCalls(HInstance);
 end.
