@@ -137,7 +137,7 @@ type
   PLARGE_INTEGER = ^Int64;
   INT = Integer;
 
-  RTL_RWLOCK = packed record
+  RTL_RWLOCK = record
     rtlCS: RTL_CRITICAL_SECTION;
     hSharedReleaseSemaphore: THandle;
     uSharedWaiters: UINT;
@@ -729,6 +729,9 @@ begin
   // SRWLock
   FillChar(FSRWInitData, sizeof(FSRWInitData), #0);
   if (0<>ADLL) then begin
+    if GetProcAddress(ADLL, 'wine_get_version') <> nil then begin
+      Exit; // http://www.sasgis.org/mantis/view.php?id=2925
+    end;
     FSRWInitData.InitializePtr := GetProcAddress(ADLL,'RtlInitializeSRWLock');
     if (nil=FSRWInitData.InitializePtr) then begin
       // before Vista
