@@ -25,6 +25,10 @@ type
     tes_Fetched
   );
 
+  {$IFNDEF UNICODE}
+  UnicodeString = WideString;
+  {$ENDIF}
+
   TDBMS_TileEnum = class(TInterfacedObject, IDBMS_TileEnum)
   private
     FDBMS_Worker: IDBMS_Worker;
@@ -37,7 +41,7 @@ type
     FCallbackProc: Pointer;
     FConnectionForEnum: IDBMS_Connection;
     FUseSingleSection: Boolean;
-    FScanMaxRows: AnsiString;
+    FScanMaxRows: String;
   private
     FState: TTileEnumState;
     FLastError: Byte;
@@ -53,11 +57,11 @@ type
     // кэш версии тайла
     FTileVersionId: SmallInt;
     FTileVersionA: AnsiString;
-    FTileVersionW: WideString;
+    FTileVersionW: UnicodeString;
     // кэш типа тайла
     FTileContentTypeId: SmallInt;
     FTileContentTypeA: AnsiString;
-    FTileContentTypeW: WideString;
+    FTileContentTypeW: UnicodeString;
   private
     procedure ConnChanged;
     procedure InitTileCache;
@@ -145,7 +149,7 @@ begin
         FNextBufferOut.TileInfo.szVersionOut := PAnsiChar(@FTileVersionA[1]);
       end else begin
         // как Wide
-        FTileVersionW := VFoundValue;
+        FTileVersionW := UnicodeString(VFoundValue);
         FNextBufferOut.TileInfo.szVersionOut := PWideChar(@FTileVersionW[1]);
       end;
     end else begin
@@ -193,7 +197,7 @@ begin
           FNextBufferOut.TileInfo.szContentTypeOut := PAnsiChar(@FTileContentTypeA[1]);
         end else begin
           // как Wide
-          FTileContentTypeW := VFoundValue;
+          FTileContentTypeW := UnicodeString(VFoundValue);
           FNextBufferOut.TileInfo.szContentTypeOut := PWideChar(@FTileContentTypeW[1]);
         end;
       end else begin
@@ -491,14 +495,14 @@ end;
 procedure TDBMS_TileEnum.GetZoomAndHighXYFromCurrentTable;
 var
   VTablename: String;
-  VFirst: Char;
+  VFirst: AnsiChar;
   VPos: Integer;
 begin
   // таблица имеет имя вроде такого: I54I24_bingsat
   VTablename := FListOfTables[FNextTableIndex];
 
   // возьмём зум - это первый символ (в примере - 'I')
-  VFirst := VTablename[1];
+  VFirst := AnsiChar(VTablename[1]);
   if (VFirst in ['1'..'9']) then begin
     // зумы от 1 до 9
     FTileXYZ.z := Ord(VFirst) - Ord('1') + 1;
@@ -562,7 +566,7 @@ end;
 
 function TDBMS_TileEnum.OpenNextTableAndFetch(const ANextBufferIn: PETS_GET_TILE_RECT_IN): Boolean;
 var
-  VSQLText: AnsiString;
+  VSQLText: String;
   VEngineType: TEngineType;
 begin
   Result := FALSE;

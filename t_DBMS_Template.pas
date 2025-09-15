@@ -6,7 +6,6 @@ interface
 
 uses
   Types,
-  t_types,
   SysUtils;
 
 const
@@ -77,9 +76,9 @@ const
 type
   TSQLParts = record
     RequestedVersionFound: Boolean;
-    SelectSQL: TDBMS_String;
-    FromSQL: TDBMS_String;
-    WhereSQL: TDBMS_String;
+    SelectSQL: String;
+    FromSQL: String;
+    WhereSQL: String;
     OrderBySQL: WideString;
   end;
   PSQLParts = ^TSQLParts;
@@ -98,8 +97,8 @@ type
     // зум (от 1 до 24)
     Zoom: Byte;
     // им€ таблицы дл€ тайлов - здесь без возможного префикса схемы
-    UnquotedTileTableName: TDBMS_String;
-    QuotedTileTableName: TDBMS_String;
+    UnquotedTileTableName: String;
+    QuotedTileTableName: String;
     // "верхн€€" часть идентификатора тайла - в им€ таблицы
     XYUpperToTable: TPoint;
     // "нижн€€" часть идентификатора тайла - в идентификатор (в поле таблицы)

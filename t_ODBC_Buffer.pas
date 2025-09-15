@@ -607,7 +607,7 @@ begin
     // тащим описание поля
     VItem := @(Cols[i]);
     VDesc := @(VItem^.DescribeColData);
-    VRes := SQLDescribeColA(
+    VRes := SQLDescribeColA(   // ToDo: use SQLDescribeCol
       Stmt,
       i,
       ColBufPtr,

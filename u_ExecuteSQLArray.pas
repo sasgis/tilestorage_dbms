@@ -8,7 +8,6 @@ uses
   Types,
   SysUtils,
   Classes,
-  t_types,
   t_DBMS_Template,
   u_DBMS_Connect,
   Contnrs;
@@ -37,8 +36,8 @@ type
   PSelectInRectItem = ^TSelectInRectItem;
   TSelectInRectItem = record
     TabSQLTile: TSQLTile;
-    InitialWhereClause: TDBMS_String;
-    FullSqlText: TDBMS_String;
+    InitialWhereClause: String;
+    FullSqlText: String;
     UsedConnection: IDBMS_Connection;
   end;
 

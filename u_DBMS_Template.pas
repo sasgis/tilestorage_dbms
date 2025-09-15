@@ -7,7 +7,6 @@ interface
 uses
   SysUtils,
   Classes,
-  t_types,
   t_SQL_types,
   u_SQLScriptParser,
   t_ETS_Tiles,

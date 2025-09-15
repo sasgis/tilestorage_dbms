@@ -117,8 +117,8 @@ function MakeODBCInfoMessage(
 const
   c_message_buffer_len = 512;
 var
-  psqlstate: array [0..6] of AnsiChar;
-  pmessage: array [0..c_message_buffer_len-1] of AnsiChar;
+  psqlstate: array [0..6] of Char;
+  pmessage: array [0..c_message_buffer_len-1] of Char;
   textLength: SQLSMALLINT;
   sqlres:     SQLRETURN;
   i:          SmallInt;
@@ -138,7 +138,7 @@ var
 
 var
   VList: TStringList;
-  VSqlState: AnsiString;
+  VSqlState: String;
   VNativeError: SQLINTEGER;
 begin
   if (AErrorCode <> SQL_SUCCESS_WITH_INFO) and (AErrorCode <> SQL_ERROR) then begin
@@ -156,7 +156,7 @@ begin
     Result := '';
 
     repeat
-      sqlres := SQLGetDiagRecA(AHandleType, AHandleValue, i, psqlstate,
+      sqlres := SQLGetDiagRec(AHandleType, AHandleValue, i, psqlstate,
                                VNativeError, pmessage, c_message_buffer_len-1, textlength);
 
       if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then begin

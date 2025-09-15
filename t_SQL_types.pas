@@ -6,8 +6,7 @@ interface
 
 uses
   SysUtils,
-  t_ETS_Tiles,
-  t_types;
+  t_ETS_Tiles;
 
 type
   // list of _ALL_ supported SQL servers
@@ -568,7 +567,7 @@ const
     TRUE
   );
 
-  c_SQL_QuotedIdentifierValue: array [TEngineType, TQuotedPlace] of AnsiChar = (
+  c_SQL_QuotedIdentifierValue: array [TEngineType, TQuotedPlace] of Char = (
     ('[',']'),  // MSSQL
     ('[',']'),  // ASE // OK with '[]'
     ('"','"'),  // ASA
@@ -831,7 +830,7 @@ function GetEngineTypeUsingSelectVersionException(const AException: Exception): 
 function GetEngineTypeUsingSelectFromDualException(const AException: Exception): TEngineType;
 
 // формирует 16-ричную константу для записи BLOB-а, есть работа через параметры невозможна
-function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
+function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): String;
 
 // проверка что текст исключения начинается с AStarter
 function OdbcEceptionStartsWith(const AText, AStarter: String): Boolean;
@@ -1019,13 +1018,13 @@ begin
   Result := et_Unknown;
 end;
 
-function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): TDBMS_String;
+function ConvertTileToHexLiteralValue(const ABuffer: Pointer; const ASize: LongInt): String;
 const
   c_max_len = 32760;
 var
   VCurPos: PByte;
 
-  function _CopyUpToBytes(ABytesToCopy: LongInt): TDBMS_String;
+  function _CopyUpToBytes(ABytesToCopy: LongInt): String;
   begin
     Result := '';
     while (ABytesToCopy>0) do begin
@@ -1035,12 +1034,12 @@ var
     end;
   end;
 
-  function _MakeCast(const ASrc: TDBMS_String): TDBMS_String;
+  function _MakeCast(const ASrc: String): String;
   begin
     Result := 'CAST(x''' + ASrc + ''' as BLOB)';
   end;
 
-  procedure _AppendPart(var ATotal: TDBMS_String; const ASrc: TDBMS_String);
+  procedure _AppendPart(var ATotal: String; const ASrc: String);
   begin
     if (0<Length(ATotal)) then begin
       ATotal := ATotal + ' || ';

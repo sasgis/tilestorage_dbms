@@ -11,7 +11,7 @@ type
   NativeInt = Integer;
   NativeUInt = Cardinal;
 {$ifend}
-
+(*
 function GetContentLanguage(const ALanguage: LANGID): AnsiString;
 function GetCharsetFromCodepage(const ACodePage: Word): AnsiString;
 
@@ -20,14 +20,14 @@ function ALMimeBase64EncodedSizeNoCRLF(const InputSize: NativeInt): NativeInt;
 procedure ALMimeBase64EncodeNoCRLF(const InputBuffer; const InputByteCount: NativeInt; out OutputBuffer);
 
 function ALDateTimeToRfc822Str_Now: AnsiString;
-
+*)
 function HTTPDecode(const AStr: AnsiString): AnsiString;
 
 implementation
 
 uses
   SysUtils;
-
+(*
 function GetContentLanguage(const ALanguage: LANGID): AnsiString;
 var VPrimLang: Word;
 begin
@@ -659,7 +659,7 @@ begin
             WordToStrLen(VSystemTime.wSecond, 2) + ' ' +
             'GMT';
 end;
-
+*)
 resourcestring
   sErrorDecodingURLText = 'Error decoding URL style (%%XX) encoded string at position %d';
   sInvalidURLEncodedChar = 'Invalid URL encoded character (%s) at position %d';
@@ -689,7 +689,7 @@ begin
                  Inc(Sp);
                  if (Cp^ <> #0) and (Sp^ <> #0) then
                  begin
-                   S := '$' + Cp^ + Sp^;
+                   S := AnsiChar('$') + Cp^ + Sp^;
                    Rp^ := AnsiChar(Chr(StrToInt(S)));
                  end
                  else

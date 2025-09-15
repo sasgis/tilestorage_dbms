@@ -6,13 +6,12 @@ interface
 
 uses
   Windows,
-  SysUtils,
-  t_types;
+  SysUtils;
 
-function AnsiStrToDB(const S: AnsiString): AnsiString;
+function AnsiStrToDB(const S: AnsiString): AnsiString; inline;
 function WideStrToDB(const S: WideString): WideString;
 
-function DBMSStrToDB(const S: TDBMS_String): TDBMS_String; inline;
+function DBMSStrToDB(const S: String): String; inline;
 
 function GetModuleFileNameWithoutExt(
   const AInSqlSubFolder: Boolean;
@@ -43,13 +42,9 @@ begin
   Result := '''' + Result + '''';
 end;
 
-function DBMSStrToDB(const S: TDBMS_String): TDBMS_String; inline;
+function DBMSStrToDB(const S: String): String; inline;
 begin
-{$if defined(USE_WIDESTRING_FOR_SQL)}
-  Result := WideStrToDB(S);
-{$else}
   Result := QuotedStr(S);
-{$ifend}
 end;
 
 function GetModuleFileNameWithoutExt(

@@ -565,6 +565,36 @@ function SQLSetEnvAttr(EnvironmentHandle: SqlHEnv; Attribute: SqlInteger;
 
 {*****************************************************************************}
 
+function SQLConnect(ConnectionHandle: SqlHDbc; ServerName: PChar;
+  NameLength1: SqlSmallint; UserName: PChar; NameLength2: SqlSmallint;
+  Authentication: PChar; NameLength3: SqlSmallint): SqlReturn; inline;
+
+function SQLDataSources(EnvironmentHandle: SqlHEnv; Direction: SqlUSmallint;
+  ServerName: PChar; BufferLength1: SqlSmallint; var NameLength1: SqlSmallint;
+  Description: PChar; BufferLength2: SqlSmallint; var NameLength2: SqlSmallint): SqlReturn; inline;
+
+function SQLDescribeCol(StatementHandle: SqlHStmt; ColumnNumber: SqlUSmallint;
+  ColumnName: PChar; BufferLength: SqlSmallint; var NameLength: SqlSmallint;
+  var DataType: SqlSmallint; var ColumnSize: SqlULen; var DecimalDigits: SqlSmallint;
+  var Nullable: SqlSmallint): SqlReturn; inline;
+
+function SQLDriverConnect(ConnectionHandle: SqlHDbc; WindowHandle: SQLHWnd;
+  InConnectionString: PChar; StringLength1: SqlSmallint;
+  OutConnectionString: PChar; BufferLength: SqlSmallint;
+  var StringLength2Ptr: SqlSmallint; DriverCompletion: SqlUSmallint): SqlReturn; inline;
+
+function SQLExecDirect(StatementHandle: SqlHStmt;
+  StatementText: PChar; TextLength: SqlInteger): SqlReturn; inline;
+
+function SQLGetDiagRec(HandleType: SqlSmallint; Handle: SqlHandle;
+  RecNumber: SqlSmallint; Sqlstate: PChar; var NativeError: SqlInteger;
+  MessageText: PChar; BufferLength: SqlSmallint; var TextLength: SqlSmallint): SqlReturn; inline;
+
+function SQLGetInfo(ConnectionHandle: SqlHDbc; InfoType: SqlUSmallint;
+  InfoValuePtr: SqlPointer; BufferLength: SqlSmallint; StringLengthPtr: PSqlSmallint): SqlReturn; inline;
+
+{*****************************************************************************}
+
 { additional SQLDataSources fetch directions  }
 const
   SQL_FETCH_FIRST_USER = 31;
@@ -653,6 +683,97 @@ implementation
 function SQL_SUCCEEDED(const rc: SqlReturn): Boolean;
 begin
   Result := (rc and (not 1)) = 0;
+end;
+
+function SQLConnect(ConnectionHandle: SqlHDbc; ServerName: PChar;
+  NameLength1: SqlSmallint; UserName: PChar; NameLength2: SqlSmallint;
+  Authentication: PChar; NameLength3: SqlSmallint): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLConnectW(ConnectionHandle, ServerName, NameLength1, UserName,
+    NameLength2, Authentication, NameLength3);
+{$ELSE}
+  Result := SQLConnectA(ConnectionHandle, ServerName, NameLength1, UserName,
+    NameLength2, Authentication, NameLength3);
+{$ENDIF}
+end;
+
+function SQLDataSources(EnvironmentHandle: SqlHEnv; Direction: SqlUSmallint;
+  ServerName: PChar; BufferLength1: SqlSmallint; var NameLength1: SqlSmallint;
+  Description: PChar; BufferLength2: SqlSmallint; var NameLength2: SqlSmallint): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLDataSourcesW(EnvironmentHandle, Direction, ServerName,
+    BufferLength1, NameLength1, Description, BufferLength2, NameLength2);
+{$ELSE}
+  Result := SQLDataSourcesA(EnvironmentHandle, Direction, ServerName,
+    BufferLength1, NameLength1, Description, BufferLength2, NameLength2);
+{$ENDIF}
+end;
+
+function SQLDescribeCol(StatementHandle: SqlHStmt; ColumnNumber: SqlUSmallint;
+  ColumnName: PChar; BufferLength: SqlSmallint; var NameLength: SqlSmallint;
+  var DataType: SqlSmallint; var ColumnSize: SqlULen; var DecimalDigits: SqlSmallint;
+  var Nullable: SqlSmallint): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLDescribeColW(StatementHandle, ColumnNumber, ColumnName,
+    BufferLength, NameLength, DataType, ColumnSize, DecimalDigits, Nullable);
+{$ELSE}
+  Result := SQLDescribeColA(StatementHandle, ColumnNumber, ColumnName,
+    BufferLength, NameLength, DataType, ColumnSize, DecimalDigits, Nullable);
+{$ENDIF}
+end;
+
+function SQLDriverConnect(ConnectionHandle: SqlHDbc; WindowHandle: SQLHWnd;
+  InConnectionString: PChar; StringLength1: SqlSmallint;
+  OutConnectionString: PChar; BufferLength: SqlSmallint;
+  var StringLength2Ptr: SqlSmallint; DriverCompletion: SqlUSmallint): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLDriverConnectW(ConnectionHandle, WindowHandle, InConnectionString,
+    StringLength1, OutConnectionString, BufferLength, StringLength2Ptr,
+    DriverCompletion);
+{$ELSE}
+  Result := SQLDriverConnectA(ConnectionHandle, WindowHandle, InConnectionString,
+    StringLength1, OutConnectionString, BufferLength, StringLength2Ptr,
+    DriverCompletion);
+{$ENDIF}
+end;
+
+function SQLExecDirect(StatementHandle: SqlHStmt;
+  StatementText: PChar; TextLength: SqlInteger): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLExecDirectW(StatementHandle, StatementText, TextLength);
+{$ELSE}
+  Result := SQLExecDirectA(StatementHandle, StatementText, TextLength);
+{$ENDIF}
+end;
+
+function SQLGetDiagRec(HandleType: SqlSmallint; Handle: SqlHandle;
+  RecNumber: SqlSmallint; Sqlstate: PChar; var NativeError: SqlInteger;
+  MessageText: PChar; BufferLength: SqlSmallint; var TextLength: SqlSmallint): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLGetDiagRecW(HandleType, Handle, RecNumber, Sqlstate, NativeError,
+    MessageText, BufferLength, TextLength);
+{$ELSE}
+  Result := SQLGetDiagRecA(HandleType, Handle, RecNumber, Sqlstate, NativeError,
+    MessageText, BufferLength, TextLength);
+{$ENDIF}
+end;
+
+function SQLGetInfo(ConnectionHandle: SqlHDbc; InfoType: SqlUSmallint;
+  InfoValuePtr: SqlPointer; BufferLength: SqlSmallint; StringLengthPtr: PSqlSmallint): SqlReturn;
+begin
+{$IFDEF UNICODE}
+  Result := SQLGetInfoW(ConnectionHandle, InfoType, InfoValuePtr,
+    BufferLength, StringLengthPtr);
+{$ELSE}
+  Result := SQLGetInfoA(ConnectionHandle, InfoType, InfoValuePtr,
+    BufferLength, StringLengthPtr);
+{$ENDIF}
 end;
 
 end.

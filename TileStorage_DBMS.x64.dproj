@@ -187,8 +187,7 @@
         <DCCReference Include="t_TSS.pas"/>
         <DCCReference Include="i_TSS.pas"/>
         <DCCReference Include="u_TileArea.pas"/>
-        <DCCReference Include="t_types.pas"/>
-        <DCCReference Include="u_exports.pas"/>
+        <DCCReference Include="u_Exports.pas"/>
         <DCCReference Include="u_LsaTools.pas"/>
         <DCCReference Include="u_CryptoTools.pas"/>
         <DCCReference Include="u_PStoreTools.pas"/>

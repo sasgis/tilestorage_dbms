@@ -71,7 +71,6 @@
     <DCCReference Include="t_ODBC_Exception.pas" />
     <DCCReference Include="t_SQL_types.pas" />
     <DCCReference Include="t_TSS.pas" />
-    <DCCReference Include="t_types.pas" />
     <DCCReference Include="u_CryptoTools.pas" />
     <DCCReference Include="u_DBMS_Connect.pas" />
     <DCCReference Include="u_DBMS_Provider.pas" />
@@ -80,7 +79,7 @@
     <DCCReference Include="u_DBMS_Utils.pas" />
     <DCCReference Include="u_ExecuteSQLArray.pas" />
     <DCCReference Include="u_Exif_Parser.pas" />
-    <DCCReference Include="u_exports.pas" />
+    <DCCReference Include="u_Exports.pas" />
     <DCCReference Include="u_LsaTools.pas" />
     <DCCReference Include="u_MemoryManager.pas" />
     <DCCReference Include="u_PStoreTools.pas" />

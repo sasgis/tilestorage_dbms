@@ -9,7 +9,6 @@ uses
   Windows,
   Classes,
   odbcsql,
-  t_types,
   t_SQL_types,
   t_DBMS_Template,
   t_DBMS_Connect,
@@ -77,7 +76,7 @@ type
 
   private
     FEngineType: TEngineType;
-    FODBCDescription: AnsiString;
+    FODBCDescription: String;
     // внутренние параметры из ini
     FInternalParams: TStringList;
     // формально это не схема, а префикс полностью (при необходимости - с точкой и сразу quoted)
@@ -123,33 +122,25 @@ type
   public
 {$if defined(CONNECTION_AS_RECORD)}
     function ExecuteDirectSQL(
-      const ASQLText: AnsiString;
+      const ASQLText: String;
       const ASilentOnError: Boolean
     ): Boolean; inline;
-{$ifend}
 
-{$if defined(CONNECTION_AS_RECORD)}
-    function TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean; inline;
-{$ifend}
+    function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean; inline;
 
-{$if defined(CONNECTION_AS_RECORD)}
     function OpenDirectSQLFetchCols(
-      const ASQLText: AnsiString;
+      const ASQLText: String;
       const ABufPtr: POdbcFetchCols
     ): Boolean; inline;
-{$ifend}
 
-{$if defined(CONNECTION_AS_RECORD)}
     function ExecuteDirectWithBlob(
-      const ASQLText: AnsiString;
+      const ASQLText: String;
       const ABufferAddr: Pointer;
       const ABufferSize: LongInt;
       const ASilentOnError: Boolean
     ): Boolean; inline;
-{$ifend}
 
-{$if defined(CONNECTION_AS_RECORD)}
-    function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean; inline;
+    function CheckDirectSQLSingleNotNull(const ASQLText: String): Boolean; inline;
 {$ifend}
 
   public
@@ -207,10 +198,7 @@ type
     FAuthOK: Boolean;
     FAuthFailed: Boolean;
   end;
-{$ifend}
 
-{$if defined(DBMS_REUSE_CONNECTIONS)}
-type
   TDBMS_ConnectionList = class(TObjectList)
   private
     // list of servers
@@ -224,9 +212,7 @@ type
     constructor Create;
     destructor Destroy; override;
   end;
-{$ifend}
 
-{$if defined(DBMS_REUSE_CONNECTIONS)}
 var
   G_ConnectionList: TDBMS_ConnectionList;
 {$ifend}
@@ -397,7 +383,7 @@ begin
 end;
 
 {$if defined(CONNECTION_AS_RECORD)}
-function TDBMS_Connection.TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
+function TDBMS_Connection.TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 begin
   Result := FODBCConnectionHolder.TableExistsDirect(AFullyQualifiedQuotedTableName)
 end;
@@ -520,7 +506,7 @@ end;
 
 function TDBMS_Connection.ApplySystemDSNtoConnection: Byte;
 var
-  VSystemDSNName: AnsiString;
+  VSystemDSNName: String;
 begin
   // применение параметров подключения без ini-шки
   // доступно не для всех СУБД
@@ -560,7 +546,7 @@ begin
 end;
 
 {$if defined(CONNECTION_AS_RECORD)}
-function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
+function TDBMS_Connection.CheckDirectSQLSingleNotNull(const ASQLText: String): Boolean;
 begin
   Result := FODBCConnectionHolder.CheckDirectSQLSingleNotNull(ASQLText)
 end;
@@ -708,7 +694,7 @@ end;
 
 {$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.ExecuteDirectWithBlob(
-  const ASQLText: AnsiString;
+  const ASQLText: String;
   const ABufferAddr: Pointer;
   const ABufferSize: Integer;
   const ASilentOnError: Boolean
@@ -720,11 +706,9 @@ begin
     ABufferSize,
     ASilentOnError);
 end;
-{$ifend}
 
-{$if defined(CONNECTION_AS_RECORD)}
 function TDBMS_Connection.ExecuteDirectSQL(
-  const ASQLText: AnsiString;
+  const ASQLText: String;
   const ASilentOnError: Boolean
 ): Boolean;
 begin
@@ -1051,7 +1035,7 @@ begin
 end;
 
 {$if defined(CONNECTION_AS_RECORD)}
-function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: AnsiString; const ABufPtr: POdbcFetchCols): Boolean;
+function TDBMS_Connection.OpenDirectSQLFetchCols(const ASQLText: String; const ABufPtr: POdbcFetchCols): Boolean;
 begin
   Result := FODBCConnectionHolder.OpenDirectSQLFetchCols(ASQLText, ABufPtr)
 end;

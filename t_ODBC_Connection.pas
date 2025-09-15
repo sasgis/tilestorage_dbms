@@ -24,7 +24,7 @@ type
     procedure Init;
     procedure Close;
     function Load: Boolean;
-    function FindDSN(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
+    function FindDSN(const ASystemDSN: String; out ADescription: String): Boolean;
   end;
 
 {$if defined(CONNECTION_AS_CLASS)}
@@ -77,7 +77,7 @@ type
   private
     function GetHENV: SQLHENV; // SQLHANDLE;
 
-    procedure ODBCDriverInfoA(
+    procedure ODBCDriverInfo(
       InfoType: SQLUSMALLINT;
       InfoValuePtr: SQLPOINTER;
       BufferLength: SQLSMALLINT;
@@ -89,7 +89,7 @@ type
   public
     ConnectWithParams: Boolean;
     ConnectWithInfoMessages: String;
-    SQL_IDENTIFIER_QUOTE_CHAR_VALUE: AnsiString;
+    SQL_IDENTIFIER_QUOTE_CHAR_VALUE: String;
     SYNC_SQL_MODE: Integer;
 
 {$if defined(CONNECTION_AS_CLASS)}
@@ -109,25 +109,25 @@ type
     function Connected: Boolean; inline;
 
     function ExecuteDirectSQL(
-      const ASQLText: AnsiString;
+      const ASQLText: String;
       const ASilentOnError: Boolean
     ): Boolean;
 
     function ExecuteDirectWithBlob(
-      const ASQLText: AnsiString;
+      const ASQLText: String;
       const ABufferAddr: Pointer;
       const ABufferSize: LongInt;
       const ASilentOnError: Boolean
     ): Boolean;
 
     function OpenDirectSQLFetchCols(
-      const ASQLText: AnsiString;
+      const ASQLText: String;
       const ABufPtr: POdbcFetchCols
     ): Boolean;
 
-    function TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
+    function TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 
-    function CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
+    function CheckDirectSQLSingleNotNull(const ASQLText: String): Boolean;
 
     (*
     function GetTablesWithTiles(
@@ -147,7 +147,7 @@ type
     property StatementCache: IStatementHandleCache read FStatementCache;
   end;
 
-function Load_DSN_Params_from_ODBC(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
+function Load_DSN_Params_from_ODBC(const ASystemDSN: String; out ADescription: String): Boolean;
 
 implementation
 
@@ -157,7 +157,7 @@ uses
 var
   gEnv: TOdbcEnvironment;
 
-function Load_DSN_Params_from_ODBC(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
+function Load_DSN_Params_from_ODBC(const ASystemDSN: String; out ADescription: String): Boolean;
 begin
   Result := gEnv.FindDSN(ASystemDSN, ADescription);
 end;
@@ -168,7 +168,7 @@ procedure TODBCConnection.CheckByteaAsLoOff(const ANeedCheck: Boolean);
 var
   h: SQLHANDLE;
   VRes: SQLRETURN;
-  VSQLText: AnsiString;
+  VSQLText: String;
   VDescribeColData: TDescribeColData;
 begin
   if ANeedCheck then begin
@@ -178,10 +178,10 @@ begin
     try
       CheckSQLResult(FStatementCache.GetStatementHandle(h));
       try
-        VRes := SQLExecDirectA(h, PAnsiChar(VSQLText), Length(VSQLText));
+        VRes := SQLExecDirect(h, PChar(VSQLText), Length(VSQLText));
         CheckStatementResult(h, VRes, EODBCDirectExecError);
         // имя поля тут не интересует
-        VRes := SQLDescribeColA(
+        VRes := SQLDescribeCol(
           h,
           1,
           nil,
@@ -210,7 +210,7 @@ begin
   end;
 end;
 
-function TODBCConnection.CheckDirectSQLSingleNotNull(const ASQLText: AnsiString): Boolean;
+function TODBCConnection.CheckDirectSQLSingleNotNull(const ASQLText: String): Boolean;
 var
   VOdbcFetchCols: TOdbcFetchCols;
 begin
@@ -235,9 +235,9 @@ end;
 procedure TODBCConnection.Connect;
 var
   i, VConnectResult: SQLRETURN;
-  SServer: array [0..1025] of AnsiChar;
+  SServer: array [0..1025] of Char;
   cbout:   SQLSMALLINT;
-  ConnectionString, VUID, VPWD: AnsiString;
+  ConnectionString, VUID, VPWD: String;
   dc:      SQLUSMALLINT;
 begin
   if Connected then
@@ -279,10 +279,10 @@ begin
       end;
 
       // via connectionstring
-      VConnectResult := SQLDriverConnectA(
+      VConnectResult := SQLDriverConnect(
         Fhdbc,
         0, //Application.handle,
-        PAnsiChar(ConnectionString),
+        PChar(ConnectionString),
         SQL_NTS,
         SServer,
         1024,
@@ -294,13 +294,13 @@ begin
       ConnectionString := DSN;
       VUID := UID;
       VPWD := PWD;
-      VConnectResult := SQLConnectA(
+      VConnectResult := SQLConnect(
         fhdbc,
-        PAnsiChar(ConnectionString),
+        PChar(ConnectionString),
         Length(ConnectionString),
-        PAnsiChar(VUID),
+        PChar(VUID),
         Length(VUID),
-        PAnsiChar(VPWD),
+        PChar(VPWD),
         Length(VPWD)
       );
     end;
@@ -325,7 +325,7 @@ begin
   // get quotation options
   SQL_IDENTIFIER_QUOTE_CHAR_VALUE := '';
   SetLength(SQL_IDENTIFIER_QUOTE_CHAR_VALUE, 4);
-  ODBCDriverInfoA(
+  ODBCDriverInfo(
     SQL_IDENTIFIER_QUOTE_CHAR,
     SQLPOINTER(@SQL_IDENTIFIER_QUOTE_CHAR_VALUE[1]),
     Length(SQL_IDENTIFIER_QUOTE_CHAR_VALUE),
@@ -374,7 +374,7 @@ begin
 end;
 
 function TODBCConnection.ExecuteDirectSQL(
-  const ASQLText: AnsiString;
+  const ASQLText: String;
   const ASilentOnError: Boolean
 ): Boolean;
 var
@@ -383,7 +383,7 @@ var
 begin
   CheckSQLResult(FStatementCache.GetStatementHandle(h));
   try
-    VRes := SQLExecDirectA(h, PAnsiChar(ASQLText), Length(ASQLText));
+    VRes := SQLExecDirect(h, PChar(ASQLText), Length(ASQLText));
     Result := SQL_SUCCEEDED(VRes);
     if (not Result) and (not ASilentOnError) then
       CheckStatementResult(h, VRes, EODBCDirectExecError);
@@ -393,7 +393,7 @@ begin
 end;
 
 function TODBCConnection.ExecuteDirectWithBlob(
-  const ASQLText: AnsiString;
+  const ASQLText: String;
   const ABufferAddr: Pointer;
   const ABufferSize: Integer;
   const ASilentOnError: Boolean
@@ -439,9 +439,9 @@ begin
     CheckStatementResult(h, VRes, EODBCDirectExecBlobError);
 
     // execute
-    VRes := SQLExecDirectA(
+    VRes := SQLExecDirect(
       h,
-      PAnsiChar(ASQLText),
+      PChar(ASQLText),
       Length(ASQLText)
     );
 
@@ -555,13 +555,13 @@ begin
   SQL_IDENTIFIER_QUOTE_CHAR_VALUE := '"'; // default value
 end;
 
-procedure TODBCConnection.ODBCDriverInfoA(InfoType: SQLUSMALLINT;
+procedure TODBCConnection.ODBCDriverInfo(InfoType: SQLUSMALLINT;
   InfoValuePtr: SQLPOINTER; BufferLength: SQLSMALLINT;
   StringLengthPtr: PSQLSMALLINT; const AAllowWithInfo: Boolean);
 var
   sqlres: SQLRETURN;
 begin
-  sqlres := SQLGetInfoA(Fhdbc, InfoType, InfoValuePtr, BufferLength, StringLengthPtr);
+  sqlres := SQLGetInfo(Fhdbc, InfoType, InfoValuePtr, BufferLength, StringLengthPtr);
   case sqlres of
     SQL_SUCCESS:;
     SQL_SUCCESS_WITH_INFO: if not AAllowWithInfo then raise EODBCDriverInfoErrorWithInfo.CreateWithDiag(sqlres, SQL_HANDLE_DBC, Fhdbc);
@@ -575,7 +575,7 @@ begin
 end;
 
 function TODBCConnection.OpenDirectSQLFetchCols(
-  const ASQLText: AnsiString;
+  const ASQLText: String;
   const ABufPtr: POdbcFetchCols
 ): Boolean;
 var
@@ -587,7 +587,7 @@ begin
   ABufPtr^.StatementHandleCache := FStatementCache;
   CheckSQLResult(FStatementCache.GetStatementHandle(ABufPtr^.Stmt));
 
-  VRes := SQLExecDirectA(ABufPtr^.Stmt, PAnsiChar(ASQLText), Length(ASQLText));
+  VRes := SQLExecDirect(ABufPtr^.Stmt, PChar(ASQLText), Length(ASQLText));
   CheckStatementResult(ABufPtr^.Stmt, VRes, EODBCOpenFetchError);
 
   Result := ABufPtr^.DescribeAndBind;
@@ -608,9 +608,9 @@ begin
   FParams.Values['UID'] := Value;
 end;
 
-function TODBCConnection.TableExistsDirect(const AFullyQualifiedQuotedTableName: AnsiString): Boolean;
+function TODBCConnection.TableExistsDirect(const AFullyQualifiedQuotedTableName: String): Boolean;
 var
-  VFullSQL: AnsiString;
+  VFullSQL: String;
 begin
   VFullSQL := 'SELECT 1 as a' +
                ' FROM ' + AFullyQualifiedQuotedTableName +
@@ -634,14 +634,14 @@ begin
   end;
 end;
 
-function TOdbcEnvironment.FindDSN(const ASystemDSN: AnsiString; out ADescription: AnsiString): Boolean;
+function TOdbcEnvironment.FindDSN(const ASystemDSN: String; out ADescription: String): Boolean;
 var
   VResult: SQLRETURN;
   VDirection: SQLUSMALLINT;
-  VServerName: array [0..SQL_MAX_DSN_LENGTH] of AnsiChar;
-  VDescription: array [0..SQL_MAX_OPTION_STRING_LENGTH] of AnsiChar;
+  VServerName: array [0..SQL_MAX_DSN_LENGTH] of Char;
+  VDescription: array [0..SQL_MAX_OPTION_STRING_LENGTH] of Char;
   VSize1, VSize2: SQLSmallint;
-  VServerNameStr: AnsiString;
+  VServerNameStr: String;
 begin
   Load;
   
@@ -654,7 +654,7 @@ begin
   VDirection := SQL_FETCH_FIRST_SYSTEM; // SQL_FETCH_FIRST;
   repeat
     // перечисляем
-    VResult := SQLDataSourcesA(HENV,
+    VResult := SQLDataSources(HENV,
       VDirection,
       VServerName,
       SQL_MAX_DSN_LENGTH,
@@ -667,12 +667,12 @@ begin
     if SQL_SUCCEEDED(VResult) then begin
       // ok
       if (VSize1 = Length(ASystemDSN)) then begin
-        SetString(VServerNameStr, PAnsiChar(@(VServerName[0])), VSize1);
+        SetString(VServerNameStr, PChar(@(VServerName[0])), VSize1);
 
         // check servername
         if SameText(VServerNameStr, ASystemDSN) then begin
           // found
-          SetString(ADescription, PAnsiChar(@(VDescription[0])), VSize2);
+          SetString(ADescription, PChar(@(VDescription[0])), VSize2);
           // get all params
           // SQLGetPrivateProfileStringW
           // done
