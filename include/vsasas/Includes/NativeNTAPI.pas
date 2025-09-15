@@ -24,17 +24,6 @@ type
   LARGE_INTEGER = Int64;
   PLARGE_INTEGER = ^LARGE_INTEGER;
 
-  IO_STATUS_BLOCK = packed record
-    Status: DWORD;
-    Information: ULONG;
-  end;
-  PIO_STATUS_BLOCK = ^IO_STATUS_BLOCK;
-
-  PIO_APC_ROUTINE = procedure(
-    ApcContext: PVOID;
-    IoStatusBlock: PIO_STATUS_BLOCK;
-    Reserved: ULONG); stdcall;
-  
 const
   ntdll_dll = 'ntdll.dll';
 
@@ -78,52 +67,6 @@ type
   PKEY_VALUE_PARTIAL_INFORMATION = ^KEY_VALUE_PARTIAL_INFORMATION;
   PPKEY_VALUE_PARTIAL_INFORMATION = ^PKEY_VALUE_PARTIAL_INFORMATION;
 
-  FILE_INFORMATION_CLASS = (
-    FileDirectoryInformation = 1,
-    FileFullDirectoryInformation = 2,
-    FileBothDirectoryInformation = 3,
-    FileBasicInformation = 4,
-    FileStandardInformation = 5,
-    FileInternalInformation = 6,
-    FileEaInformation = 7,
-    FileAccessInformation = 8,
-    FileNameInformation = 9,
-    FileRenameInformation = 10,
-    FileLinkInformation = 11,
-    FileNamesInformation = 12,
-    FileDispositionInformation = 13,
-    FilePositionInformation = 14,
-    FileModeInformation = 16,
-    FileAlignmentInformation = 17,
-    FileAllInformation = 18,
-    FileAllocationInformation = 19,
-    FileEndOfFileInformation = 20,
-    FileAlternateNameInformation = 21,
-    FileStreamInformation = 22,
-    FilePipeInformation = 23,
-    FilePipeLocalInformation = 24,
-    FilePipeRemoteInformation = 25,
-    FileMailslotQueryInformation = 26,
-    FileMailslotSetInformation = 27,
-    FileCompressionInformation = 28,
-    FileObjectIdInformation = 29,
-    FileCompletionInformation = 30,
-    FileMoveClusterInformation = 31,
-    FileQuotaInformation = 32,
-    FileReparsePointInformation = 33,
-    FileNetworkOpenInformation = 34,
-    FileAttributeTagInformation = 35,
-    FileTrackingInformation = 36
-  );
-
-  FILE_RENAME_INFORMATION = packed record
-    ReplaceIfExists: LongBool;
-    RootDirectory: Handle;
-    FileNameLength: ULONG;
-    FileName: array [0..0] of WCHAR;
-  end;
-  PFILE_RENAME_INFORMATION = ^FILE_RENAME_INFORMATION;
-
 function NtQueryValueKey(
   KeyHandle: HANDLE; // IN
   ValueName: PUNICODE_STRING; // IN
@@ -140,26 +83,6 @@ function NtSetValueKey(
   Type_: ULONG; // IN
   Data: PVOID; // IN OPTIONAL
   DataSize: ULONG // IN
-): NTSTATUS; stdcall; external ntdll_dll;
-
-function NtSetInformationFile(
-  FileHandle: HANDLE; // IN
-  IoStatusBlock: PIO_STATUS_BLOCK; // OUT
-  FileInformation: PVOID; // IN
-  FileInformationLength: ULONG; // IN
-  FileInformationClass: FILE_INFORMATION_CLASS // IN
-): NTSTATUS; stdcall; external ntdll_dll;
-
-function NtReadFile(
-  FileHandle: THandle; { IN }
-  EventHandle: THandle; { IN OPTIONAL }
-  UserApcRoutine: PIO_APC_ROUTINE; { IN OPTIONAL }
-  UserApcContext: PVOID; { IN OPTIONAL}
-  IoStatusBlock: PIO_STATUS_BLOCK; { OUT }
-  Buffer: PVOID; { OUT }
-  Length: ULONG; { IN }
-  ByteOffset: PLARGE_INTEGER; { IN OPTIONAL }
-  FileLockKey: PULONG { IN OPTIONAL }
 ): NTSTATUS; stdcall; external ntdll_dll;
 
 implementation

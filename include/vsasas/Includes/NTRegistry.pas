@@ -89,7 +89,7 @@ begin
       @VResultLen
     );
 
-    if ($C0000023 = DWORD(VResult)) and (0<VResultLen) then begin
+    if (STATUS_BUFFER_TOO_SMALL = DWORD(VResult)) and (0<VResultLen) then begin
       ARegInfoPtr^ := HeapAlloc(GetProcessHeap, HEAP_ZERO_MEMORY, VResultLen);
       if (nil <> ARegInfoPtr^) then begin
         VResult := NtQueryValueKey(
