@@ -6,17 +6,22 @@ uses
   Windows,
   NativeNTAPI;
 
+{$IFNDEF UNICODE}
+type
+  UnicodeString = WideString;
+{$ENDIF}
+
 procedure NTRegistryClearInfo(const ARegInfoPtr: PPKEY_VALUE_PARTIAL_INFORMATION);
 
 function NTRegistryReadBuffer(
-  const ARegPrefix: WideString;
-  const ASecretKeyName: WideString;
+  const ARegPrefix: UnicodeString;
+  const ASecretKeyName: UnicodeString;
   const ARegInfoPtr: PPKEY_VALUE_PARTIAL_INFORMATION
 ): Boolean;
 
 function NTRegistrySaveBuffer(
-  const ARegPrefix: WideString;
-  const ASecretKeyName: WideString;
+  const ARegPrefix: UnicodeString;
+  const ASecretKeyName: UnicodeString;
   const ABuffer: Pointer;
   const ABytesLen: USHORT
 ): Boolean;
@@ -24,8 +29,8 @@ function NTRegistrySaveBuffer(
 implementation
 
 procedure InternalPrepareRegValue(
-  const ASrc: WideString;
-  var AHelper: WideString;
+  const ASrc: UnicodeString;
+  var AHelper: UnicodeString;
   ABuffer: PUNICODE_STRING
 );
 begin
@@ -48,13 +53,13 @@ begin
 end;
 
 function NTRegistryReadBuffer(
-  const ARegPrefix: WideString;
-  const ASecretKeyName: WideString;
+  const ARegPrefix: UnicodeString;
+  const ASecretKeyName: UnicodeString;
   const ARegInfoPtr: PPKEY_VALUE_PARTIAL_INFORMATION
 ): Boolean;
 var
   VResult: Longint;
-  VRegName: WideString;
+  VRegName: UnicodeString;
   VRegKey: HKEY;
   VValueName: UNICODE_STRING;
   VResultLen: ULONG;
@@ -109,14 +114,14 @@ begin
 end;
 
 function NTRegistrySaveBuffer(
-  const ARegPrefix: WideString;
-  const ASecretKeyName: WideString;
+  const ARegPrefix: UnicodeString;
+  const ASecretKeyName: UnicodeString;
   const ABuffer: Pointer;
   const ABytesLen: USHORT
 ): Boolean;
 var
   VResult: Longint;
-  VRegName: WideString;
+  VRegName: UnicodeString;
   VRegKey: HKEY;
   VValueName: UNICODE_STRING;
 begin
