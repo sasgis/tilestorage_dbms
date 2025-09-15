@@ -63,7 +63,7 @@
         <DCC_PEOSVersion>5.0</DCC_PEOSVersion>
         <DCC_PESubSysVersion>5.0</DCC_PESubSysVersion>
         <DCC_Define>FORCE_NO_SYNC_7Z_HOLDER;$(DCC_Define)</DCC_Define>
-        <DCC_UnitSearchPath>include;include\FastMM5;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>include;include\FastMM5;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <VerInfo_Build>1</VerInfo_Build>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
@@ -169,42 +169,42 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="u_MemoryManager.pas"/>
-        <DCCReference Include="i_DBMS_Provider.pas"/>
-        <DCCReference Include="u_DBMS_Provider.pas"/>
-        <DCCReference Include="u_DBMS_Connect.pas"/>
-        <DCCReference Include="u_DBMS_TileEnum.pas"/>
-        <DCCReference Include="t_DBMS_version.pas"/>
-        <DCCReference Include="t_DBMS_contenttype.pas"/>
-        <DCCReference Include="t_DBMS_service.pas"/>
-        <DCCReference Include="u_DBMS_Utils.pas"/>
-        <DCCReference Include="t_DBMS_Template.pas"/>
-        <DCCReference Include="u_DBMS_Template.pas"/>
-        <DCCReference Include="t_SQL_types.pas"/>
-        <DCCReference Include="t_DBMS_Connect.pas"/>
-        <DCCReference Include="i_StatementHandleCache.pas"/>
-        <DCCReference Include="u_StatementHandleCache.pas"/>
-        <DCCReference Include="t_TSS.pas"/>
-        <DCCReference Include="u_TileArea.pas"/>
-        <DCCReference Include="u_Exports.pas"/>
-        <DCCReference Include="u_LsaTools.pas"/>
-        <DCCReference Include="u_CryptoTools.pas"/>
-        <DCCReference Include="u_PStoreTools.pas"/>
-        <DCCReference Include="u_Exif_Parser.pas"/>
-        <DCCReference Include="u_Tile_Parser.pas"/>
-        <DCCReference Include="t_ODBC_Buffer.pas"/>
-        <DCCReference Include="t_ODBC_Connection.pas"/>
-        <DCCReference Include="t_ODBC_Exception.pas"/>
-        <DCCReference Include="u_ExecuteSQLArray.pas"/>
-        <DCCReference Include="include\vsasas\c_CompressBinaryData.pas"/>
-        <DCCReference Include="include\vsasas\u_CompressBinaryData.pas"/>
-        <DCCReference Include="include\vsasas\i_BinaryData.pas"/>
-        <DCCReference Include="include\vsasas\u_BinaryData.pas"/>
-        <DCCReference Include="include\vsasas\u_BinaryDataByMemStream.pas"/>
+        <DCCReference Include="src\u_MemoryManager.pas"/>
+        <DCCReference Include="include\odbcsql.pas"/>
         <DCCReference Include="include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Path.pas"/>
         <DCCReference Include="include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Provider.pas"/>
         <DCCReference Include="include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Tiles.pas"/>
-        <DCCReference Include="include\odbcsql.pas"/>
+        <DCCReference Include="include\vsasas\c_CompressBinaryData.pas"/>
+        <DCCReference Include="include\vsasas\i_BinaryData.pas"/>
+        <DCCReference Include="include\vsasas\u_BinaryData.pas"/>
+        <DCCReference Include="include\vsasas\u_BinaryDataByMemStream.pas"/>
+        <DCCReference Include="include\vsasas\u_CompressBinaryData.pas"/>
+        <DCCReference Include="src\i_DBMS_Provider.pas"/>
+        <DCCReference Include="src\i_StatementHandleCache.pas"/>
+        <DCCReference Include="src\t_DBMS_Connect.pas"/>
+        <DCCReference Include="src\t_DBMS_Template.pas"/>
+        <DCCReference Include="src\t_DBMS_contenttype.pas"/>
+        <DCCReference Include="src\t_DBMS_service.pas"/>
+        <DCCReference Include="src\t_DBMS_version.pas"/>
+        <DCCReference Include="src\t_ODBC_Buffer.pas"/>
+        <DCCReference Include="src\t_ODBC_Connection.pas"/>
+        <DCCReference Include="src\t_ODBC_Exception.pas"/>
+        <DCCReference Include="src\t_SQL_types.pas"/>
+        <DCCReference Include="src\t_TSS.pas"/>
+        <DCCReference Include="src\u_CryptoTools.pas"/>
+        <DCCReference Include="src\u_DBMS_Connect.pas"/>
+        <DCCReference Include="src\u_DBMS_Provider.pas"/>
+        <DCCReference Include="src\u_DBMS_Template.pas"/>
+        <DCCReference Include="src\u_DBMS_TileEnum.pas"/>
+        <DCCReference Include="src\u_DBMS_Utils.pas"/>
+        <DCCReference Include="src\u_ExecuteSQLArray.pas"/>
+        <DCCReference Include="src\u_Exif_Parser.pas"/>
+        <DCCReference Include="src\u_Exports.pas"/>
+        <DCCReference Include="src\u_LsaTools.pas"/>
+        <DCCReference Include="src\u_PStoreTools.pas"/>
+        <DCCReference Include="src\u_StatementHandleCache.pas"/>
+        <DCCReference Include="src\u_TileArea.pas"/>
+        <DCCReference Include="src\u_Tile_Parser.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

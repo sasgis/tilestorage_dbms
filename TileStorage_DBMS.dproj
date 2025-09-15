@@ -2,7 +2,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <ProjectGuid>{dd6d86c1-52a4-4d91-8b29-fd1a3a16b8f3}</ProjectGuid>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <DCC_DCCCompiler>DCC32</DCC_DCCCompiler>
     <MainSource>TileStorage_DBMS.dpr</MainSource>
@@ -19,10 +19,10 @@
     <DCC_DcuOutput>.dcu</DCC_DcuOutput>
     <DCC_ObjOutput>.dcu</DCC_ObjOutput>
     <DCC_HppOutput>.dcu</DCC_HppOutput>
-    <DCC_UnitSearchPath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_UnitSearchPath>
-    <DCC_ResourcePath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_ResourcePath>
-    <DCC_ObjPath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_ObjPath>
-    <DCC_IncludePath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_IncludePath>
+    <DCC_UnitSearchPath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_UnitSearchPath>
+    <DCC_ResourcePath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_ResourcePath>
+    <DCC_ObjPath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_ObjPath>
+    <DCC_IncludePath>include;include\FastMM4;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <Version>7.0</Version>
@@ -31,10 +31,10 @@
     <DCC_DcuOutput>.\.dcu</DCC_DcuOutput>
     <DCC_ObjOutput>.\.dcu</DCC_ObjOutput>
     <DCC_HppOutput>.\.dcu</DCC_HppOutput>
-    <DCC_UnitSearchPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_UnitSearchPath>
-    <DCC_ResourcePath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_ResourcePath>
-    <DCC_ObjPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_ObjPath>
-    <DCC_IncludePath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite</DCC_IncludePath>
+    <DCC_UnitSearchPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_UnitSearchPath>
+    <DCC_ResourcePath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_ResourcePath>
+    <DCC_ObjPath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_ObjPath>
+    <DCC_IncludePath>include;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src</DCC_IncludePath>
     <DCC_WriteableConstants>True</DCC_WriteableConstants>
     <DCC_GenerateStackFrames>True</DCC_GenerateStackFrames>
     <DCC_MapFile>3</DCC_MapFile>
@@ -62,32 +62,32 @@
     <DCCReference Include="include\vsasas\u_BinaryData.pas" />
     <DCCReference Include="include\vsasas\u_BinaryDataByMemStream.pas" />
     <DCCReference Include="include\vsasas\u_CompressBinaryData.pas" />
-    <DCCReference Include="i_DBMS_Provider.pas" />
-    <DCCReference Include="i_StatementHandleCache.pas" />
-    <DCCReference Include="t_DBMS_Connect.pas" />
-    <DCCReference Include="t_DBMS_contenttype.pas" />
-    <DCCReference Include="t_DBMS_service.pas" />
-    <DCCReference Include="t_DBMS_Template.pas" />
-    <DCCReference Include="t_DBMS_version.pas" />
-    <DCCReference Include="t_ODBC_Buffer.pas" />
-    <DCCReference Include="t_ODBC_Connection.pas" />
-    <DCCReference Include="t_ODBC_Exception.pas" />
-    <DCCReference Include="t_SQL_types.pas" />
-    <DCCReference Include="t_TSS.pas" />
-    <DCCReference Include="u_CryptoTools.pas" />
-    <DCCReference Include="u_DBMS_Connect.pas" />
-    <DCCReference Include="u_DBMS_Provider.pas" />
-    <DCCReference Include="u_DBMS_Template.pas" />
-    <DCCReference Include="u_DBMS_TileEnum.pas" />
-    <DCCReference Include="u_DBMS_Utils.pas" />
-    <DCCReference Include="u_ExecuteSQLArray.pas" />
-    <DCCReference Include="u_Exif_Parser.pas" />
-    <DCCReference Include="u_Exports.pas" />
-    <DCCReference Include="u_LsaTools.pas" />
-    <DCCReference Include="u_MemoryManager.pas" />
-    <DCCReference Include="u_PStoreTools.pas" />
-    <DCCReference Include="u_StatementHandleCache.pas" />
-    <DCCReference Include="u_TileArea.pas" />
-    <DCCReference Include="u_Tile_Parser.pas" />
+    <DCCReference Include="src\i_DBMS_Provider.pas" />
+    <DCCReference Include="src\i_StatementHandleCache.pas" />
+    <DCCReference Include="src\t_DBMS_Connect.pas" />
+    <DCCReference Include="src\t_DBMS_contenttype.pas" />
+    <DCCReference Include="src\t_DBMS_service.pas" />
+    <DCCReference Include="src\t_DBMS_Template.pas" />
+    <DCCReference Include="src\t_DBMS_version.pas" />
+    <DCCReference Include="src\t_ODBC_Buffer.pas" />
+    <DCCReference Include="src\t_ODBC_Connection.pas" />
+    <DCCReference Include="src\t_ODBC_Exception.pas" />
+    <DCCReference Include="src\t_SQL_types.pas" />
+    <DCCReference Include="src\t_TSS.pas" />
+    <DCCReference Include="src\u_CryptoTools.pas" />
+    <DCCReference Include="src\u_DBMS_Connect.pas" />
+    <DCCReference Include="src\u_DBMS_Provider.pas" />
+    <DCCReference Include="src\u_DBMS_Template.pas" />
+    <DCCReference Include="src\u_DBMS_TileEnum.pas" />
+    <DCCReference Include="src\u_DBMS_Utils.pas" />
+    <DCCReference Include="src\u_ExecuteSQLArray.pas" />
+    <DCCReference Include="src\u_Exif_Parser.pas" />
+    <DCCReference Include="src\u_Exports.pas" />
+    <DCCReference Include="src\u_LsaTools.pas" />
+    <DCCReference Include="src\u_MemoryManager.pas" />
+    <DCCReference Include="src\u_PStoreTools.pas" />
+    <DCCReference Include="src\u_StatementHandleCache.pas" />
+    <DCCReference Include="src\u_TileArea.pas" />
+    <DCCReference Include="src\u_Tile_Parser.pas" />
   </ItemGroup>
 </Project>
