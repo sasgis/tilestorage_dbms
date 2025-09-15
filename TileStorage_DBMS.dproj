@@ -53,14 +53,17 @@
     <DelphiCompile Include="TileStorage_DBMS.dpr">
       <MainSource>MainSource</MainSource>
     </DelphiCompile>
+    <DCCReference Include="include\odbcsql.pas" />
     <DCCReference Include="include\vsasas\c_CompressBinaryData.pas" />
     <DCCReference Include="include\vsasas\i_BinaryData.pas" />
+    <DCCReference Include="include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Path.pas" />
+    <DCCReference Include="include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Provider.pas" />
+    <DCCReference Include="include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Tiles.pas" />
     <DCCReference Include="include\vsasas\u_BinaryData.pas" />
     <DCCReference Include="include\vsasas\u_BinaryDataByMemStream.pas" />
     <DCCReference Include="include\vsasas\u_CompressBinaryData.pas" />
     <DCCReference Include="i_DBMS_Provider.pas" />
     <DCCReference Include="i_StatementHandleCache.pas" />
-    <DCCReference Include="i_TSS.pas" />
     <DCCReference Include="t_DBMS_Connect.pas" />
     <DCCReference Include="t_DBMS_contenttype.pas" />
     <DCCReference Include="t_DBMS_service.pas" />

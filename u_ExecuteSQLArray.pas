@@ -5,7 +5,6 @@ unit u_ExecuteSQLArray;
 interface
 
 uses
-  Types,
   SysUtils,
   Classes,
   t_DBMS_Template,

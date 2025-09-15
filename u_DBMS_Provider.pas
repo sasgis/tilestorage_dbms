@@ -2504,17 +2504,8 @@ begin
       (*
       if (iust_TILE=VInsertUpdateSubType) then begin
         // тело тайла есть в запросе
-{$if defined(ETS_USE_DBX)}
-        // только для DBX
-        VCastBodyAsHexLiteral := c_DBX_CastBlobToHexLiteral[FConnection.GetCheckedEngineType];
-        if VCastBodyAsHexLiteral then
-          VBodyAsLiteralValue := ConvertTileToHexLiteralValue(AInsertBuffer^.ptTileBuffer, AInsertBuffer^.dwTileSize)
-        else
-          VBodyAsLiteralValue := '';
-{$else}
         VCastBodyAsHexLiteral := FALSE;
         VBodyAsLiteralValue := '';
-{$ifend}
       end else begin
         // тело тайла вообще отсутствует в запросе
         VCastBodyAsHexLiteral := FALSE;

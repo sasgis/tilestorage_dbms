@@ -4,7 +4,6 @@ interface
 
 uses
   Types,
-  Windows,
   SysUtils,
   Classes,
   odbcsql,

@@ -7,7 +7,6 @@ interface
 uses
   Windows,
   SysUtils,
-  Classes,
   t_ETS_Tiles,
   t_DBMS_version;
 

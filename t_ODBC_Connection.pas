@@ -5,7 +5,6 @@ unit t_ODBC_Connection;
 interface
 
 uses
-  Windows,
   SysUtils,
   Classes,
   odbcsql,

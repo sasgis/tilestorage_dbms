@@ -10,8 +10,6 @@ uses
   Windows,
   SysUtils,
   Classes,
-  t_ETS_Tiles,
-  t_ETS_Provider,
   i_DBMS_Provider in 'i_DBMS_Provider.pas',
   u_DBMS_Provider in 'u_DBMS_Provider.pas',
   u_DBMS_Connect in 'u_DBMS_Connect.pas',
@@ -27,7 +25,6 @@ uses
   i_StatementHandleCache in 'i_StatementHandleCache.pas',
   u_StatementHandleCache in 'u_StatementHandleCache.pas',
   t_TSS in 't_TSS.pas',
-  i_TSS in 'i_TSS.pas',
   u_TileArea in 'u_TileArea.pas',
   u_Exports in 'u_Exports.pas',
   u_LsaTools in 'u_LsaTools.pas',
@@ -43,7 +40,11 @@ uses
   u_CompressBinaryData in 'include\vsasas\u_CompressBinaryData.pas',
   i_BinaryData in 'include\vsasas\i_BinaryData.pas',
   u_BinaryData in 'include\vsasas\u_BinaryData.pas',
-  u_BinaryDataByMemStream in 'include\vsasas\u_BinaryDataByMemStream.pas';
+  u_BinaryDataByMemStream in 'include\vsasas\u_BinaryDataByMemStream.pas',
+  t_ETS_Path in 'include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Path.pas',
+  t_ETS_Provider in 'include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Provider.pas',
+  t_ETS_Tiles in 'include\vsasas\TileStorage\DBMS\ExtTileStorages\t_ETS_Tiles.pas',
+  odbcsql in 'include\odbcsql.pas';
 
 {$R *.res}
 

@@ -6,7 +6,6 @@ interface
 
 uses
   SysUtils,
-  Windows,
   Classes,
   odbcsql;
 

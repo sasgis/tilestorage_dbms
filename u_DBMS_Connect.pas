@@ -181,9 +181,11 @@ implementation
 
 uses
   IniFiles,
+  {$if defined(DBMS_REUSE_CONNECTIONS)}
   Contnrs,
-  u_PStoreTools,
   u_Synchronizer,
+  {$ifend}
+  u_PStoreTools,
   u_DBMS_Utils;
 
 {$if defined(DBMS_REUSE_CONNECTIONS)}
@@ -191,9 +193,9 @@ type
   TDBMS_Server = class(TObjectList)
   private
     // credentials
-    FServerName: TDBMS_String;
-    FUsername: TDBMS_String;
-    FPassword: TDBMS_String;
+    FServerName: String;
+    FUsername: String;
+    FPassword: String;
     FAuthDefined: Boolean;
     FAuthOK: Boolean;
     FAuthFailed: Boolean;
@@ -1264,9 +1266,7 @@ begin
   FSyncList := MakeSync_Tiny(Self);
   //Self.OwnsObjects := TRUE; // TRUE is by default
 end;
-{$ifend}
 
-{$if defined(DBMS_REUSE_CONNECTIONS)}
 destructor TDBMS_ConnectionList.Destroy;
 begin
   FSyncList.BeginWrite;
@@ -1278,9 +1278,7 @@ begin
   FSyncList := nil;
   inherited Destroy;
 end;
-{$ifend}
 
-{$if defined(DBMS_REUSE_CONNECTIONS)}
 function TDBMS_ConnectionList.InternalGetServerObject(const AServerName: WideString): TDBMS_Server;
 var
   i: Integer;
@@ -1296,9 +1294,7 @@ begin
   end;
   Result := nil;
 end;
-{$ifend}
 
-{$if defined(DBMS_REUSE_CONNECTIONS)}
 procedure TDBMS_ConnectionList.InternalRemoveConnection(const AConnection: TDBMS_Connection);
 var
   k: Integer;
@@ -1314,9 +1310,7 @@ begin
     end;
   end;
 end;
-{$ifend}
 
-{$if defined(DBMS_REUSE_CONNECTIONS)}
 function TDBMS_ConnectionList.SafeMakeConnection(const APath: PETS_Path_Divided_W): IDBMS_Connection;
 var
   i: Integer;

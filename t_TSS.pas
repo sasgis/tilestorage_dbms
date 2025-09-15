@@ -5,7 +5,6 @@ interface
 uses
   Windows,
   SysUtils,
-  t_ETS_Tiles,
   i_ZoomList,
   u_ZoomList,
   u_TileArea;

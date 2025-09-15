@@ -8,7 +8,6 @@ interface
 {$ifend}
 
 uses
-  Windows,
   SysUtils,
   i_Simple7z,
   i_7zHolder,

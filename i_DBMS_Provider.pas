@@ -5,7 +5,6 @@ unit i_DBMS_Provider;
 interface
 
 uses
-  SysUtils,
   t_ETS_Tiles,
   t_ETS_Provider;
 

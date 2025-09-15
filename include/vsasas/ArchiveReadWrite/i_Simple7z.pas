@@ -3,7 +3,6 @@ unit i_Simple7z;
 interface
 
 uses
-  Classes,
   i_BinaryData;
 
 type
