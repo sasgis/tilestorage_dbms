@@ -814,8 +814,7 @@ end;
 function TDBMS_Connection.GetEngineTypeUsingSQL(const ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode): TEngineType;
 var
   VOdbcFetchColsEx: TOdbcFetchCols12;
-  //VSQLText: TDBMS_String;
-  VText: AnsiString;
+  VText: String;
   VColIndex: SmallInt;
   VSecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode;
 
@@ -859,7 +858,7 @@ begin
         if OpenDirectSQLFetchCols('SELECT @@VERSION as v', @(VOdbcFetchColsEx.Base)) then
         if VOdbcFetchColsEx.Base.FetchRecord then begin
           // тащим первое поле
-          VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
+          VOdbcFetchColsEx.Base.ColToString(1, VText);
           if GetEngineTypeUsingSQL_Version_Upper(UpperCase(VText), Result) then
             Exit;
         end;
@@ -882,7 +881,7 @@ begin
         if VOdbcFetchColsEx.Base.FetchRecord then begin
           // PostgreSQL или MySQL
           // тащим первое поле
-          VOdbcFetchColsEx.Base.ColToAnsiString(1, VText);
+          VOdbcFetchColsEx.Base.ColToString(1, VText);
           Result := GetEngineTypeByODBCDescription(VText, VSecondarySQLCheckServerTypeMode);
           if (et_Unknown<>Result) then
             Exit;
@@ -904,7 +903,7 @@ begin
           // ENGINE_VERSION
           VColIndex := VOdbcFetchColsEx.Base.ColIndex('ENGINE_VERSION');
           if (VColIndex>0) then begin
-            VOdbcFetchColsEx.Base.ColToAnsiString(VColIndex, VText);
+            VOdbcFetchColsEx.Base.ColToString(VColIndex, VText);
             Result := GetEngineTypeByODBCDescription(VText, VSecondarySQLCheckServerTypeMode);
             if (et_Unknown<>Result) then
               Exit;
@@ -912,7 +911,7 @@ begin
           // ENGINETYPE
           VColIndex := VOdbcFetchColsEx.Base.ColIndex('ENGINETYPE');
           if (VColIndex>0) then begin
-            VOdbcFetchColsEx.Base.ColToAnsiString(VColIndex, VText);
+            VOdbcFetchColsEx.Base.ColToString(VColIndex, VText);
             Result := GetEngineTypeByODBCDescription(VText, VSecondarySQLCheckServerTypeMode);
             if (et_Unknown<>Result) then
               Exit;

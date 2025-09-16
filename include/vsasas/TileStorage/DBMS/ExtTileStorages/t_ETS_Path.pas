@@ -26,9 +26,13 @@ const
   c_ETS_Path_Items_Count = 3;
 
 type
+  {$IFNDEF UNICODE}
+  UnicodeString = WideString;
+  {$ENDIF}
+
   PETS_Path_Divided_W = ^TETS_Path_Divided_W;
   TETS_Path_Divided_W = record
-    Path_Items: array [0..c_ETS_Path_Items_Count-1] of WideString;
+    Path_Items: array [0..c_ETS_Path_Items_Count-1] of UnicodeString;
     // 0 - ServerName: WideString;
     // 1 - DatabaseName: WideString;
     // 2 - TableName: WideString;
@@ -36,13 +40,13 @@ type
     procedure Clear;
     procedure CopyFrom(const ASrc: PETS_Path_Divided_W);
     // fill from sas connection params
-    procedure ApplyFrom(const AGlobalStorageIdentifier, AServiceName: WideString);
+    procedure ApplyFrom(const AGlobalStorageIdentifier, AServiceName: UnicodeString);
     // get servername\databasename as endpoint
-    function AsEndpoint: WideString;
-    function AsWideString: WideString;
+    function AsEndpoint: UnicodeString;
+    function AsWideString: UnicodeString;
     // parts
-    function ServerName: WideString; inline;
-    function ServiceName: WideString; inline;
+    function ServerName: UnicodeString; inline;
+    function ServiceName: UnicodeString; inline;
   end;
 
 implementation
@@ -56,7 +60,7 @@ type
     count_found: Byte;
   private
     procedure Get3Parts(
-      const ASrc: WideString;
+      const ASrc: UnicodeString;
       const AMaxItemsToScan: Byte;
       const AFromEnd: Boolean
     );
@@ -65,12 +69,12 @@ type
 
 { TETS_Path_Divided_W }
 
-procedure TETS_Path_Divided_W.ApplyFrom(const AGlobalStorageIdentifier, AServiceName: WideString);
+procedure TETS_Path_Divided_W.ApplyFrom(const AGlobalStorageIdentifier, AServiceName: UnicodeString);
 var
   t3pos: TETS_Path_DelimPos;
   i,result_items_defined: Byte;
   copy_count: Integer;
-  s: WideString;
+  s: UnicodeString;
 begin
   // AServiceName - set for single map service
   // allowed:
@@ -148,14 +152,14 @@ begin
   end;
 end;
 
-function TETS_Path_Divided_W.AsEndpoint: WideString;
+function TETS_Path_Divided_W.AsEndpoint: UnicodeString;
 begin
   Result := Path_Items[0];
   if (0<Length(Path_Items[1])) then
     Result := Result + PathDelim + Path_Items[1];
 end;
 
-function TETS_Path_Divided_W.AsWideString: WideString;
+function TETS_Path_Divided_W.AsWideString: UnicodeString;
 begin
   Result := Path_Items[0] + PathDelim + Path_Items[1] + PathDelim + Path_Items[2];
 end;
@@ -174,17 +178,17 @@ begin
     Clear;
     Exit;
   end;
-  
+
   for i := 0 to c_ETS_Path_Items_Count-1 do
     Path_Items[i]:=ASrc^.Path_Items[i];
 end;
 
-function TETS_Path_Divided_W.ServerName: WideString;
+function TETS_Path_Divided_W.ServerName: UnicodeString;
 begin
   Result := Path_Items[0]
 end;
 
-function TETS_Path_Divided_W.ServiceName: WideString;
+function TETS_Path_Divided_W.ServiceName: UnicodeString;
 begin
   Result := Path_Items[2]
 end;
@@ -192,7 +196,7 @@ end;
 { TETS_Path_DelimPos }
 
 procedure TETS_Path_DelimPos.Get3Parts(
-  const ASrc: WideString;
+  const ASrc: UnicodeString;
   const AMaxItemsToScan: Byte;
   const AFromEnd: Boolean
 );

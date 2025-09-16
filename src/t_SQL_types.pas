@@ -720,7 +720,7 @@ const
   c_ODBC_SQLSTATE_MAX_LEN = 15;
 
 function GetEngineTypeByODBCDescription(
-  const AODBCDescription: AnsiString;
+  const AODBCDescription: String;
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
 
@@ -747,7 +747,7 @@ function StandardExceptionType(
 implementation
 
 function GetEngineTypeByODBCDescription(
-  const AODBCDescription: AnsiString;
+  const AODBCDescription: String;
   out ASecondarySQLCheckServerTypeMode: TSecondarySQLCheckServerTypeMode
 ): TEngineType;
 var VDescUpper: String;

@@ -8,9 +8,6 @@ uses
   Windows,
   SysUtils;
 
-function AnsiStrToDB(const S: AnsiString): AnsiString; inline;
-function WideStrToDB(const S: WideString): WideString;
-
 function DBMSStrToDB(const S: String): String; inline;
 
 function GetModuleFileNameWithoutExt(
@@ -26,21 +23,6 @@ implementation
 
 uses
   t_DBMS_Template;
-
-function AnsiStrToDB(const S: AnsiString): AnsiString;
-begin
-  Result := QuotedStr(S);
-end;
-
-function WideStrToDB(const S: WideString): WideString;
-var
-  I: Integer;
-begin
-  Result := S;
-  for I := Length(Result) downto 1 do
-    if Result[I] = '''' then Insert('''', Result, I);
-  Result := '''' + Result + '''';
-end;
 
 function DBMSStrToDB(const S: String): String; inline;
 begin

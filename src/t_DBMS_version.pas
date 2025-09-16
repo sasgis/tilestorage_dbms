@@ -5,9 +5,16 @@ unit t_DBMS_version;
 interface
 
 uses
+  {$IFDEF UNICODE}
+  AnsiStrings,
+  {$ENDIF}
   SysUtils;
 
 type
+  {$IFNDEF UNICODE}
+  UnicodeString = WideString;
+  {$ENDIF}
+
   // base type
   TVersionAA = record
     id_ver: SmallInt;
@@ -178,7 +185,7 @@ var
 begin
   if (FCount>0) then
   for i := 0 to FCount-1 do
-  if SameText(ASrcName, FItemsAA[i].ver_value) then begin
+  if {$IFDEF UNICODE}AnsiStrings.{$ENDIF}SameText(ASrcName, FItemsAA[i].ver_value) then begin
     // found
     Result := TRUE;
     AVerInfo^ := FItemsAA[i];
@@ -250,7 +257,7 @@ var
 begin
   if (FCount>0) then
   for i := 0 to FCount-1 do
-  if SameText(ASrcName, FItemsAA[i].ver_value) then begin
+  if SameText(ASrcName, string(FItemsAA[i].ver_value)) then begin
     // found
     Result := TRUE;
     if (AVerInfo<>nil) then begin
@@ -269,7 +276,7 @@ function TVersionList.FindItemByWideValue(
 ): Boolean;
 var
   VValueA: AnsiString;
-  VValueW: WideString;
+  VValueW: UnicodeString;
 begin
   // check for empty version
   if (vf_EmptyVersion in FVersionFlags) and ((ASrcName=nil) or (ASrcName^=#0)) then begin
@@ -278,8 +285,8 @@ begin
   end;
 
   // version with value
-  VValueW := WideString(ASrcName);
-  VValueA := VValueW;
+  VValueW := UnicodeString(ASrcName);
+  VValueA := AnsiString(VValueW);
   Result := FindItemByAnsiValueInternal(VValueA, AVerInfo);
 end;
 

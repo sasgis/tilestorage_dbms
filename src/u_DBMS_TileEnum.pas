@@ -469,7 +469,7 @@ end;
 function TDBMS_TileEnum.GetTablesWithTilesBySelect: Boolean;
 var
   VFetchTablesCols: TOdbcFetchCols3;
-  VTableName: AnsiString;
+  VTableName: String;
 begin
   Result := FALSE;
   try
@@ -482,7 +482,7 @@ begin
 
       if Result then
       while VFetchTablesCols.Base.FetchRecord do begin
-        VFetchTablesCols.Base.ColToAnsiString(1, VTableName);
+        VFetchTablesCols.Base.ColToString(1, VTableName);
         FListOfTables.Add(VTableName);
       end;
     finally

@@ -91,7 +91,7 @@ end;
 
 function IsFullyQualifiedDateTimeDelimiter(const ADelim: Char): Boolean; inline;
 begin
-  Result := (ADelim in ['-','_',' ',':']);
+  Result := (AnsiChar(ADelim) in ['-','_',' ',':']);
 end;
 
 function ParseFullyQualifiedDateTime(const ADateTimeValue: String; out AResult: TDateTime): Boolean;

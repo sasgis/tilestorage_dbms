@@ -7,6 +7,9 @@ interface
 uses
   Windows,
   SysUtils,
+  {$IFDEF UNICODE}
+  AnsiStrings,
+  {$ENDIF}
   odbcsql,
   i_StatementHandleCache,
   t_ODBC_Exception;
@@ -19,7 +22,7 @@ type
 
 type
   SIZE_T = NativeUInt;
-  TOdbcColBuffer = PAnsiChar;
+  TOdbcColBuffer = Pointer;
 
   PDescribeColData = ^TDescribeColData;
   TDescribeColData = packed record
@@ -37,7 +40,7 @@ type
   TOdbcColItem = packed record
     // параметры описани€ возвращЄнного пол€
     DescribeColData: TDescribeColData;
-    DescribeColName: PAnsiChar;
+    DescribeColName: Pointer;
 
     // фактический размер пол€ дл€ текущей записи (в описании может быть 0 дл€ фиксированных полей)
     // так как LOB-ы не приBINDиваютс€ - здесь лежит фактически выделенный размер
@@ -83,18 +86,19 @@ type
     function IsNull(const AColNumber: Byte): Boolean;
     procedure Close;
     function DescribeAndBind: Boolean;
-    function ColIndex(const AExpectedColName: AnsiString): SmallInt;
+    function ColIndex(const AExpectedColName: String): SmallInt;
     function GetLOBBuffer(const AColNumber: Byte): Pointer;
-    function GetOptionalSmallInt(const AExpectedColName: AnsiString): SmallInt;
-    function GetOptionalLongInt(const AExpectedColName: AnsiString): LongInt;
-    function GetOptionalAnsiChar(const AExpectedColName: AnsiString; const ADefaultValue: AnsiChar): AnsiChar;
+    function GetOptionalSmallInt(const AExpectedColName: String): SmallInt;
+    function GetOptionalLongInt(const AExpectedColName: String): LongInt;
+    function GetOptionalChar(const AExpectedColName: String; const ADefaultValue: Char): Char;
   public
     procedure Init;
     procedure FetchLOBs;
     procedure EnableCLOBChecking; inline;
     procedure DisableCLOBChecking; inline;
-    procedure ColToAnsiChar(const AColNumber: Byte; out AValue: AnsiChar); //inline;
-    procedure ColToAnsiCharDef(const AColNumber: Byte; out AValue: AnsiChar; const AValIfNull: AnsiChar);
+    procedure ColToChar(const AColNumber: Byte; out AValue: Char); inline;
+    procedure ColToCharDef(const AColNumber: Byte; out AValue: Char; const AValIfNull: Char);
+    procedure ColToString(const AColNumber: Byte; out AValue: String); inline;
     procedure ColToAnsiString(const AColNumber: Byte; out AValue: AnsiString);
     procedure ColToSmallInt(const AColNumber: Byte; out AValue: SmallInt);
     procedure ColToLongInt(const AColNumber: Byte; out AValue: LongInt);
@@ -154,7 +158,7 @@ const
   WF_HAS_LOB = $20; // ≈сть хот€ бы одно поле LOB (устанавливаетс€ автоматически)
 
 function OdbcFetchStmt(const AStmt: SQLHANDLE; var AWorkFlags: Byte): Boolean;
-  
+
 implementation
 
 function OdbcAlloc(const ASize: SIZE_T): TOdbcColBuffer; //inline;
@@ -204,7 +208,7 @@ begin
   // тащим строку с сервера
   VResult := SQLFetch(AStmt);
   Result := SQL_SUCCEEDED(VResult);
-  
+
   // провер€ем результат
   if (not Result) then begin
     // деактивируемс€, так как больше данных нет
@@ -296,7 +300,7 @@ begin
     Result := AItem^.LOBPtr;
   end else begin
     // общий буфер
-    Result := ColBufPtr + AItem^.ColOffset;
+    Result := Pointer(NativeUInt(ColBufPtr) + AItem^.ColOffset);
   end;
 end;
 
@@ -328,7 +332,7 @@ begin
   end;
 end;
 
-function TOdbcFetchCols.ColIndex(const AExpectedColName: AnsiString): SmallInt;
+function TOdbcFetchCols.ColIndex(const AExpectedColName: String): SmallInt;
 var
   i: SQLUSMALLINT;
   VItem: POdbcColItem;
@@ -338,7 +342,7 @@ begin
   for i := 1 to ColumnCount do begin
     VItem := @(Cols[i]);
     if (Length(AExpectedColName) = VItem^.DescribeColData.NameLen) then
-    if (0 = StrLIComp(VItem^.DescribeColName, @AExpectedColName[1], Length(AExpectedColName))) then begin
+    if (0 = StrLIComp(PChar(VItem^.DescribeColName), @AExpectedColName[1], Length(AExpectedColName))) then begin
       Result := i;
       Exit;
     end;
@@ -348,12 +352,12 @@ begin
   Result := -1;
 end;
 
-procedure TOdbcFetchCols.ColToAnsiChar(const AColNumber: Byte; out AValue: AnsiChar);
+procedure TOdbcFetchCols.ColToChar(const AColNumber: Byte; out AValue: Char);
 begin
-  ColToAnsiCharDef(AColNumber, AValue, #0);
+  ColToCharDef(AColNumber, AValue, #0);
 end;
 
-procedure TOdbcFetchCols.ColToAnsiCharDef(const AColNumber: Byte; out AValue: AnsiChar; const AValIfNull: AnsiChar);
+procedure TOdbcFetchCols.ColToCharDef(const AColNumber: Byte; out AValue: Char; const AValIfNull: Char);
 var
   VItem: POdbcColItem;
 begin
@@ -367,7 +371,25 @@ begin
   if (SQL_NULL_DATA = VItem^.Bind_StrLen_or_Ind) then
     Exit;
 
+  {$IFDEF UNICODE}
+  AValue := Char(PAnsiChar(InternalColData(VItem))^);
+  {$ELSE}
   AValue := PAnsiChar(InternalColData(VItem))^;
+  {$ENDIF}
+end;
+
+procedure TOdbcFetchCols.ColToString(const AColNumber: Byte; out AValue: String);
+{$IFDEF UNICODE}
+var
+  VStrA: AnsiString;
+{$ENDIF}
+begin
+  {$IFDEF UNICODE}
+  ColToAnsiString(AColNumber, VStrA);
+  AValue := string(VStrA);
+  {$ELSE}
+  ColToAnsiString(AColNumber, AValue);
+  {$ENDIF}
 end;
 
 procedure TOdbcFetchCols.ColToAnsiString(const AColNumber: Byte; out AValue: AnsiString);
@@ -386,7 +408,7 @@ begin
 
   if (VItem^.Bind_StrLen_or_Ind>0) then begin
     SetString(AValue, PAnsiChar(InternalColData(VItem)), VItem^.Bind_StrLen_or_Ind);
-    AValue := TrimRight(AValue);
+    AValue := {$IFDEF UNICODE}AnsiStrings.{$ENDIF}TrimRight(AValue);
   end;
 end;
 
@@ -401,11 +423,11 @@ begin
   VItem := @(Cols[AColNumber]);
 
   AValue := 0;
-  
+
   // если NULL - вернЄм 0
   if (SQL_NULL_DATA = VItem^.Bind_StrLen_or_Ind) then
     Exit;
-    
+
   // обрабатываем разные типы
   case VItem^.DescribeColData.DataType of
     SQL_TYPE_DATE: begin
@@ -569,16 +591,17 @@ end;
 
 function TOdbcFetchCols.DescribeAndBind: Boolean;
 const
-  c_max_colname_len = 255;
+  c_max_colname_len = 255; // chars
 var
   VRes: SQLRETURN;
   i: SQLUSMALLINT;
   VItem: POdbcColItem;
   VDesc: PDescribeColData;
   VColNameBufLen: SQLUSMALLINT;
+  VColNameBufSize: Integer;
 begin
   Result := FALSE;
-  
+
   // определим фактическое число полей
   VRes := SQLNumResultCols(Stmt, ColumnCount);
   CheckStatementResult(Stmt, VRes, EODBCNumResultColsError);
@@ -586,7 +609,7 @@ begin
   // вообще нет полей
   if (0=ColumnCount) then
     Exit;
-  
+
   // проверка что выделили достаточно пам€ти под пол€
   Assert(Abs(ColumnCount)<=ColumnsAllocated);
 
@@ -595,11 +618,13 @@ begin
 
   // если сказано сформировать имена дл€ полей - будем его временно использовать
   if (WithColNames) then begin
-    VColNameBufLen := c_max_colname_len;
-    ColBufPtr := OdbcAlloc(VColNameBufLen);
+    VColNameBufLen := c_max_colname_len; // chars
+    VColNameBufSize := VColNameBufLen * SizeOf(Char); // bytes
+    ColBufPtr := OdbcAlloc(VColNameBufSize);
   end else begin
     // без имЄн полей
     VColNameBufLen := 0;
+    VColNameBufSize := 0;
   end;
 
   // определим типы полей и создадим буфер
@@ -607,7 +632,7 @@ begin
     // тащим описание пол€
     VItem := @(Cols[i]);
     VDesc := @(VItem^.DescribeColData);
-    VRes := SQLDescribeColA(   // ToDo: use SQLDescribeCol
+    VRes := SQLDescribeCol(
       Stmt,
       i,
       ColBufPtr,
@@ -626,9 +651,9 @@ begin
 
     // сохраним им€ пол€ - сразу в нижнем регистре
     if (WithColNames) then begin
-      VItem^.DescribeColName := OdbcAlloc(VDesc^.NameLen+1);
-      CopyMemory(VItem^.DescribeColName, ColBufPtr, VDesc^.NameLen);
-      VItem^.DescribeColName[VDesc^.NameLen] := #0;
+      VItem^.DescribeColName := OdbcAlloc((VDesc^.NameLen+1)*SizeOf(Char));
+      CopyMemory(VItem^.DescribeColName, ColBufPtr, VDesc^.NameLen*SizeOf(Char));
+      PChar(VItem^.DescribeColName)[VDesc^.NameLen] := #0;
     end;
 
     // если не LOB - подсчитаем размер дл€ буфера
@@ -745,13 +770,13 @@ begin
     // возможно он создавалс€ и его размера хватит
     if WithColNames then begin
       // создавалс€
-      if (VColNameBufLen<ColBufLen) then begin
+      if (VColNameBufSize<ColBufLen) then begin
         // размера недостаточно - пересоздаЄм
         ColBufPtr := OdbcRealloc(ColBufPtr, ColBufLen);
       end else begin
         // размера достаточно - ничего не делаем с буфером
         // только запомним сколько реально выделено
-        ColBufLen := VColNameBufLen;
+        ColBufLen := VColNameBufSize;
       end;
     end else begin
       // не создавалс€
@@ -848,7 +873,7 @@ SQL_NULL_DATA
       // по этому адресу будем писать при втором вызове
       // если указател€ не будет - значит и писать второй раз не будем
       VSecondPtr := nil;
-      
+
       if (SQL_NULL_DATA = VItem^.Bind_StrLen_or_Ind) then begin
         // NULL - пустое значение
         // буфер можно грохнуть
@@ -865,7 +890,7 @@ SQL_NULL_DATA
           end;
           // запишем в буфер кусок из статического буфера, и будем писать дальше
           CopyMemory(VItem^.LOBPtr, LOBStatic, c_LOB_Static_Size);
-          VSecondPtr := VItem^.LOBPtr + c_LOB_Static_Size;
+          VSecondPtr := Pointer(NativeUInt(VItem^.LOBPtr) + c_LOB_Static_Size);
         end else begin
           // драйвер вернул размер пол€ - провер€ем надо ли писать второй раз
           if (VItem^.Bind_StrLen_or_Ind <= c_LOB_Static_Size) then begin
@@ -882,7 +907,7 @@ SQL_NULL_DATA
               VItem^.Bind_BufferLength := VItem^.Bind_StrLen_or_Ind;
             end;
             CopyMemory(VItem^.LOBPtr, LOBStatic, c_LOB_Static_Size);
-            VSecondPtr := VItem^.LOBPtr + c_LOB_Static_Size;
+            VSecondPtr := Pointer(NativeUInt(VItem^.LOBPtr) + c_LOB_Static_Size);
           end;
         end;
       end;
@@ -897,7 +922,7 @@ SQL_NULL_DATA
           (VItem^.Bind_BufferLength-c_LOB_Static_Size),
           @VSecondInd
         );
-        
+
         CheckStatementResult(Stmt, VRes, EODBCGetDataLOBError);
 
         // если был неизвестный размер - сейчас он известен
@@ -928,7 +953,7 @@ that is, data must be retrieved in increasing column number order.
 Finally, if no extensions are supported, SQLGetData cannot be called if the rowset size is greater than 1.
 
 Drivers can relax any of these restrictions. To determine what restrictions a driver relaxes,
-an application calls SQLGetInfo with any of the following SQL_GETDATA_EXTENSIONS options: 
+an application calls SQLGetInfo with any of the following SQL_GETDATA_EXTENSIONS options:
 
 SQL_GD_ANY_COLUMN. If this option is returned, SQLGetData can be called for any unbound column,
 including those before the last bound column.
@@ -977,7 +1002,7 @@ begin
     raise EODBCConvertLOBError.Create(IntToStr(AColNumber)+': '+IntToStr(DataType)+'['+IntToStr(ColumnSize)+']');
 end;
 
-function TOdbcFetchCols.GetOptionalAnsiChar(const AExpectedColName: AnsiString; const ADefaultValue: AnsiChar): AnsiChar;
+function TOdbcFetchCols.GetOptionalChar(const AExpectedColName: String; const ADefaultValue: Char): Char;
 var
   VIndex: SmallInt;
 begin
@@ -985,10 +1010,10 @@ begin
   if (VIndex<0) then
     Result := ADefaultValue
   else
-    ColToAnsiCharDef(VIndex, Result, ADefaultValue);
+    ColToCharDef(VIndex, Result, ADefaultValue);
 end;
 
-function TOdbcFetchCols.GetOptionalLongInt(const AExpectedColName: AnsiString): LongInt;
+function TOdbcFetchCols.GetOptionalLongInt(const AExpectedColName: String): LongInt;
 var
   VIndex: SmallInt;
 begin
@@ -999,7 +1024,7 @@ begin
     ColToLongInt(VIndex, Result);
 end;
 
-function TOdbcFetchCols.GetOptionalSmallInt(const AExpectedColName: AnsiString): SmallInt;
+function TOdbcFetchCols.GetOptionalSmallInt(const AExpectedColName: String): SmallInt;
 var
   VIndex: SmallInt;
 begin

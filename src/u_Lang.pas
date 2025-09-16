@@ -21,7 +21,7 @@ procedure ALMimeBase64EncodeNoCRLF(const InputBuffer; const InputByteCount: Nati
 
 function ALDateTimeToRfc822Str_Now: AnsiString;
 *)
-function HTTPDecode(const AStr: AnsiString): AnsiString;
+function HTTPDecode(const AStr: String): String;
 
 implementation
 
@@ -664,14 +664,14 @@ resourcestring
   sErrorDecodingURLText = 'Error decoding URL style (%%XX) encoded string at position %d';
   sInvalidURLEncodedChar = 'Invalid URL encoded character (%s) at position %d';
 
-function HTTPDecode(const AStr: AnsiString): AnsiString;
+function HTTPDecode(const AStr: String): String;
 var
-  Sp, Rp, Cp: PAnsiChar;
-  S: AnsiString;
+  Sp, Rp, Cp: PChar;
+  S: String;
 begin
   SetLength(Result, Length(AStr));
-  Sp := PAnsiChar(AStr);
-  Rp := PAnsiChar(Result);
+  Sp := PChar(AStr);
+  Rp := PChar(Result);
   Cp := Sp;
   try
     while Sp^ <> #0 do
@@ -689,11 +689,11 @@ begin
                  Inc(Sp);
                  if (Cp^ <> #0) and (Sp^ <> #0) then
                  begin
-                   S := AnsiChar('$') + Cp^ + Sp^;
-                   Rp^ := AnsiChar(Chr(StrToInt(S)));
+                   S := '$' + Cp^ + Sp^;
+                   Rp^ := Chr(StrToInt(S));
                  end
                  else
-                   raise Exception.CreateFmt(sErrorDecodingURLText, [Cp - PAnsiChar(AStr)]);
+                   raise Exception.CreateFmt(sErrorDecodingURLText, [Cp - PChar(AStr)]);
                end;
              end;
       else
@@ -705,9 +705,9 @@ begin
   except
     on E:EConvertError do
       raise EConvertError.CreateFmt(sInvalidURLEncodedChar,
-        ['%' + Cp^ + Sp^, Cp - PAnsiChar(AStr)])
+        ['%' + Cp^ + Sp^, Cp - PChar(AStr)])
   end;
-  SetLength(Result, Rp - PAnsiChar(Result));
+  SetLength(Result, Rp - PChar(Result));
 end;
 
 end.

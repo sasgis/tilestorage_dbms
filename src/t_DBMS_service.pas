@@ -12,10 +12,10 @@ type
   TDBMS_Service_Info = packed record
     id_service: SmallInt;
     id_contenttype: SmallInt; // default contenttype
-    id_ver_comp: AnsiChar; // Z_VER_COMP identifier ('0' by default)
-    id_div_mode: AnsiChar; // Z_DIV_MODE identifier
-    work_mode: AnsiChar; // in ['0','S','R'] ('0' by default)
-    use_common_tiles: AnsiChar; // boolean ('0' by default)
+    id_ver_comp: Char; // Z_VER_COMP identifier ('0' by default)
+    id_div_mode: Char; // Z_DIV_MODE identifier
+    work_mode: Char; // in ['0','S','R'] ('0' by default)
+    use_common_tiles: Char; // boolean ('0' by default)
     // пол€, по€вившиес€ во второй версии модели
     // у всех значение по умолчанию в Ѕƒ равно 0
     tile_load_mode: SmallInt;    // ETS_TLM_*

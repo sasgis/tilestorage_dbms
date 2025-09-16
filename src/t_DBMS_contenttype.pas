@@ -5,9 +5,16 @@ unit t_DBMS_contenttype;
 interface
 
 uses
+  {$IFDEF UNICODE}
+  AnsiStrings,
+  {$ENDIF}
   SysUtils;
 
 type
+  {$IFNDEF UNICODE}
+  UnicodeString = WideString;
+  {$ENDIF}
+
   TContentTypeA = record
     id_contenttype: SmallInt;
     contenttype_text: AnsiString;
@@ -146,7 +153,7 @@ var
 begin
   if (FCount>0) then
   for i := 0 to FCount-1 do
-  if SameText(ASrcName, FItemsA[i].contenttype_text) then begin
+  if {$IFDEF UNICODE}AnsiStrings.{$ENDIF}SameText(ASrcName, FItemsA[i].contenttype_text) then begin
     // found
     Result := TRUE;
     Aid_contenttype := FItemsA[i].id_contenttype;
@@ -198,7 +205,7 @@ function TContentTypeList.FindItemByWideContentTypeText(
 ): Boolean;
 var
   VValueA: AnsiString;
-  VValueW: WideString;
+  VValueW: UnicodeString;
 begin
   // check for empty version
   if (ctf_EmptyContentType in FContentTypeFlags) and ((AContentTypeTextWidePtr=nil) or (AContentTypeTextWidePtr^=#0)) then begin
@@ -208,8 +215,8 @@ begin
   end;
 
   // version with value
-  VValueW := WideString(AContentTypeTextWidePtr);
-  VValueA := VValueW;
+  VValueW := UnicodeString(AContentTypeTextWidePtr);
+  VValueA := AnsiString(VValueW);
   Result := FindItemByAnsiValueInternal(VValueA, Aid_contenttype);
 end;
 

@@ -28,6 +28,10 @@ uses
   u_DBMS_Utils;
 
 type
+  {$IFNDEF UNICODE}
+  UnicodeString = WideString;
+  {$ENDIF}
+
   TDBMS_Provider = class(TInterfacedObject, IDBMS_Provider, IDBMS_Worker)
   private
     // initialization
@@ -62,14 +66,14 @@ type
     FVersionList: TVersionList;
     FContentTypeList: TContentTypeList;
     // primary ContentType from Host (from Map params)
-    FPrimaryContentType: AnsiString;
+    FPrimaryContentType: String;
 
     // признак что для сервиса прочитаны параметры из БД
     FDBMS_Service_OK: Boolean;
     // service and global server params
     FDBMS_Service_Info: TDBMS_Service_Info;
     // service code (in DB only)
-    FDBMS_Service_Code: AnsiString;
+    FDBMS_Service_Code: String;
 
     // настройки формата для дат и чисел
     FFormatSettings: TFormatSettings;
@@ -172,11 +176,11 @@ type
       const Aid_ver: SmallInt;
       const AExclusively: Boolean
     ): PAnsiChar;  // keep ansi
-    function GetVersionWideString(
+    function GetVersionUnicodeString(
       const AGuideConnection: IDBMS_Connection;
       const Aid_ver: SmallInt;
       const AExclusively: Boolean
-    ): WideString; // keep wide
+    ): UnicodeString; // keep wide
 
     // for cached contenttype
     function GetContentTypeAnsiPointer(
@@ -184,11 +188,11 @@ type
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean
     ): PAnsiChar;  // keep ansi
-    function GetContentTypeWideString(
+    function GetContentTypeUnicodeString(
       const AGuideConnection: IDBMS_Connection;
       const Aid_contenttype: SmallInt;
       const AExclusively: Boolean
-    ): WideString; // keep wide
+    ): UnicodeString; // keep wide
 
   private
     // для списка неизвестных исключений
@@ -219,7 +223,7 @@ type
 
     function UpdateServiceVerComp(
       const AGuideConnection: IDBMS_Connection;
-      const ANewVerCompMode: AnsiChar;
+      const ANewVerCompMode: Char;
       out AErrorText: String
     ): Byte;
 
@@ -668,7 +672,7 @@ begin
       AReqVersionPtr^.ver_value := AnsiString(PAnsiChar(AInsertBuffer^.szVersionIn));
     end else begin
       // как Wide
-      AReqVersionPtr^.ver_value := WideString(PWideChar(AInsertBuffer^.szVersionIn));
+      AReqVersionPtr^.ver_value := UnicodeString(PWideChar(AInsertBuffer^.szVersionIn));
     end;
 
     // если пустая версия
@@ -928,10 +932,10 @@ function TDBMS_Provider.CreateTableByTemplate(
 var
   VOdbcFetchColsEx: TOdbcFetchCols5;
   VExecuteSQLArray: TExecuteSQLArray;
-  VSQLText: AnsiString;
+  VSQLText: String;
   VExecuteAfterALL: String;
-  Vignore_errors: AnsiChar;
-  VReplaceNumeric: AnsiString;
+  Vignore_errors: Char;
+  VReplaceNumeric: String;
   VIndexSQL: SmallInt;
   i: Integer;
   VExecuteSQLItem: TExecuteSQLItem;
@@ -943,12 +947,12 @@ var
   // подключение для  выполнения CREATE TABLE
   VCreateTableConn: IDBMS_Connection;
 
-  function _GetTxtSQL(out ATxtSql: AnsiString): Boolean;
+  function _GetTxtSQL(out ATxtSql: String): Boolean;
   var VColIdx: SmallInt;
   begin
     VColIdx := VOdbcFetchColsEx.Base.ColIndex('txt_sql');
     if (VColIdx>0) then begin
-      VOdbcFetchColsEx.Base.ColToAnsiString(VColIdx, ATxtSql);
+      VOdbcFetchColsEx.Base.ColToString(VColIdx, ATxtSql);
       Result := (0<Length(ATxtSql));
     end else
       Result := FALSE;
@@ -1055,10 +1059,10 @@ begin
       while VOdbcFetchColsEx.Base.FetchRecord do begin
         // тащим текст SQL для исполнения в порядке очерёдности
         VOdbcFetchColsEx.Base.ColToSmallInt(1, VIndexSQL);
-        VOdbcFetchColsEx.Base.ColToAnsiCharDef(2, Vignore_errors, ETS_UCT_YES);
+        VOdbcFetchColsEx.Base.ColToCharDef(2, Vignore_errors, ETS_UCT_YES);
 
         // если есть текст - добавляем его в список
-        VOdbcFetchColsEx.Base.ColToAnsiString(3, VSQLText);
+        VOdbcFetchColsEx.Base.ColToString(3, VSQLText);
         if (0<Length(VSQLText)) then begin
           // а тут надо подменить имя таблицы
           VSQLText := StringReplace(VSQLText, ATemplateName, AUnquotedTableNameWithoutPrefix, [rfReplaceAll,rfIgnoreCase]);
@@ -1124,7 +1128,7 @@ begin
             // txt_mod - char    - чего делаем
             // txt_pos - int     - куда делаем
             // txt_sql - varchar - что за текст
-            case VOdbcFetchColsEx.Base.GetOptionalAnsiChar('txt_mod', #0) of
+            case VOdbcFetchColsEx.Base.GetOptionalChar('txt_mod', #0) of
               'A': begin
                 // Append at the end of text
                 if _GetTxtSQL(VReplaceNumeric) then begin
@@ -1276,7 +1280,7 @@ var
   VETS_VERSION_A: TETS_VERSION_A;
   VVersionAA: TVersionAA;
   VSQLText: String;
-  VVersionValueW, VVersionCommentW: WideString; // keep wide
+  VVersionValueW, VVersionCommentW: UnicodeString; // keep wide
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
   VFetchedIdVer: SmallInt;
@@ -1386,9 +1390,9 @@ begin
           end else begin
             // Wide record
             VETS_VERSION_W.id_ver := VVersionAA.id_ver;
-            VVersionValueW := VVersionAA.ver_value;
+            VVersionValueW := UnicodeString(VVersionAA.ver_value);
             VETS_VERSION_W.ver_value := PWideChar(VVersionValueW);
-            VVersionCommentW := VVersionAA.ver_comment;
+            VVersionCommentW := UnicodeString(VVersionAA.ver_comment);
             VETS_VERSION_W.ver_comment := PWideChar(VVersionCommentW);
           end;
 
@@ -1495,7 +1499,7 @@ var
     Result := '<table><tr><td>'+AFirstColCaption+'</td><td>Enabled</td><td>Change</td></tr>';
   end;
 
-  function _AddVerCompItem(const AVerCompMode: AnsiChar): String;
+  function _AddVerCompItem(const AVerCompMode: Char): String;
   begin
     if (AVerCompMode=FDBMS_Service_Info.id_ver_comp) then begin
       // current mode
@@ -1516,14 +1520,14 @@ var
     Result := '<tr><td>' + ACaption + '</td><td>' + Result + '</td></tr>';
   end;
 
-  procedure _TrimLeftDelims(var AFromSource: AnsiString);
+  procedure _TrimLeftDelims(var AFromSource: String);
   begin
     while (Length(AFromSource)>0) and (AFromSource[1]='/') do begin
       System.Delete(AFromSource,1,1);
     end;
   end;
 
-  function _ExtractPart(var AFromSource: AnsiString): AnsiString;
+  function _ExtractPart(var AFromSource: String): String;
   var p: Integer;
   begin
     if (0=Length(AFromSource)) then begin
@@ -1912,8 +1916,8 @@ var
   end;
 
 var
-  VValueW: WideString;
-  VRequest: AnsiString;
+  VValueW: UnicodeString;
+  VRequest: String;
   VResponse: String;
   VSetTLMValue: String;
   VSetTLMIndex: Integer;
@@ -1927,16 +1931,16 @@ begin
   // get input values
   VRequest := '';
   if ((AExecOptionIn^.dwOptionsIn and ETS_EOI_ANSI_VALUES) <> 0) then begin
-    VFullPrefix := PAnsiChar(AExecOptionIn^.szFullPrefix);
+    VFullPrefix := string(PAnsiChar(AExecOptionIn^.szFullPrefix));
     if (AExecOptionIn^.szRequest<>nil) then begin
-      VRequest    := PAnsiChar(AExecOptionIn^.szRequest);
+      VRequest    := string(PAnsiChar(AExecOptionIn^.szRequest));
     end;
   end else begin
     VValueW     := PWideChar(AExecOptionIn^.szFullPrefix);
-    VFullPrefix := VValueW;
+    VFullPrefix := string(VValueW);
     if (AExecOptionIn^.szRequest<>nil) then begin
       VValueW     := PWideChar(AExecOptionIn^.szRequest);
-      VRequest    := VValueW;
+      VRequest    := string(VValueW);
     end;
   end;
 
@@ -2781,7 +2785,7 @@ var
   VOut: TETS_SELECT_TILE_OUT;
   Vid_ver, Vid_contenttype: SmallInt;
   VSQLText: String;
-  VVersionW, VContentTypeW: WideString; // keep wide
+  VVersionW, VContentTypeW: UnicodeString; // keep wide
   VExclusivelyLocked: Boolean;
   VStatementExceptionType: TStatementExceptionType;
   VSQLTile: TSQLTile;
@@ -2930,7 +2934,7 @@ begin
         VOut.szVersionOut := GetVersionAnsiPointer(GetGuidesConnection, Vid_ver, VExclusivelyLocked);
       end else begin
         // as WideString
-        VVersionW := GetVersionWideString(GetGuidesConnection, Vid_ver, VExclusivelyLocked);
+        VVersionW := GetVersionUnicodeString(GetGuidesConnection, Vid_ver, VExclusivelyLocked);
         VOut.szVersionOut := PWideChar(VVersionW);
       end;
 
@@ -2943,7 +2947,7 @@ begin
           VOut.szContentTypeOut := GetContentTypeAnsiPointer(GetGuidesConnection, Vid_contenttype, VExclusivelyLocked);
       end else begin
           // as WideString
-          VContentTypeW := GetContentTypeWideString(GetGuidesConnection, Vid_contenttype, VExclusivelyLocked);
+          VContentTypeW := GetContentTypeUnicodeString(GetGuidesConnection, Vid_contenttype, VExclusivelyLocked);
           VOut.szContentTypeOut := PWideChar(VContentTypeW);
       end;
 
@@ -2979,11 +2983,11 @@ begin
       // set primary ContentType
       if (AInfoSize=SizeOf(AnsiChar)) then begin
         // treat as PAnsiChar
-        FPrimaryContentType := AnsiString(PAnsiChar(AInfoData));
+        FPrimaryContentType := string(PAnsiChar(AInfoData));
         Result := ETS_RESULT_OK;
       end else if (AInfoSize=SizeOf(WideChar)) then begin
         // treat as PWideChar
-        FPrimaryContentType := WideString(PWideChar(AInfoData));
+        FPrimaryContentType := string(PWideChar(AInfoData));
         Result := ETS_RESULT_OK;
       end else begin
         // unknown
@@ -3261,18 +3265,18 @@ begin
   end;
 end;
 
-function TDBMS_Provider.GetContentTypeWideString(
+function TDBMS_Provider.GetContentTypeUnicodeString(
   const AGuideConnection: IDBMS_Connection;
   const Aid_contenttype: SmallInt;
   const AExclusively: Boolean
-): WideString;
+): UnicodeString;
 var
   VContentTypeTextStr: AnsiString;
 begin
   GuidesBeginWork(AExclusively);
   try
     if InternalGetContentTypeAnsiValues(AGuideConnection, Aid_contenttype, AExclusively, nil, VContentTypeTextStr) then begin
-      Result := VContentTypeTextStr;
+      Result := UnicodeString(VContentTypeTextStr);
       Exit;
     end;
   finally
@@ -3285,7 +3289,7 @@ begin
     Result := '';
   end else begin
     // try to repeat exclusively
-    Result := GetContentTypeWideString(AGuideConnection, Aid_contenttype, TRUE);
+    Result := GetContentTypeUnicodeString(AGuideConnection, Aid_contenttype, TRUE);
   end;
 end;
 
@@ -3829,7 +3833,7 @@ function TDBMS_Provider.GetSQL_InsertIntoService(
 var
   VNewIdService: SmallInt;
   VNewIdContentType: SmallInt;
-  VNewServiceCode: AnsiString;
+  VNewServiceCode: String;
   VSQLText: String;
 begin
   // id_service = max(id_service)+1
@@ -3892,23 +3896,23 @@ function TDBMS_Provider.GetSQL_InsertUpdateTile(
   out AUnquotedTableNameWithoutPrefix, AQuotedTableNameWithPrefix: String
 ): Byte;
 const
-  c_InsertOnDupUpdate_Ins: array [TInsertUpdateSubType] of AnsiString = ('', ',tile_body',                   '');
-  c_InsertOnDupUpdate_Sel: array [TInsertUpdateSubType] of AnsiString = ('', ',?',                           '');
-  c_InsertOnDupUpdate_Upd: array [TInsertUpdateSubType] of AnsiString = ('', ',tile_body=VALUES(tile_body)', ',tile_body=null');
+  c_InsertOnDupUpdate_Ins: array [TInsertUpdateSubType] of String = ('', ',tile_body',                   '');
+  c_InsertOnDupUpdate_Sel: array [TInsertUpdateSubType] of String = ('', ',?',                           '');
+  c_InsertOnDupUpdate_Upd: array [TInsertUpdateSubType] of String = ('', ',tile_body=VALUES(tile_body)', ',tile_body=null');
   //
-  c_DualMerge_Sel: array [TInsertUpdateSubType] of AnsiString = ('NULL', 'cast (? as BLOB)',             'NULL'); // cast (? as BLOB) или просто ?
-  c_DualMerge_Ins: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body',    '');
-  c_DualMerge_Val: array [TInsertUpdateSubType] of AnsiString = ('',     ',tb',           '');
-  c_DualMerge_Upd: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body=tb', ',tile_body=null');
+  c_DualMerge_Sel: array [TInsertUpdateSubType] of String = ('NULL', 'cast (? as BLOB)',             'NULL'); // cast (? as BLOB) или просто ?
+  c_DualMerge_Ins: array [TInsertUpdateSubType] of String = ('',     ',tile_body',    '');
+  c_DualMerge_Val: array [TInsertUpdateSubType] of String = ('',     ',tb',           '');
+  c_DualMerge_Upd: array [TInsertUpdateSubType] of String = ('',     ',tile_body=tb', ',tile_body=null');
   //
-  c_Merge_Sel: array [TInsertUpdateSubType] of AnsiString = ('NULL', '?',                        'NULL');
-  c_Merge_Ins: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body',               '');
-  c_Merge_Val: array [TInsertUpdateSubType] of AnsiString = ('',     ',d.tile_body',             '');
-  c_Merge_Upd: array [TInsertUpdateSubType] of AnsiString = ('',     ',g.tile_body=d.tile_body', ',g.tile_body=null');
+  c_Merge_Sel: array [TInsertUpdateSubType] of String = ('NULL', '?',                        'NULL');
+  c_Merge_Ins: array [TInsertUpdateSubType] of String = ('',     ',tile_body',               '');
+  c_Merge_Val: array [TInsertUpdateSubType] of String = ('',     ',d.tile_body',             '');
+  c_Merge_Upd: array [TInsertUpdateSubType] of String = ('',     ',g.tile_body=d.tile_body', ',g.tile_body=null');
   //
-  c_Insert_Ins: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body',    '');
-  c_Insert_Val: array [TInsertUpdateSubType] of AnsiString = ('',     ',?',            '');
-  c_Update_Upd: array [TInsertUpdateSubType] of AnsiString = ('',     ',tile_body=?',  ',tile_body=null');
+  c_Insert_Ins: array [TInsertUpdateSubType] of String = ('',     ',tile_body',    '');
+  c_Insert_Val: array [TInsertUpdateSubType] of String = ('',     ',?',            '');
+  c_Update_Upd: array [TInsertUpdateSubType] of String = ('',     ',tile_body=?',  ',tile_body=null');
 
 var
   VRequestedVersionFound, VRequestedContentTypeFound: Boolean;
@@ -4483,11 +4487,11 @@ begin
   end;
 end;
 
-function TDBMS_Provider.GetVersionWideString(
+function TDBMS_Provider.GetVersionUnicodeString(
   const AGuideConnection: IDBMS_Connection;
   const Aid_ver: SmallInt;
   const AExclusively: Boolean
-): WideString;
+): UnicodeString;
 var
   VVerValueAnsiStr: AnsiString;
 begin
@@ -4495,7 +4499,7 @@ begin
   try
     if InternalGetVersionAnsiValues(AGuideConnection, Aid_ver, AExclusively, nil, VVerValueAnsiStr) then begin
       // found
-      Result := VVerValueAnsiStr;
+      Result := UnicodeString(VVerValueAnsiStr);
       Exit;
     end;
   finally
@@ -4508,7 +4512,7 @@ begin
     Result := '';
   end else begin
     // try to repeat exclusively
-    Result := GetVersionWideString(AGuideConnection, Aid_ver, TRUE);
+    Result := GetVersionUnicodeString(AGuideConnection, Aid_ver, TRUE);
   end;
 end;
 
@@ -4884,13 +4888,13 @@ begin
 
     // запрошенный сервис нашёлся
     with VOdbcFetchColsEx.Base do begin
-      ColToSmallInt   (ColIndex('id_service'),       FDBMS_Service_Info.id_service);
-      ColToAnsiString (ColIndex('service_code'),     FDBMS_Service_Code);
-      ColToSmallInt   (ColIndex('id_contenttype'),   FDBMS_Service_Info.id_contenttype);
-      ColToAnsiCharDef(ColIndex('id_ver_comp'),      FDBMS_Service_Info.id_ver_comp, TILE_VERSION_COMPARE_NONE);
-      ColToAnsiCharDef(ColIndex('id_div_mode'),      FDBMS_Service_Info.id_div_mode, TILE_DIV_ERROR);
-      ColToAnsiCharDef(ColIndex('work_mode'),        FDBMS_Service_Info.work_mode, ETS_SWM_DEFAULT);
-      ColToAnsiCharDef(ColIndex('use_common_tiles'), FDBMS_Service_Info.use_common_tiles, ETS_UCT_NO);
+      ColToSmallInt(ColIndex('id_service'),       FDBMS_Service_Info.id_service);
+      ColToString  (ColIndex('service_code'),     FDBMS_Service_Code);
+      ColToSmallInt(ColIndex('id_contenttype'),   FDBMS_Service_Info.id_contenttype);
+      ColToCharDef (ColIndex('id_ver_comp'),      FDBMS_Service_Info.id_ver_comp, TILE_VERSION_COMPARE_NONE);
+      ColToCharDef (ColIndex('id_div_mode'),      FDBMS_Service_Info.id_div_mode, TILE_DIV_ERROR);
+      ColToCharDef (ColIndex('work_mode'),        FDBMS_Service_Info.work_mode, ETS_SWM_DEFAULT);
+      ColToCharDef (ColIndex('use_common_tiles'), FDBMS_Service_Info.use_common_tiles, ETS_UCT_NO);
     end;
 
     FDBMS_Service_OK := TRUE;
@@ -4905,10 +4909,10 @@ begin
 
     // копируем параметры в опции хранилища
     if (FStatusBuffer<>nil) then begin
-      FStatusBuffer.id_div_mode      := FDBMS_Service_Info.id_div_mode;
-      FStatusBuffer.id_ver_comp      := FDBMS_Service_Info.id_ver_comp;
-      FStatusBuffer.work_mode        := FDBMS_Service_Info.work_mode;
-      FStatusBuffer.use_common_tiles := FDBMS_Service_Info.use_common_tiles;
+      FStatusBuffer.id_div_mode      := AnsiChar(FDBMS_Service_Info.id_div_mode);
+      FStatusBuffer.id_ver_comp      := AnsiChar(FDBMS_Service_Info.id_ver_comp);
+      FStatusBuffer.work_mode        := AnsiChar(FDBMS_Service_Info.work_mode);
+      FStatusBuffer.use_common_tiles := AnsiChar(FDBMS_Service_Info.use_common_tiles);
       // вторая версия полей
       FStatusBuffer.tile_load_mode   := LoByte(FDBMS_Service_Info.tile_load_mode);
       FStatusBuffer.tile_save_mode   := LoByte(FDBMS_Service_Info.tile_save_mode);
@@ -4927,7 +4931,7 @@ function TDBMS_Provider.InternalProv_SetStorageIdentifier(
   const AInfoResult: PLongWord
 ): Byte;
 var
-  VGlobalStorageIdentifier, VServiceName: WideString; // keep wide
+  VGlobalStorageIdentifier, VServiceName: UnicodeString; // keep wide
 begin
   // проверим буфер
   if (nil = AInfoData) or (AInfoSize < Sizeof(AInfoData^)) then begin
@@ -4950,12 +4954,12 @@ begin
   // тащим значения из буфера
   if ((AInfoData^.dwOptionsIn and ETS_ROI_ANSI_SET_INFORMATION) <> 0) then begin
     // как AnsiString
-    VGlobalStorageIdentifier := AnsiString(PAnsiChar(AInfoData^.szGlobalStorageIdentifier));
-    VServiceName             := AnsiString(PAnsiChar(AInfoData^.szServiceName));
+    VGlobalStorageIdentifier := UnicodeString(PAnsiChar(AInfoData^.szGlobalStorageIdentifier));
+    VServiceName             := UnicodeString(PAnsiChar(AInfoData^.szServiceName));
   end else begin
     // как WideString
-    VGlobalStorageIdentifier := WideString(PWideChar(AInfoData^.szGlobalStorageIdentifier));
-    VServiceName             := WideString(PWideChar(AInfoData^.szServiceName));
+    VGlobalStorageIdentifier := UnicodeString(PWideChar(AInfoData^.szGlobalStorageIdentifier));
+    VServiceName             := UnicodeString(PWideChar(AInfoData^.szServiceName));
   end;
 
   // парсим и получаем полный путь до СУБД и сервиса в ней
@@ -5223,7 +5227,7 @@ const
         // URL-ы и прочие тэги пропускаем
         if SameText(VQualifier, 'FeatureId') then begin
           // в ver_value
-          AVerParsedInfo^.ver_value := VTextValue;
+          AVerParsedInfo^.ver_value := AnsiString(VTextValue);
         end else if SameText(VQualifier, 'Date') then begin
           // в ver_date
           if not ParseFullyQualifiedDateTime(VTextValue, AVerParsedInfo^.ver_date) then begin
@@ -5235,7 +5239,7 @@ const
           // всё прочее в ver_comment через запятую
           if (0<Length(AVerParsedInfo^.ver_comment)) then
             AVerParsedInfo^.ver_comment := AVerParsedInfo^.ver_comment + ',';
-          AVerParsedInfo^.ver_comment := AVerParsedInfo^.ver_comment + VTextValue;
+          AVerParsedInfo^.ver_comment := AVerParsedInfo^.ver_comment + AnsiString(VTextValue);
         end;
       end;
     end;
@@ -5785,7 +5789,7 @@ end;
 
 function TDBMS_Provider.UpdateServiceVerComp(
   const AGuideConnection: IDBMS_Connection;
-  const ANewVerCompMode: AnsiChar;
+  const ANewVerCompMode: Char;
   out AErrorText: String
 ): Byte;
 var
@@ -5803,7 +5807,7 @@ begin
   try
     AGuideConnection.ExecuteDirectSQL(VSQLText, FALSE);
     // success
-    FStatusBuffer^.id_ver_comp := ANewVerCompMode;
+    FStatusBuffer^.id_ver_comp := AnsiChar(ANewVerCompMode);
     FDBMS_Service_Info.id_ver_comp := ANewVerCompMode;
   except
     on E: Exception do begin
