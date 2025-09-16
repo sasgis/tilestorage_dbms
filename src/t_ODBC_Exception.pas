@@ -6,7 +6,6 @@ interface
 
 uses
   SysUtils,
-  Classes,
   odbcsql;
 
 type
@@ -121,6 +120,7 @@ var
   textLength: SQLSMALLINT;
   sqlres:     SQLRETURN;
   i:          SmallInt;
+
   function tError(nError:SQLINTEGER):String;
   begin
     case nError of
@@ -136,7 +136,6 @@ var
   end;
 
 var
-  VList: TStringList;
   VSqlState: String;
   VNativeError: SQLINTEGER;
 begin
@@ -146,31 +145,26 @@ begin
     Exit;
   end;
 
-  VList := TStringList.Create;
-  try
-    VNativeError := AErrorCode;
-    VSqlState := '';
-    i := 1;
+  VNativeError := AErrorCode;
+  VSqlState := '';
+  i := 1;
 
-    Result := '';
+  Result := '';
 
-    repeat
-      sqlres := SQLGetDiagRec(AHandleType, AHandleValue, i, psqlstate,
-                               VNativeError, pmessage, c_message_buffer_len-1, textlength);
+  repeat
+    sqlres := SQLGetDiagRec(AHandleType, AHandleValue, i, psqlstate,
+      VNativeError, pmessage, c_message_buffer_len-1, textlength);
 
-      if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then begin
-        VSqlState := StrPas(pSqlState);
-        Result := Result + VSqlState + ':' + IntToStr(VNativeError) + ':' + StrPas(pmessage);
-      end else begin
-        Result := Result + tError(AErrorCode);
-        //Message :='SQL ERROR '+IntToStr(AErrorCode);
-      end;
+    if (sqlres = SQL_SUCCESS) or (sqlres = SQL_SUCCESS_WITH_INFO) then begin
+      VSqlState := StrPas(pSqlState);
+      Result := Result + VSqlState + ':' + IntToStr(VNativeError) + ':' + StrPas(pmessage);
+    end else begin
+      Result := Result + tError(AErrorCode);
+      //Message :='SQL ERROR '+IntToStr(AErrorCode);
+    end;
 
-      inc( i);
-    until (sqlres <> SQL_SUCCESS) and (sqlres <> SQL_SUCCESS_WITH_INFO);
-  finally
-    VList.Free;
-  end;
+    inc(i);
+  until (sqlres <> SQL_SUCCESS) and (sqlres <> SQL_SUCCESS_WITH_INFO);
 end;
 
 { EODBCException }
