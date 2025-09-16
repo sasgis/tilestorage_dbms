@@ -56,7 +56,7 @@
         <VerInfo_Release>2</VerInfo_Release>
         <VerInfo_DLL>true</VerInfo_DLL>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=vasketsov;FileDescription=sas dbms connector (odbc);FileVersion=1.0.2.1;InternalName=TileStorage_DBMS;LegalCopyright=vasketsov;LegalTrademarks=;OriginalFilename=;ProductName=sas;ProductVersion=1.0.0.0;Comments=;SpecialBuild=</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=vasketsov;FileDescription=sas dbms connector (odbc);FileVersion=1.0.2.2;InternalName=TileStorage_DBMS;LegalCopyright=vasketsov;LegalTrademarks=;OriginalFilename=;ProductName=sas;ProductVersion=1.0.0.0;Comments=;SpecialBuild=</VerInfo_Keys>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Winapi;$(DCC_Namespace)</DCC_Namespace>
         <DCC_ExeOutput>.bin\$(Platform)</DCC_ExeOutput>
         <DCC_DcuOutput>.dcu\$(Platform)\$(Config)</DCC_DcuOutput>
@@ -64,7 +64,7 @@
         <DCC_PESubSysVersion>5.0</DCC_PESubSysVersion>
         <DCC_Define>FORCE_NO_SYNC_7Z_HOLDER;$(DCC_Define)</DCC_Define>
         <DCC_UnitSearchPath>include;include\FastMM5;include\alcinoe\source;include\vsasas\TileStorage\DBMS\ExtTileStorages;include\vsasas\Includes;include\vsasas\ArchiveReadWrite;src;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-        <VerInfo_Build>1</VerInfo_Build>
+        <VerInfo_Build>2</VerInfo_Build>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Win32)'!=''">
         <DCC_Namespace>System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;$(DCC_Namespace)</DCC_Namespace>
